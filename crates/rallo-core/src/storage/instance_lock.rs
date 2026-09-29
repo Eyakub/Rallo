@@ -17,7 +17,13 @@ pub struct InstanceLock {
 
 fn open_lock_file(data_dir: &Path) -> CoreResult<File> {
     ensure_private_dir(data_dir)?;
-    Ok(OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(data_dir.join(LOCK_FILE))?)
+    Ok(OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(data_dir.join(LOCK_FILE))?)
 }
 
 impl InstanceLock {

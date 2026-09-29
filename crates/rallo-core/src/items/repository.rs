@@ -11,7 +11,8 @@ fn item_from_row(row: &Row<'_>) -> rusqlite::Result<Item> {
     let id: String = row.get(0)?;
     let status: String = row.get(3)?;
     Ok(Item {
-        id: Uuid::parse_str(&id).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?,
+        id: Uuid::parse_str(&id)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?,
         short_key: row.get(1)?,
         text: row.get(2)?,
         status: ItemStatus::parse(&status).ok_or_else(|| {

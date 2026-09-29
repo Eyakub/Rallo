@@ -3,7 +3,11 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "rallo", about = "Capture notes and one-time reminders; Rallo keeps them visible.", disable_version_flag = true)]
+#[command(
+    name = "rallo",
+    about = "Capture notes and one-time reminders; Rallo keeps them visible.",
+    disable_version_flag = true
+)]
 pub struct Cli {
     /// Emit machine-readable JSON on stdout (diagnostics stay on stderr).
     #[arg(long, global = true)]

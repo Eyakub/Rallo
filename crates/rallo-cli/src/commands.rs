@@ -91,7 +91,11 @@ pub fn list(out: &Output, store: &Store) -> CommandResult {
         if items.is_empty() {
             "No open notes.".to_owned()
         } else {
-            items.iter().map(|item| format!("{}  {}", item.display_id(), preview(&item.text, 100))).collect::<Vec<_>>().join("\n")
+            items
+                .iter()
+                .map(|item| format!("{}  {}", item.display_id(), preview(&item.text, 100)))
+                .collect::<Vec<_>>()
+                .join("\n")
         }
     });
     Ok(())

@@ -1,6 +1,6 @@
+use rallo_core::CoreError;
 use rallo_core::items::{Item, ItemStatus as CoreItemStatus};
 use rallo_core::preferences;
-use rallo_core::CoreError;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RalloError {
@@ -22,7 +22,9 @@ impl From<CoreError> for RalloError {
             CoreError::InvalidInput { .. } => Self::InvalidInput { code, message },
             CoreError::NotFound { .. } => Self::NotFound { code, message },
             CoreError::Storage { .. } => Self::Storage { code, message },
-            CoreError::IncompatibleSchema { found, supported } => Self::IncompatibleSchema { found, supported, message },
+            CoreError::IncompatibleSchema { found, supported } => {
+                Self::IncompatibleSchema { found, supported, message }
+            }
         }
     }
 }
