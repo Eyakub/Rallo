@@ -54,9 +54,15 @@ fn is_app_bundle(path: &Path) -> bool {
 /// start Rallo, and waits only until the OS has accepted the request — not for
 /// the app to finish starting. The launcher's stdio is detached so an agent's
 /// captured pipes close as soon as the CLI exits.
+///
+/// `-n` always starts a new process: LaunchServices otherwise keeps one
+/// instance per bundle and would turn this into a reopen of an instance that
+/// may own a different data directory. The app's per-data-directory instance
+/// lock makes any surplus process exit immediately.
 pub fn launch(app: &Path, mode: LaunchMode, data_dir: &Path) -> Result<(), LaunchError> {
     let status = Command::new("/usr/bin/open")
         .arg("-g")
+        .arg("-n")
         .arg("-a")
         .arg(app)
         .arg("--args")

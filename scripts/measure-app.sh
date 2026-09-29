@@ -14,8 +14,11 @@ case "$state" in
   *) echo "usage: $0 <hidden|visible> [seconds]" >&2; exit 2 ;;
 esac
 sleep 10
-pid="$(pgrep -f 'Rallo.app/Contents/MacOS/Rallo' | head -1)"
-[ -n "$pid" ] || { echo "error: Rallo is not running" >&2; exit 1; }
+# The app instance for this data directory is the process holding its lock.
+data_dir="$("$rallo" status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["storage"]["data_dir"])')"
+pid="$(lsof -t "$data_dir/app.lock" 2>/dev/null | head -1)"
+[ -n "$pid" ] || { echo "error: no Rallo instance owns $data_dir" >&2; exit 1; }
+echo "measuring pid $pid for $data_dir" >&2
 
 cpu_seconds() {
   ps -o cputime= -p "$pid" | awk -F'[:.]' '{ if (NF == 4) print $1*3600 + $2*60 + $3 + $4/100; else print $1*60 + $2 + $3/100 }'
@@ -27,6 +30,7 @@ footprint_mib() {
 
 start_cpu="$(cpu_seconds)"; start_fp="$(footprint_mib)"
 sleep "$seconds"
+kill -0 "$pid" 2>/dev/null || { echo "error: pid $pid exited during the window; result discarded" >&2; exit 1; }
 end_cpu="$(cpu_seconds)"; end_fp="$(footprint_mib)"
 python3 - "$state" "$seconds" "$start_cpu" "$end_cpu" "$start_fp" "$end_fp" <<'PY'
 import sys
