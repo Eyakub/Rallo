@@ -27,11 +27,17 @@ enum NotificationProbe {
     private static func execute(_ arguments: [String]) async -> (Int32, [String: Any]) {
         let command = arguments.first ?? ""
         let rest = Array(arguments.dropFirst())
+        // Over the pending limit macOS silently evicts arbitrary requests, so
+        // bulk probes must never share the queue with real reminders.
+        if ["capacity", "deliver"].contains(command),
+           !(await adapter.pending(prefix: NotificationAdapter.reminderPrefix)).isEmpty {
+            return (4, ["error": "refusing bulk probe: Rallo reminders are pending and could be evicted"])
+        }
         switch command {
         case "status":
             return (0, await status())
-        case "capacity" where rest.count == 1 && Int(rest[0]) != nil:
-            return (0, await capacity(count: Int(rest[0])!))
+        case "capacity" where (1...2).contains(rest.count) && Int(rest[0]) != nil:
+            return (0, await capacity(count: Int(rest[0])!, reverseDeadlines: rest.count == 2 && rest[1] == "reverse"))
         case "deliver" where rest.count == 2 && Int(rest[0]) != nil && Double(rest[1]) != nil:
             return (0, await deliver(count: Int(rest[0])!, delay: Double(rest[1])!))
         case "min-delay":
@@ -68,15 +74,18 @@ enum NotificationProbe {
     }
 
     /// Submits N far-future requests, reads them back, verifies each trigger
-    /// instant, then removes them and confirms removal.
-    private static func capacity(count: Int) async -> [String: Any] {
+    /// instant, then removes them and confirms removal. With
+    /// `reverseDeadlines`, later submissions get earlier deadlines, which
+    /// shows whether an over-limit drop is by submission order or deadline.
+    private static func capacity(count: Int, reverseDeadlines: Bool) async -> [String: Any] {
         let group = prefix + "capacity."
         _ = await cleanup(prefix: group)
         let base = Date().addingTimeInterval(3600).timeIntervalSince1970.rounded(.up)
         var addErrors: [String] = []
         let started = Date()
+        func slot(_ index: Int) -> Double { Double((reverseDeadlines ? count - 1 - index : index) * 60) }
         for index in 0..<count {
-            let deadline = Date(timeIntervalSince1970: base + Double(index * 60))
+            let deadline = Date(timeIntervalSince1970: base + slot(index))
             do {
                 try await adapter.add(request(id: "\(group)\(index)", deadline: deadline, body: "Capacity probe \(index + 1)/\(count)"))
             } catch {
@@ -91,14 +100,19 @@ enum NotificationProbe {
         for request in pending {
             guard let index = Double(request.identifier.dropFirst(group.count)),
                   let trigger = request.trigger as? UNCalendarNotificationTrigger else { continue }
-            let expected = base + index * 60
+            let expected = base + slot(Int(index))
             let actual = trigger.nextTriggerDate()?.timeIntervalSince1970
             if actual != expected { mismatches.append("\(request.identifier): expected \(expected) got \(actual.map { "\($0)" } ?? "nil")") }
         }
+        let surviving = pending.compactMap { Int($0.identifier.dropFirst(group.count)) }.sorted()
         adapter.removePending(pending.map(\.identifier))
         try? await Task.sleep(nanoseconds: 500_000_000)
         let remaining = await adapter.pending(prefix: group).count
         return [
+            "reverse_deadlines": reverseDeadlines,
+            "surviving_submission_index_min": surviving.first ?? NSNull(),
+            "surviving_submission_index_max": surviving.last ?? NSNull(),
+            "dropped_submission_indices": Array(Set(0..<count).subtracting(surviving)).sorted(),
             "requested": count,
             "add_errors": addErrors.count,
             "add_error_samples": Array(addErrors.prefix(5)),
