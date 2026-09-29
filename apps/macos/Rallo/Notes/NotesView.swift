@@ -88,7 +88,8 @@ struct NotesView: View {
         HStack(spacing: 10) {
             Image(nsImage: Bundle.main.image(forResource: "pet-idle") ?? NSImage())
                 .resizable()
-                .frame(width: 34, height: 34)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 38, height: 34)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Rallo").font(.headline)
@@ -171,9 +172,11 @@ private struct EmptyNotesView: View {
     var body: some View {
         VStack(spacing: 10) {
             Spacer()
-            Image(nsImage: Bundle.main.image(forResource: "pet-sleep") ?? NSImage())
+            // Uses the idle art until matching sleep-pose art exists.
+            Image(nsImage: Bundle.main.image(forResource: "pet-idle") ?? NSImage())
                 .resizable()
-                .frame(width: 96, height: 96)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 110)
                 .accessibilityHidden(true)
             Text("Nothing on your mind").font(.title3.weight(.semibold))
             Text("Type a note above, or run `rallo note \"…\"` in a terminal.")
