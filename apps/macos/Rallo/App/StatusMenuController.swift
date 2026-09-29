@@ -1,0 +1,73 @@
+import AppKit
+
+/// Menu-bar access. Stays usable even when the pet window is unreachable.
+@MainActor
+final class StatusMenuController: NSObject, NSMenuDelegate {
+    struct Actions {
+        var togglePet: () -> Void
+        var openNotes: () -> Void
+        var enableNotifications: () -> Void
+        var quit: () -> Void
+    }
+
+    private var statusItem: NSStatusItem?
+    private let actions: Actions
+    private let petVisible: () -> Bool
+    private let notificationSummary: () -> String
+
+    init(actions: Actions, petVisible: @escaping () -> Bool, notificationSummary: @escaping () -> String) {
+        self.actions = actions
+        self.petVisible = petVisible
+        self.notificationSummary = notificationSummary
+    }
+
+    func install() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let image = NSImage(systemSymbolName: "pawprint.fill", accessibilityDescription: "Rallo")
+        image?.isTemplate = true
+        item.button?.image = image
+        item.button?.toolTip = "Rallo"
+        let menu = NSMenu()
+        menu.delegate = self
+        item.menu = menu
+        statusItem = item
+    }
+
+    /// Builds the same actions for the pet's context menu.
+    func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        populate(menu)
+        return menu
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        populate(menu)
+    }
+
+    private func populate(_ menu: NSMenu) {
+        menu.addItem(item(petVisible() ? "Hide Pet" : "Show Pet", #selector(togglePet)))
+        menu.addItem(item("Open Notes…", #selector(openNotes), key: "n"))
+        menu.addItem(.separator())
+        let status = NSMenuItem(title: notificationSummary(), action: nil, keyEquivalent: "")
+        status.isEnabled = false
+        menu.addItem(status)
+        menu.addItem(item("Enable Notifications…", #selector(enableNotifications)))
+        menu.addItem(.separator())
+        let note = NSMenuItem(title: "Reminders already scheduled with macOS still arrive after quitting.", action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        menu.addItem(note)
+        menu.addItem(item("Quit Rallo", #selector(quit), key: "q"))
+    }
+
+    private func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.target = self
+        return item
+    }
+
+    @objc private func togglePet() { actions.togglePet() }
+    @objc private func openNotes() { actions.openNotes() }
+    @objc private func enableNotifications() { actions.enableNotifications() }
+    @objc private func quit() { actions.quit() }
+}

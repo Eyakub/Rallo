@@ -1,0 +1,23 @@
+[package]
+name = "rallo-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["staticlib", "lib"]
+name = "rallo_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+rallo-core.workspace = true
+thiserror.workspace = true
+uniffi.workspace = true
