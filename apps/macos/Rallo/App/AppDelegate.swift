@@ -44,8 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        let fromCLI = Self.reopenCameFromOpenTool()
-        Task { @MainActor in coordinator?.handleReopen(fromCLI: fromCLI) }
+        let source = Self.reopenSource()
+        Task { @MainActor in coordinator?.handleReopen(source: source) }
         return false
     }
 
@@ -53,15 +53,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// The CLI's own launch request can race app startup and arrive as a
-    /// reopen event; it must not override a deliberate hide.
-    private static func reopenCameFromOpenTool() -> Bool {
+    /// Who sent the reopen event. The CLI's `open -g` requests can queue up
+    /// while the app is starting and arrive as reopen events after `open` has
+    /// exited, so only a sender that resolves to a running GUI application
+    /// (Finder, Dock, Spotlight, …) counts as a user asking to see Rallo.
+    private static func reopenSource() -> AppCoordinator.ReopenSource {
         guard let event = NSAppleEventManager.shared().currentAppleEvent,
-              let pidDescriptor = event.attributeDescriptor(forKeyword: keySenderPIDAttr) else { return false }
-        let pid = pid_t(pidDescriptor.int32Value)
-        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
-        return String(cString: buffer) == "/usr/bin/open"
+              let descriptor = event.attributeDescriptor(forKeyword: keySenderPIDAttr) else { return .unknown(pid: nil) }
+        let pid = pid_t(descriptor.int32Value)
+        if let app = NSRunningApplication(processIdentifier: pid), let bundleID = app.bundleIdentifier,
+           pid != ProcessInfo.processInfo.processIdentifier {
+            return .application(bundleID: bundleID)
+        }
+        return .unknown(pid: pid)
     }
 
     /// The CLI probes the lock for an instant, so retry briefly before

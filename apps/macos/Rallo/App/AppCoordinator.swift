@@ -70,11 +70,21 @@ final class AppCoordinator {
         await refreshNotificationSummary()
     }
 
-    func handleReopen(fromCLI: Bool) {
-        log.record("app_reopen", ["from_cli": fromCLI])
-        // A CLI launch racing startup must not override a deliberate hide.
-        guard !fromCLI else { return }
-        openNotes(highlighting: nil)
+    enum ReopenSource {
+        case application(bundleID: String)
+        case unknown(pid: pid_t?)
+    }
+
+    func handleReopen(source: ReopenSource) {
+        switch source {
+        case let .application(bundleID):
+            log.record("app_reopen", ["sender": bundleID])
+            openNotes(highlighting: nil)
+        case let .unknown(pid):
+            // Most likely a CLI launch that raced startup: never let it open
+            // panels or override a deliberate hide.
+            log.record("app_reopen_ignored", ["sender_pid": pid.map { Int($0) } ?? NSNull()])
+        }
     }
 
     // MARK: Visibility
