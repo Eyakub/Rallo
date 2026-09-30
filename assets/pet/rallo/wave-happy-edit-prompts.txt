@@ -1,0 +1,10 @@
+Mode: built-in image_gen.
+
+rallo_wave2.png
+Source: /Users/eyakub/Desktop/Rallo/assets/pet/rallo/pet-nudge@2x.png
+Use case: precise-object-edit. Edit the provided Rallo red panda sprite as a tightly localized edit. Preserve the exact original illustration, pose, body, tail, fur texture, colours, line style, silhouette (except the expressly edited part), relative size, position, and original canvas aspect ratio of 286:236. Do not redesign or redraw anything except the part named. Replace transparency with a plain uniform flat cream background #FCF8EF. No text, no motion lines, no hearts, no sparkles, no extra objects. Change only the raised waving paw on the viewer's left: move it to the other end of the wave, tilted about 25 degrees further outward toward the left edge of the image, as the next frame of a friendly waving animation. The face, body, other paws, and tail must stay identical. Keep the waving limb attached naturally and keep all other pixels of the character unchanged.
+
+rallo_happy.png
+Source: /Users/eyakub/Desktop/Rallo/assets/pet/rallo/pet-idle@2x.png
+Use case: precise-object-edit. Edit the provided Rallo red panda sprite as a tightly localized edit. Preserve the exact original illustration, pose, body, tail, fur texture, colours, line style, silhouette (except the expressly edited part), relative size, position, and original canvas aspect ratio of 286:236. Do not redesign or redraw anything except the part named. Replace transparency with a plain uniform flat cream background #FCF8EF. No text, no motion lines, no hearts, no sparkles, no extra objects. Change only the face: eyes closed in happy upward arcs, a small open-mouth smile, and a light pink blush on the cheeks — a cheerful "got it!" expression. The ears, body, paws, and tail must stay identical.
+

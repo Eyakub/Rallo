@@ -95,6 +95,41 @@ new pose arrives, so its size is calibrated against the existing set
 rather than in isolation — dropping a single `--pose` on its own fits
 that pose to its own content, independent of the shared canvas.
 
+## Faces edited from existing poses
+
+Made on 2026-09-30 by editing an existing @2x sprite in an image generator
+(same body, only the named part changed; prompts in
+`image-edit-prompts.txt`), each 1381 x 1139 on flat cream:
+
+| Pose (`pet-<name>`) | Source | Edited from | Used for |
+|---|---|---|---|
+| `drowsy` | `rallo_drowsy.png` | `sleep` | cursor arrives on the sleeping pet (one eye peeks) |
+| `content` | `rallo_content.png` | `sleep` | petting the sleeping pet |
+| `grumpy` | `rallo_grumpy.png` | `idle` | tickling it again once it's up |
+| `happy` | `rallo_happy.png` | `idle` | a save (with the hop and ✓) |
+| `wave2` | `rallo_wave2.png` | `nudge` | second frame of the due wave |
+
+`scripts/fit-pet-pose.py` cuts each one out with this pipeline's matte and
+places it at the scale and offset where its silhouette overlaps the pose it
+was edited from most, so switching between them doesn't jump (overlap:
+drowsy 99.1 %, content 98.9 %, happy 96.6 %, wave2 95.4 %, grumpy 94.6 %;
+the rest is the changed ears, face, or paw):
+
+```
+scripts/fit-pet-pose.py \
+    drowsy=assets/pet/rallo/rallo_drowsy.png:assets/pet/rallo/pet-sleep@2x.png \
+    content=assets/pet/rallo/rallo_content.png:assets/pet/rallo/pet-sleep@2x.png \
+    grumpy=assets/pet/rallo/rallo_grumpy.png:assets/pet/rallo/pet-idle@2x.png \
+    happy=assets/pet/rallo/rallo_happy.png:assets/pet/rallo/pet-idle@2x.png \
+    wave2=assets/pet/rallo/rallo_wave2.png:assets/pet/rallo/pet-nudge@2x.png
+```
+
+`pet-idle-base` / `pet-idle-eyes` split the idle pose's eyes onto their own
+layer so they can follow the cursor: `scripts/split-pet-eyes.py
+assets/pet/rallo/pet-idle@2x.png`.
+
+Copy the outputs to `apps/macos/Rallo/Resources/Sprites/`.
+
 ## blink
 
 Retired. `pet-blink@2x.png` (placeholder art from
