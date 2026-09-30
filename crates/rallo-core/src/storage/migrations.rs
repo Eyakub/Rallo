@@ -7,7 +7,11 @@ use crate::shared::errors::{CoreError, CoreResult};
 
 /// Ordered schema migrations; index + 1 is the resulting `user_version`.
 /// Schema v1 stays provisional until the first tagged release.
-const MIGRATIONS: &[&str] = &[include_str!("sql/0001_initial.sql"), include_str!("sql/0002_reminders.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("sql/0001_initial.sql"),
+    include_str!("sql/0002_reminders.sql"),
+    include_str!("sql/0003_agent_sessions.sql"),
+];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
 

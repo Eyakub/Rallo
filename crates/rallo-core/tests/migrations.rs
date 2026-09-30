@@ -29,7 +29,7 @@ fn v1_database_migrates_to_current_schema_keeps_data_and_backs_up() {
 
     let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
     assert_eq!(version, SCHEMA_VERSION);
-    assert_eq!(version, 2, "0002_reminders.sql must be registered");
+    assert_eq!(version, 3, "0002_reminders.sql and 0003_agent_sessions.sql must be registered");
 
     let text: String =
         conn.query_row("SELECT text FROM items WHERE id = ?1", [id.to_string()], |row| row.get(0)).unwrap();
@@ -41,6 +41,13 @@ fn v1_database_migrates_to_current_schema_keeps_data_and_backs_up() {
                                 created_at_ms, updated_at_ms)
          VALUES ('r1', ?1, 2000, '20m', 'relative', 1, 1, 1000, 1000)",
         [id.to_string()],
+    )
+    .unwrap();
+
+    conn.execute(
+        "INSERT INTO agent_sessions (agent, session_id, state, state_seq, updated_at_ms)
+         VALUES ('claude', 's1', 'waiting', 1, 1000)",
+        [],
     )
     .unwrap();
 

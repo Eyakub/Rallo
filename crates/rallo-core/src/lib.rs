@@ -4,6 +4,7 @@
 //! processes that share one SQLite database through it. It must never depend on
 //! AppKit or perform network calls.
 
+pub mod agents;
 pub mod items;
 pub mod pet;
 pub mod preferences;
