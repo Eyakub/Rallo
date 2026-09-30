@@ -57,6 +57,10 @@ final class AppCoordinator {
                 exportSpreadsheet: { [weak self] in self?.transfer.export(.csv) },
                 importNotes: { [weak self] in self?.transfer.importFile() },
                 terminalCommand: { [weak self] in self?.terminalSetup.open() },
+                toggleLoginItem: { [weak self] in
+                    guard let self else { return }
+                    LoginItem.toggle(log: self.log)
+                },
                 quit: { NSApp.terminate(nil) }
             ),
             petVisible: { [weak self] in self?.pet.isVisible ?? false },
@@ -64,6 +68,7 @@ final class AppCoordinator {
             terminalCommandTitle: { [weak self] in self?.terminalSetup.menuTitle ?? "Enable Terminal Command…" }
         )
         menu.animationsPaused = { [weak self] in self?.animationsPaused ?? false }
+        menu.loginItemState = { LoginItem.state }
         menu.install()
         statusMenu = menu
 
