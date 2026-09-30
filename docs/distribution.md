@@ -68,7 +68,7 @@ doctor` says when it isn't), and instructions on how to use it:
 
 The skill ships inside the CLI, so each release carries its own. After an
 update, `rallo doctor` warns if the installed copy is older; run `rallo
-setup skill` again. Tested placements are in `agent-evaluation.md`.
+setup skill` again. Both agents were tested with it (`agent-evaluation.md`).
 
 ## Uninstall
 
