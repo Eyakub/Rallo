@@ -7,8 +7,12 @@
 
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 pub const NAME: &str = "rallo";
 
@@ -66,6 +70,49 @@ pub fn is_installed(app: &Path, home: &Path) -> bool {
         Some(parent) => parent == Path::new("/Applications") || parent == home.join("Applications"),
         None => false,
     }
+}
+
+/// The user's shell, as the environment names it.
+pub fn user_shell() -> PathBuf {
+    env::var_os("SHELL").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/bin/zsh"))
+}
+
+/// The startup file a login shell reads even when it isn't interactive.
+pub fn login_profile(shell: &Path) -> &'static str {
+    match shell.file_name().and_then(|name| name.to_str()) {
+        Some("bash") => "~/.bash_profile",
+        Some("zsh") => "~/.zprofile",
+        _ => "~/.profile",
+    }
+}
+
+/// PATH as `shell -lc` sets it: what tools that run commands without an
+/// interactive terminal see (some agents, IDE tasks). An interactive
+/// terminal also reads `~/.zshrc`, so a directory added only there works in
+/// Terminal but not for them. `None` if the shell doesn't answer in time.
+pub fn noninteractive_login_path(shell: &Path, timeout: Duration) -> Option<Vec<PathBuf>> {
+    let mut child = Command::new(shell)
+        .args(["-lc", r#"printf '%s' "$PATH""#])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let mut output = String::new();
+    child.stdout.take()?.read_to_string(&mut output).ok()?;
+    Some(env::split_paths(output.trim()).collect())
 }
 
 /// Preferred link directories, in order.

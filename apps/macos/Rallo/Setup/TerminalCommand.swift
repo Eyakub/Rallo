@@ -99,12 +99,12 @@ enum TerminalCommand {
     /// banners, `nvm`/`pyenv`/`direnv` hooks, etc.), and reading only after
     /// termination risks the classic `Process`/`Pipe` deadlock where the
     /// child blocks forever writing to a pipe nobody is emptying.
-    static func loginShellPath(timeout: TimeInterval = 3) -> [String]? {
-        let shell = String(cString: getpwuid(getuid()).pointee.pw_shell)
+    static func loginShellPath(interactive: Bool = true, timeout: TimeInterval = 3) -> [String]? {
+        let shell = userShell
         let marker = "__RALLO_PATH__"
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell.isEmpty ? "/bin/zsh" : shell)
-        process.arguments = ["-ilc", "printf '\\n\(marker)%s\\n' \"$PATH\""]
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = [interactive ? "-ilc" : "-lc", "printf '\\n\(marker)%s\\n' \"$PATH\""]
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
@@ -132,6 +132,22 @@ enum TerminalCommand {
         lock.unlock()
         guard let line = text.split(separator: "\n").last(where: { $0.hasPrefix(marker) }) else { return nil }
         return line.dropFirst(marker.count).split(separator: ":").map(String.init)
+    }
+
+    static var userShell: String {
+        let shell = String(cString: getpwuid(getuid()).pointee.pw_shell)
+        return shell.isEmpty ? "/bin/zsh" : shell
+    }
+
+    /// The startup file a login shell reads even when it isn't interactive
+    /// (tools such as some agents and IDE tasks run `zsh -lc`, skipping
+    /// ~/.zshrc).
+    static var loginProfile: String {
+        switch URL(fileURLWithPath: userShell).lastPathComponent {
+        case "bash": "~/.bash_profile"
+        case "zsh": "~/.zprofile"
+        default: "~/.profile"
+        }
     }
 
     private static func isRalloCLI(_ path: String) -> Bool {

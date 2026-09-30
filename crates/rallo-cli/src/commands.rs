@@ -96,6 +96,11 @@ fn setup_terminal_success(out: &Output, status: &str, link: &Path, target: &Path
     if !on_path {
         warnings.push(format!("{} is not on your PATH.", link.parent().unwrap_or(link).display()));
     }
+    let noninteractive_fix = if on_path {
+        terminal_command::home_dir().and_then(|home| crate::doctor::noninteractive_fix(link, &home))
+    } else {
+        None
+    };
     out.success(
         json!({
             "terminal": {
@@ -104,6 +109,7 @@ fn setup_terminal_success(out: &Output, status: &str, link: &Path, target: &Path
                 "target": target,
                 "on_path": on_path,
                 "path_export": if on_path { None } else { Some(PATH_EXPORT) },
+                "noninteractive_fix": noninteractive_fix,
             }
         }),
         &warnings,
@@ -114,7 +120,14 @@ fn setup_terminal_success(out: &Output, status: &str, link: &Path, target: &Path
                 _ => format!("Added `rallo` at {}, linked to {}.", link.display(), target.display()),
             };
             if on_path {
-                format!("{headline}\nTry it: rallo note \"Call the dentist\"")
+                let mut text = format!("{headline}\nTry it: rallo note \"Call the dentist\"");
+                if let Some(fix) = &noninteractive_fix {
+                    text.push_str(&format!(
+                        "\nTools that run commands without an interactive terminal (some agents, IDE tasks) won't \
+                         find it yet. To fix that:\n  {fix}"
+                    ));
+                }
+                text
             } else {
                 format!(
                     "{headline}\n{} isn't on your PATH. Add this line to your shell's startup file, then open a new terminal:\n  {PATH_EXPORT}\nFull path: {}",

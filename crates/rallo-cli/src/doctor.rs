@@ -224,9 +224,24 @@ fn check_terminal_command(app: Option<&Path>, home: Option<&Path>) -> Check {
             "Not checked: the located app is not an installed copy (see app_install).",
             None,
         ),
-        terminal_command::State::Enabled { link, on_path: true } => {
-            Check::new("terminal_command", CheckStatus::Ok, format!("`rallo` is set up at {}.", link.display()), None)
-        }
+        terminal_command::State::Enabled { link, on_path: true } => match noninteractive_fix(&link, home) {
+            None => Check::new(
+                "terminal_command",
+                CheckStatus::Ok,
+                format!("`rallo` is set up at {}.", link.display()),
+                None,
+            ),
+            Some(fix) => Check::new(
+                "terminal_command",
+                CheckStatus::Warning,
+                format!(
+                    "`rallo` works in interactive terminals, but tools that run commands without one (some agents, \
+                     IDE tasks) won't find it: {} is only on PATH in interactive shells.",
+                    link.parent().unwrap_or(&link).display()
+                ),
+                Some(fix),
+            ),
+        },
         terminal_command::State::Enabled { link, on_path: false } => {
             let directory = link.parent().unwrap_or(&link);
             Check::new(
@@ -255,6 +270,22 @@ fn check_terminal_command(app: Option<&Path>, home: Option<&Path>) -> Check {
             None,
         ),
     }
+}
+
+/// The line to add when `link`'s directory is missing from a non-interactive
+/// login shell's PATH, or `None` when it's there (or the shell didn't answer).
+pub(crate) fn noninteractive_fix(link: &Path, home: &Path) -> Option<String> {
+    let directory = link.parent()?;
+    let shell = terminal_command::user_shell();
+    let path = terminal_command::noninteractive_login_path(&shell, std::time::Duration::from_secs(3))?;
+    if path.iter().any(|entry| entry == directory) {
+        return None;
+    }
+    let shown = match directory.strip_prefix(home) {
+        Ok(relative) => format!("$HOME/{}", relative.display()),
+        Err(_) => directory.display().to_string(),
+    };
+    Some(format!(r#"echo 'export PATH="{shown}:$PATH"' >> {}"#, terminal_command::login_profile(&shell)))
 }
 
 /// `data_directory`: the path, directory/file permissions, schema version

@@ -202,3 +202,36 @@ fn a_home_path_with_spaces_resolves_and_the_link_runs() {
     let output = Command::new(&link).arg("--version").output().unwrap();
     assert!(output.status.success());
 }
+
+/// A stand-in login shell: ignores `-lc …` and prints `path` as its PATH, so
+/// the non-interactive check never runs the real user's shell config.
+fn stub_shell(root: &Path, path: &str) -> PathBuf {
+    let shell = root.join("stub-shell");
+    fs::write(&shell, format!("#!/bin/sh\nprintf '%s' '{path}'\n")).unwrap();
+    fs::set_permissions(&shell, fs::Permissions::from_mode(0o755)).unwrap();
+    shell
+}
+
+#[test]
+fn a_link_missing_from_non_interactive_shells_gets_a_profile_fix() {
+    let setup = Setup::new();
+    let path = format!("{}:/usr/bin:/bin", setup.local_bin().display());
+    let shell = stub_shell(&setup.root, "/usr/bin:/bin");
+    let output = setup.command(&path).env("SHELL", &shell).output().unwrap();
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let fix = json["terminal"]["noninteractive_fix"].as_str().expect("a fix is offered");
+    assert!(fix.contains(r#"export PATH="$HOME/.local/bin:$PATH""#), "{fix}");
+    assert!(fix.ends_with("~/.profile"), "a non-zsh/bash shell uses ~/.profile: {fix}");
+}
+
+#[test]
+fn a_link_on_every_shells_path_needs_no_profile_fix() {
+    let setup = Setup::new();
+    let path = format!("{}:/usr/bin:/bin", setup.local_bin().display());
+    let shell = stub_shell(&setup.root, &path);
+    let output = setup.command(&path).env("SHELL", &shell).output().unwrap();
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(json["terminal"]["noninteractive_fix"].is_null());
+}

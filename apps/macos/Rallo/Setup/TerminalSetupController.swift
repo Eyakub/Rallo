@@ -30,8 +30,10 @@ final class TerminalSetupController {
         show()
         Task.detached { [appURL, home] in
             let path = TerminalCommand.loginShellPath()
+            let noninteractive = TerminalCommand.loginShellPath(interactive: false)
             let state = TerminalCommand.inspect(appURL: appURL, home: home, pathDirectories: path ?? [])
             await MainActor.run { [weak self] in
+                self?.model.noninteractivePath = noninteractive
                 self?.model.stage = .state(state, pathKnown: path != nil)
                 self?.log.record("terminal_setup_opened", ["state": Self.stateName(state)])
                 self?.fit()
@@ -116,6 +118,8 @@ final class TerminalSetupModel: ObservableObject {
     }
 
     @Published var stage: Stage = .checking
+    /// PATH of a non-interactive login shell, if it answered.
+    var noninteractivePath: [String]?
     var cliPath = ""
     var onEnable: () -> Void = {}
     var onClose: () -> Void = {}
@@ -190,6 +194,11 @@ struct TerminalSetupView: View {
             code(Self.example)
             if onPath {
                 paragraph("If a terminal that was already open says “command not found”, run `rehash` or open a new window. Agents that were already running need a restart.")
+                if let path = model.noninteractivePath,
+                   !path.contains(link.deletingLastPathComponent().standardizedFileURL.path) {
+                    paragraph("Tools that run commands without an interactive terminal (some agents, IDE tasks) won’t find it yet. Add this line to \(TerminalCommand.loginProfile):")
+                    code(Self.pathLine)
+                }
             } else {
                 pathHint(directory: link.deletingLastPathComponent(), pathKnown: pathKnown)
             }
