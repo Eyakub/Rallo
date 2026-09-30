@@ -61,6 +61,8 @@ bash scripts/install.sh --uninstall          # keeps your notes
 bash scripts/install.sh --uninstall --purge  # also deletes them, after a JSON export to ~/Downloads
 ```
 
+`--purge` removes nothing if it can't save that export first.
+
 Turn off Open at Login from Rallo's menu first if you enabled it (otherwise
 remove it under System Settings → General → Login Items).
 

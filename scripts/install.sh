@@ -61,7 +61,9 @@ if [ "$mode" = uninstall ]; then
   cli="$app/Contents/Helpers/rallo"
   if $purge; then
     export_path="$HOME/Downloads/rallo-export-$(date +%Y%m%d-%H%M%S).json"
-    "$cli" export --output "$export_path" >/dev/null && say "Saved a final export: $export_path"
+    "$cli" export --output "$export_path" >/dev/null ||
+      fail "couldn't save a final export, so nothing was removed; delete ~/Library/Application Support/Razlio/Rallo yourself to discard the notes anyway"
+    say "Saved a final export: $export_path"
   fi
   quit_app "$app"
   link="$HOME/.local/bin/rallo"
