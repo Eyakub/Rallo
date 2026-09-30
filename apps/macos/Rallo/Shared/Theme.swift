@@ -26,6 +26,11 @@ enum Theme {
     static let toastAccent = Color(light: 0xF08A4B, dark: 0xB4501F)
     static let highlight = Color(light: 0xB4501F, lightAlpha: 0.10, dark: 0xF08A4B, darkAlpha: 0.14)
     static let error = Color(light: 0xB3261E, dark: 0xFF8A80)
+    // Swipe-action fills carry white labels, so they stay deep in both modes.
+    static let swipeDelete = Color(nsColor: NSColor(hex: 0xB3261E))
+    static let swipeSoon = Color(nsColor: NSColor(hex: 0xB4501F))
+    static let swipeLater = Color(nsColor: NSColor(hex: 0x8C4A2F))
+    static let swipeTomorrow = Color(nsColor: NSColor(hex: 0x4E6E8E))
 
     static var surface: LinearGradient {
         LinearGradient(colors: [surfaceTop, surfaceBottom], startPoint: .top, endPoint: .bottom)

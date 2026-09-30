@@ -24,6 +24,23 @@ struct NoteParts: Equatable {
     }
 }
 
+extension ReminderSnapshot {
+    var deadline: Date { Date(timeIntervalSince1970: TimeInterval(deadlineMs) / 1000) }
+    /// Saved but not yet handed to macOS (the core's status, not a guess).
+    var awaitingSchedule: Bool { schedulingState == "pending" }
+}
+
+enum ReminderLabel {
+    /// "today at 14:20", "tomorrow at 9:00", or "Fri 3 Oct at 9:00".
+    static func text(for date: Date, calendar: Calendar = .current) -> String {
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if calendar.isDateInToday(date) { return "today at \(time)" }
+        if calendar.isDateInTomorrow(date) { return "tomorrow at \(time)" }
+        let day = date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        return "\(day) at \(time)"
+    }
+}
+
 struct NoteRow: View {
     let item: ItemSnapshot
     @ObservedObject var model: NotesViewModel
@@ -64,9 +81,12 @@ struct NoteRow: View {
         .contextMenu {
             Button("Mark as Done") { Task { await model.complete(item) } }
             Button("Edit") { model.beginEditing(item) }
+            remindMenu
             Divider()
             Button("Copy Text") { copy(item.text) }
             Button("Copy ID for the Terminal") { copy(item.id) }
+            Divider()
+            Button("Delete", role: .destructive) { Task { await model.delete(item) } }
         }
         .accessibilityElement(children: .contain)
     }
@@ -113,19 +133,75 @@ struct NoteRow: View {
         }
 
         HStack(spacing: 10) {
-            Text(created, format: .relative(presentation: .named, unitsStyle: .wide))
-                .font(Theme.rounded(12))
-                .foregroundStyle(Theme.bark)
+            if let reminder = activeReminder {
+                reminderLabel(reminder)
+            } else {
+                Text(created, format: .relative(presentation: .named, unitsStyle: .wide))
+                    .font(Theme.rounded(12))
+                    .foregroundStyle(Theme.bark)
+            }
             Spacer(minLength: 0)
             if expanded {
+                Menu {
+                    remindButtons
+                } label: {
+                    Text(activeReminder == nil ? "Remind" : "Change")
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .font(Theme.rounded(12, .semibold))
+                .foregroundStyle(Theme.rust)
+                .accessibilityLabel(activeReminder == nil ? "Set a reminder" : "Change the reminder")
                 Button("Edit") { model.beginEditing(item) }
                     .buttonStyle(.plain)
                     .font(Theme.rounded(12, .semibold))
                     .foregroundStyle(Theme.rust)
                     .keyboardShortcut("e", modifiers: .command)
+                Button("Delete") { Task { await model.delete(item) } }
+                    .buttonStyle(.plain)
+                    .font(Theme.rounded(12, .semibold))
+                    .foregroundStyle(Theme.error)
             }
         }
         .padding(.top, expanded ? 2 : 0)
+    }
+
+    private var activeReminder: ReminderSnapshot? {
+        guard let reminder = item.reminder, reminder.state == .active else { return nil }
+        return reminder
+    }
+
+    private func reminderLabel(_ reminder: ReminderSnapshot) -> some View {
+        let when = ReminderLabel.text(for: reminder.deadline)
+        let overdue = reminder.deadline <= .now
+        return HStack(spacing: 4) {
+            Image(systemName: overdue ? "bell.fill" : "bell")
+                .font(.system(size: 10, weight: .semibold))
+            Text(when.prefix(1).uppercased() + when.dropFirst())
+            if reminder.awaitingSchedule {
+                Text("not scheduled yet").foregroundStyle(Theme.bark)
+            }
+        }
+        .font(Theme.rounded(12, overdue ? .semibold : .medium))
+        .foregroundStyle(Theme.rust)
+        .help(reminder.awaitingSchedule
+              ? "Saved. Rallo hasn’t handed this reminder to macOS notifications yet."
+              : "Reminder \(when)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reminder \(when)\(reminder.awaitingSchedule ? ", not scheduled yet" : "")")
+    }
+
+    private var remindMenu: some View {
+        Menu("Remind Me") { remindButtons }
+    }
+
+    @ViewBuilder
+    private var remindButtons: some View {
+        ForEach(RemindPreset.allCases) { preset in
+            Button(preset.title) { Task { await model.remind(item, preset) } }
+        }
     }
 
     private func copy(_ string: String) {

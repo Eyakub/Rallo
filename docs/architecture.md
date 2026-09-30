@@ -104,12 +104,20 @@ Generated Swift from `crates/rallo-ffi` (module `rallo_ffi`, C module
 | `changeRevision() throws -> Int64` | | cheap revision read |
 | `createNote(text:) throws -> ItemSnapshot` | | validated at the boundary; durable on return |
 | `listOpenItems(limit:) throws -> [ItemSnapshot]` | | newest first, capped at 50 |
+| `completeItem` / `reopenItem` / `editItemText(id:…ifRevision:)` | | `ifRevision` is the row's snapshot; a newer write → `REVISION_CONFLICT` |
+| `deleteItem` / `restoreItem(id:ifRevision:)` | | soft delete; restore never re-enables the reminder |
+| `remindIn(id:duration:ifRevision:)` / `remindAt(id:rfc3339:ifRevision:)` | `reschedule` | creates or moves the reminder; capacity 32 enforced in core |
 | `petVisibility()` / `setPetVisibility(visibility:)` | | `nil` = never introduced; setters return whether state changed |
 | `petPlacement()` / `setPetPlacement(placement:)` | | global AppKit points; `nil` resets to default |
 | `onboardingCompleted()` / `setOnboardingCompleted()` | | |
 
+`ItemSnapshot.reminder` carries the deadline, state, and the core's
+scheduling status (`schedulingState`, e.g. `pending` / `awaiting_app` until the
+app has scheduled it); Swift displays it and never derives it.
+
 Errors cross as `RalloError` with a stable `code` string:
-`InvalidInput`, `NotFound`, `Storage` (`STORAGE_UNAVAILABLE` / `STORAGE_BUSY`),
+`InvalidInput`, `NotFound`, `Conflict` (e.g. `REVISION_CONFLICT`),
+`Storage` (`STORAGE_UNAVAILABLE` / `STORAGE_BUSY`),
 `IncompatibleSchema(found, supported)`.
 
 ## Build pipeline

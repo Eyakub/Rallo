@@ -44,6 +44,39 @@ final class CoreBridgeTests: XCTestCase {
         XCTAssertEqual(try store.listOpenItems(limit: 50).count, 1)
     }
 
+    func testSwipeActionsRoundTrip() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        let note = try store.createNote(text: "Call mum back")
+        XCTAssertNil(note.reminder)
+
+        let reminded = try store.remindIn(id: note.id, duration: "20m", ifRevision: note.revision)
+        let reminder = try XCTUnwrap(reminded.reminder)
+        XCTAssertEqual(reminder.state, .active)
+        XCTAssertEqual(reminder.schedulingState, "pending", "the core reports it until the app schedules it")
+        XCTAssertEqual(try store.listOpenItems(limit: 50).first?.reminder?.schedulingState, "pending")
+
+        // The same RFC 3339 form CoreClient sends for "tomorrow at 9:00".
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = .current
+        let nine = Date(timeIntervalSince1970: TimeInterval(reminder.deadlineMs / 1000 + 86_400))
+        let moved = try store.remindAt(id: note.id, rfc3339: formatter.string(from: nine), ifRevision: reminded.revision)
+        XCTAssertEqual(moved.reminder?.deadlineMs, Int64(nine.timeIntervalSince1970) * 1000)
+
+        XCTAssertThrowsError(try store.deleteItem(id: note.id, ifRevision: note.revision)) { error in
+            guard case let RalloError.Conflict(code, _) = error else { return XCTFail("unexpected \(error)") }
+            XCTAssertEqual(code, "REVISION_CONFLICT", "a stale row must not delete newer state")
+        }
+        let deleted = try store.deleteItem(id: note.id, ifRevision: moved.revision)
+        XCTAssertNotNil(deleted.deletedAtMs)
+        XCTAssertEqual(deleted.reminder?.state, .deleted)
+        XCTAssertTrue(try store.listOpenItems(limit: 50).isEmpty)
+
+        let restored = try store.restoreItem(id: note.id, ifRevision: deleted.revision)
+        XCTAssertNil(restored.deletedAtMs)
+        XCTAssertNotEqual(restored.reminder?.state, .active, "restore never re-enables a reminder")
+        XCTAssertEqual(try store.listOpenItems(limit: 50).map(\.id), [note.id])
+    }
+
     func testNewerSchemaIsRefused() throws {
         _ = try RalloStore.open(dataDir: dataDir.path)
         let sqlite = Process()

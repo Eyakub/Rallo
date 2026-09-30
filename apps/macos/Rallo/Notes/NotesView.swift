@@ -1,5 +1,53 @@
 import SwiftUI
 
+/// Quick reminder choices offered by the swipe and the context menu.
+enum RemindPreset: CaseIterable, Identifiable {
+    case inTwentyMinutes, inOneHour, tomorrowMorning
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .inTwentyMinutes: "In 20 Minutes"
+        case .inOneHour: "In 1 Hour"
+        case .tomorrowMorning: "Tomorrow at 9:00"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .inTwentyMinutes: "20 min"
+        case .inOneHour: "1 hour"
+        case .tomorrowMorning: "Tomorrow"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .inTwentyMinutes: "bell"
+        case .inOneHour: "clock"
+        case .tomorrowMorning: "sunrise"
+        }
+    }
+
+    static func tomorrowMorning(after now: Date = .now, calendar: Calendar = .current) -> Date {
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
+        return calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow)!
+    }
+}
+
+/// A transient confirmation at the bottom of the panel, optionally undoable.
+struct Toast: Identifiable {
+    enum Undo {
+        case reopen(ItemSnapshot)
+        case restore(ItemSnapshot)
+    }
+
+    let id = UUID()
+    let message: String
+    let undo: Undo?
+}
+
 @MainActor
 final class NotesViewModel: ObservableObject {
     @Published var items: [ItemSnapshot] = []
@@ -7,8 +55,8 @@ final class NotesViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var highlightedItemID: String?
     @Published var completingIDs: Set<String> = []
-    /// The last note marked done from the panel, offered for undo.
-    @Published var undoable: ItemSnapshot?
+    /// The last panel action: "done" and "deleted" can be undone.
+    @Published var toast: Toast?
     /// At most one row shows its full text; at most one is being edited.
     @Published var expandedID: String?
     @Published var editingID: String?
@@ -17,7 +65,7 @@ final class NotesViewModel: ObservableObject {
 
     private let core: CoreClient
     private var highlightTask: Task<Void, Never>?
-    private var undoTask: Task<Void, Never>?
+    private var toastTask: Task<Void, Never>?
 
     init(core: CoreClient) {
         self.core = core
@@ -126,44 +174,82 @@ final class NotesViewModel: ObservableObject {
         defer { completingIDs.remove(item.id) }
         do {
             let done = try await core.completeItem(item)
-            offerUndo(done)
+            show(Toast(message: "Marked “\(NoteParts(done.text).title)” as done", undo: .reopen(done)))
             await reload()
-        } catch let error as RalloError {
+        } catch {
+            await report(error)
+        }
+    }
+
+    /// Soft delete; the toast's Undo restores it (its reminder stays off).
+    func delete(_ item: ItemSnapshot) async {
+        do {
+            let deleted = try await core.deleteItem(item)
+            if expandedID == item.id { expandedID = nil }
+            if editingID == item.id { editingID = nil }
+            show(Toast(message: "Deleted “\(NoteParts(deleted.text).title)”", undo: .restore(deleted)))
+            await reload()
+        } catch {
+            await report(error)
+        }
+    }
+
+    func remind(_ item: ItemSnapshot, _ preset: RemindPreset) async {
+        do {
+            let updated: ItemSnapshot
+            switch preset {
+            case .inTwentyMinutes: updated = try await core.remindIn(item, duration: "20m")
+            case .inOneHour: updated = try await core.remindIn(item, duration: "1h")
+            case .tomorrowMorning: updated = try await core.remindAt(item, date: RemindPreset.tomorrowMorning())
+            }
+            if let reminder = updated.reminder {
+                show(Toast(message: "Reminder set for \(ReminderLabel.text(for: reminder.deadline))", undo: nil))
+            }
+            await reload()
+            highlight(updated.id)
+        } catch {
+            await report(error)
+        }
+    }
+
+    func undo() async {
+        guard let undo = toast?.undo else { return }
+        toastTask?.cancel()
+        toast = nil
+        do {
+            let item: ItemSnapshot
+            switch undo {
+            case let .reopen(done): item = try await core.reopenItem(done)
+            case let .restore(deleted): item = try await core.restoreItem(deleted)
+            }
+            await reload()
+            highlight(item.id)
+        } catch {
+            await report(error)
+        }
+    }
+
+    private func show(_ toast: Toast) {
+        toastTask?.cancel()
+        self.toast = toast
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.toast = nil
+        }
+    }
+
+    private func report(_ error: Error) async {
+        if let error = error as? RalloError {
             if case let .Conflict(code, _) = error, code == "REVISION_CONFLICT" {
                 errorMessage = "That note changed elsewhere; here’s the latest."
             } else {
                 errorMessage = error.displayMessage
             }
-            await reload()
-        } catch {
+        } else {
             errorMessage = error.localizedDescription
         }
-    }
-
-    func undo() async {
-        guard let item = undoable else { return }
-        undoTask?.cancel()
-        undoable = nil
-        do {
-            let reopened = try await core.reopenItem(item)
-            await reload()
-            highlight(reopened.id)
-        } catch let error as RalloError {
-            errorMessage = error.displayMessage
-            await reload()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func offerUndo(_ item: ItemSnapshot) {
-        undoTask?.cancel()
-        undoable = item
-        undoTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.undoable = nil
-        }
+        await reload()
     }
 }
 
@@ -201,13 +287,14 @@ struct NotesView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if let item = model.undoable {
-                UndoBar(item: item) { Task { await model.undo() } }
+            if let toast = model.toast {
+                ToastBar(toast: toast) { Task { await model.undo() } }
+                    .id(toast.id)
                     .padding(12)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.undoable?.id)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.toast?.id)
         .foregroundStyle(Theme.ink)
         .frame(width: 360, height: 460)
         .background(Theme.surface)
@@ -301,24 +388,48 @@ struct NotesView: View {
         .padding(.bottom, 10)
     }
 
+    /// A `List` (not a stack) so rows get the native two-finger swipe:
+    /// left to delete, right for reminder presets.
     private var list: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
+            List {
+                ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
+                    VStack(spacing: 0) {
                         if index > 0 {
                             // Inset to the text column, as in Reminders.
                             Rectangle().fill(Theme.divider).frame(height: 1).padding(.leading, 44).padding(.trailing, 10)
                         }
                         NoteRow(item: item, model: model)
-                        .id(item.id)
-                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    }
+                    .id(item.id)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            Task { await model.delete(item) }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .tint(Theme.swipeDelete)
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        ForEach(RemindPreset.allCases) { preset in
+                            Button {
+                                Task { await model.remind(item, preset) }
+                            } label: {
+                                Label(preset.shortTitle, systemImage: preset.symbol)
+                            }
+                            .tint(preset.tint)
+                        }
                     }
                 }
-                .padding(.horizontal, 6)
-                .padding(.top, 4)
-                .padding(.bottom, model.undoable == nil ? 8 : 64)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 1)
+            .contentMargins(.top, 4, for: .scrollContent)
+            .contentMargins(.bottom, model.toast == nil ? 8 : 64, for: .scrollContent)
             .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.85), value: model.items.map(\.id))
             .animation(reduceMotion ? nil : .easeOut(duration: 0.35), value: model.highlightedItemID)
             .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.88), value: model.expandedID)
@@ -330,21 +441,33 @@ struct NotesView: View {
     }
 }
 
-private struct UndoBar: View {
-    let item: ItemSnapshot
+private extension RemindPreset {
+    var tint: Color {
+        switch self {
+        case .inTwentyMinutes: Theme.swipeSoon
+        case .inOneHour: Theme.swipeLater
+        case .tomorrowMorning: Theme.swipeTomorrow
+        }
+    }
+}
+
+private struct ToastBar: View {
+    let toast: Toast
     let undo: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("Marked “\(item.text.trimmingCharacters(in: .whitespacesAndNewlines))” as done")
+            Text(toast.message)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            Button("Undo", action: undo)
-                .buttonStyle(.plain)
-                .font(Theme.rounded(13, .semibold))
-                .foregroundStyle(Theme.toastAccent)
-                .keyboardShortcut("z", modifiers: .command)
+            if toast.undo != nil {
+                Button("Undo", action: undo)
+                    .buttonStyle(.plain)
+                    .font(Theme.rounded(13, .semibold))
+                    .foregroundStyle(Theme.toastAccent)
+                    .keyboardShortcut("z", modifiers: .command)
+            }
         }
         .font(Theme.rounded(13))
         .foregroundStyle(Theme.onToast)

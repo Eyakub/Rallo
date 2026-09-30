@@ -9,7 +9,8 @@ mod types;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use rallo_core::items::{ListFilter, ListQuery, MutationOptions};
+use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome};
+use rallo_core::reminders::{SchedulingStatus, TimeSpec};
 use rallo_core::shared::signal;
 use rallo_core::storage::{instance_lock, migrations, paths};
 use rallo_core::{Store, StoreOptions};
@@ -69,6 +70,24 @@ pub struct RalloStore {
     inner: Mutex<Store>,
 }
 
+fn with_scheduling(mut snapshot: ItemSnapshot, scheduling: Option<SchedulingStatus>) -> ItemSnapshot {
+    if let (Some(reminder), Some(status)) = (snapshot.reminder.as_mut(), scheduling) {
+        reminder.scheduling_state = Some(status.state.to_owned());
+        reminder.scheduling_reason = Some(status.reason.to_owned());
+    }
+    snapshot
+}
+
+fn from_outcome(outcome: MutationOutcome) -> ItemSnapshot {
+    let scheduling = outcome.scheduling;
+    with_scheduling(outcome.item.into(), scheduling)
+}
+
+fn from_view(store: &Store, view: ItemView) -> Result<ItemSnapshot, RalloError> {
+    let scheduling = store.scheduling_status(&view)?;
+    Ok(with_scheduling(view.into(), scheduling))
+}
+
 impl RalloStore {
     fn store(&self) -> MutexGuard<'_, Store> {
         // A panic while holding the lock cannot leave SQLite inconsistent
@@ -94,36 +113,65 @@ impl RalloStore {
     }
 
     pub fn create_note(&self, text: String) -> Result<ItemSnapshot, RalloError> {
-        Ok(self.store().create_note(&text, None)?.item.into())
+        Ok(from_outcome(self.store().create_note(&text, None)?))
     }
 
     pub fn list_open_items(&self, limit: u32) -> Result<Vec<ItemSnapshot>, RalloError> {
-        Ok(self
-            .store()
-            .list(ListQuery { filter: ListFilter::Open, limit, cursor: None })?
-            .items
-            .into_iter()
-            .map(Into::into)
-            .collect())
+        let store = self.store();
+        let page = store.list(ListQuery { filter: ListFilter::Open, limit, cursor: None })?;
+        page.items.into_iter().map(|view| from_view(&store, view)).collect()
+    }
+
+    /// Soft-deletes an item; `restore_item` undoes it (never re-enabling a reminder).
+    pub fn delete_item(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(from_outcome(self.store().delete(&id, &opts)?))
+    }
+
+    pub fn restore_item(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(from_outcome(self.store().restore(&id, &opts)?))
+    }
+
+    /// Sets (or moves) the item's reminder to now + `duration` (`--in` syntax, e.g. "20m").
+    pub fn remind_in(
+        &self,
+        id: String,
+        duration: String,
+        if_revision: Option<i64>,
+    ) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(from_outcome(self.store().reschedule(&id, &TimeSpec::In(duration), &opts)?))
+    }
+
+    /// Sets the item's reminder to an RFC 3339 instant with an explicit offset.
+    pub fn remind_at(&self, id: String, rfc3339: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(from_outcome(self.store().reschedule(&id, &TimeSpec::At(rfc3339), &opts)?))
     }
 
     /// Marks an item done. `if_revision` guards a snapshot the UI showed;
     /// a changed item fails with `REVISION_CONFLICT` instead of being overwritten.
     pub fn complete_item(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
         let opts = MutationOptions { request_id: None, if_revision };
-        Ok(self.store().complete(&id, &opts)?.item.into())
+        Ok(from_outcome(self.store().complete(&id, &opts)?))
     }
 
     /// Replaces an item's text; `if_revision` guards the snapshot being edited.
-    pub fn edit_item_text(&self, id: String, text: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
+    pub fn edit_item_text(
+        &self,
+        id: String,
+        text: String,
+        if_revision: Option<i64>,
+    ) -> Result<ItemSnapshot, RalloError> {
         let opts = MutationOptions { request_id: None, if_revision };
-        Ok(self.store().edit_text(&id, &text, &opts)?.item.into())
+        Ok(from_outcome(self.store().edit_text(&id, &text, &opts)?))
     }
 
     /// Reopens a done item (the panel's undo). Never re-enables a reminder.
     pub fn reopen_item(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
         let opts = MutationOptions { request_id: None, if_revision };
-        Ok(self.store().reopen(&id, &opts)?.item.into())
+        Ok(from_outcome(self.store().reopen(&id, &opts)?))
     }
 
     pub fn pet_visibility(&self) -> Result<Option<PetVisibility>, RalloError> {

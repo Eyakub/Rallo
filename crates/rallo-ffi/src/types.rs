@@ -1,6 +1,7 @@
 use rallo_core::CoreError;
 use rallo_core::items::{ItemStatus as CoreItemStatus, ItemView};
 use rallo_core::preferences;
+use rallo_core::reminders;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RalloError {
@@ -59,6 +60,7 @@ pub struct ItemSnapshot {
     pub completed_at_ms: Option<i64>,
     pub deleted_at_ms: Option<i64>,
     pub revision: i64,
+    pub reminder: Option<ReminderSnapshot>,
 }
 
 impl From<ItemView> for ItemSnapshot {
@@ -77,8 +79,47 @@ impl From<ItemView> for ItemSnapshot {
             completed_at_ms: item.completed_at_ms,
             deleted_at_ms: item.deleted_at_ms,
             revision: item.revision,
+            reminder: view.reminder.map(|reminder| ReminderSnapshot {
+                id: reminder.id.to_string(),
+                deadline_ms: reminder.deadline_ms,
+                state: reminder.state().into(),
+                scheduling_state: None,
+                scheduling_reason: None,
+            }),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ReminderState {
+    Active,
+    Acknowledged,
+    Cancelled,
+    Completed,
+    Deleted,
+}
+
+impl From<reminders::ReminderState> for ReminderState {
+    fn from(state: reminders::ReminderState) -> Self {
+        match state {
+            reminders::ReminderState::Active => Self::Active,
+            reminders::ReminderState::Acknowledged => Self::Acknowledged,
+            reminders::ReminderState::Cancelled => Self::Cancelled,
+            reminders::ReminderState::Completed => Self::Completed,
+            reminders::ReminderState::Deleted => Self::Deleted,
+        }
+    }
+}
+
+/// Scheduling fields come from the core's status computation (e.g.
+/// "pending"/"awaiting_app"); Swift displays them and never derives them.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ReminderSnapshot {
+    pub id: String,
+    pub deadline_ms: i64,
+    pub state: ReminderState,
+    pub scheduling_state: Option<String>,
+    pub scheduling_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]

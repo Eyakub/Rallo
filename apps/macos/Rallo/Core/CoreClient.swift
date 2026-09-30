@@ -34,6 +34,26 @@ final class CoreClient {
         try await worker.perform { try $0.reopenItem(id: item.id, ifRevision: item.revision) }
     }
 
+    func deleteItem(_ item: ItemSnapshot) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.deleteItem(id: item.id, ifRevision: item.revision) }
+    }
+
+    func restoreItem(_ item: ItemSnapshot) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.restoreItem(id: item.id, ifRevision: item.revision) }
+    }
+
+    /// `duration` uses the CLI's `--in` syntax, e.g. "20m" or "1h".
+    func remindIn(_ item: ItemSnapshot, duration: String) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.remindIn(id: item.id, duration: duration, ifRevision: item.revision) }
+    }
+
+    func remindAt(_ item: ItemSnapshot, date: Date) async throws -> ItemSnapshot {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = .current
+        let instant = formatter.string(from: date)
+        return try await worker.perform { try $0.remindAt(id: item.id, rfc3339: instant, ifRevision: item.revision) }
+    }
+
     func openItems(limit: UInt32 = 50) async throws -> [ItemSnapshot] {
         try await worker.perform { try $0.listOpenItems(limit: limit) }
     }
