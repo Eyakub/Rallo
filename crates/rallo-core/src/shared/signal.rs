@@ -1,14 +1,23 @@
 use std::path::Path;
 
+/// 16 hex digits identifying one data directory: every macOS data directory
+/// shares the same app identity (and so the same Darwin notification
+/// namespace and the same `UNUserNotificationCenter`), so anything that must
+/// stay isolated per data directory — change/show/diagnostics signal names,
+/// and (0005) notification request identifiers — is scoped with this.
+pub fn data_dir_scope(data_dir: &Path) -> String {
+    format!("{:016x}", fnv1a64(data_dir.as_os_str().as_encoded_bytes()))
+}
+
 /// Darwin notification name used as a best-effort "something changed" hint for
 /// one data directory. Carries no note text; receivers re-read the revision.
 pub fn change_signal_name(data_dir: &Path) -> String {
-    format!("com.razlio.rallo.changed.{:016x}", fnv1a64(data_dir.as_os_str().as_encoded_bytes()))
+    format!("com.razlio.rallo.changed.{}", data_dir_scope(data_dir))
 }
 
 /// Hint that the user explicitly asked to see the pet (e.g. `rallo show`).
 pub fn show_signal_name(data_dir: &Path) -> String {
-    format!("com.razlio.rallo.show.{:016x}", fnv1a64(data_dir.as_os_str().as_encoded_bytes()))
+    format!("com.razlio.rallo.show.{}", data_dir_scope(data_dir))
 }
 
 fn fnv1a64(bytes: &[u8]) -> u64 {
@@ -17,5 +26,5 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 
 /// Developer diagnostic: asks the running app to write a window report.
 pub fn diagnostics_signal_name(data_dir: &Path) -> String {
-    format!("com.razlio.rallo.diagnose.{:016x}", fnv1a64(data_dir.as_os_str().as_encoded_bytes()))
+    format!("com.razlio.rallo.diagnose.{}", data_dir_scope(data_dir))
 }
