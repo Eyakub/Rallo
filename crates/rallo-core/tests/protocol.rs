@@ -12,6 +12,7 @@ use rallo_core::reminders::{
     NextWork, NotificationAction, NotificationAuthorization, PlatformWork, StaleReason, TimeSpec,
 };
 use rallo_core::shared::clock::{Clock, ManualClock};
+use rallo_core::transfer::ExportFormat;
 use rallo_core::{Store, StoreOptions};
 use uuid::Uuid;
 
@@ -670,4 +671,39 @@ fn applied_reports_unavailable_permission_denied_once_authorization_turns_denied
 
     let status = store.scheduling_status(&store.get_item(&id).unwrap()).unwrap().unwrap();
     assert_eq!((status.state, status.reason), ("unavailable", "permission_denied"));
+}
+
+// --- imported reminders: disabled, generation 1, no intent at all ----------
+
+#[test]
+fn an_imported_reminder_has_no_scheduling_or_cancellation_status_and_is_never_candidate_work() {
+    // 0004 import disables every reminder (`disabled_reason = 'imported'`)
+    // without ever recording a notification_intents row for it: the
+    // protocol must treat "no intent for the current generation" as simply
+    // nothing to report or drain, not a bug.
+    let source_dir = tempfile::tempdir().unwrap();
+    let mut source = support::open(source_dir.path());
+    let reminded = source.create_reminder("remind me", &TimeSpec::In("20m".into()), None).unwrap().item.item;
+    let bytes = source.export_bytes(ExportFormat::Json).unwrap();
+
+    let target_dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(target_dir.path());
+    let report = store.apply_import(&bytes).unwrap();
+    assert!(report.applied);
+
+    let view = store.get_item(&reminded.id.to_string()).unwrap();
+    assert!(!view.reminder.as_ref().unwrap().enabled);
+    assert!(store.scheduling_status(&view).unwrap().is_none());
+    assert!(store.cancellation_status(&view).unwrap().is_none());
+
+    // A pass over the whole store finds no work and cleans up nothing for it.
+    assert_eq!(expect_idle(store.next_platform_work().unwrap()), None);
+    let prefix = store.notification_prefix();
+    let reminder_id = view.reminder.as_ref().unwrap().id;
+    let pending = vec![native_request(format!("{prefix}{reminder_id}"), Some(reminder_id), Some(1), None)];
+    let plan = store.record_native_observations(NotificationAuthorization::Authorized, &pending, &[]).unwrap();
+    assert!(
+        plan.remove_pending.contains(&format!("{prefix}{reminder_id}")),
+        "a disabled reminder's stray request is still cleaned up"
+    );
 }
