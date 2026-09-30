@@ -107,6 +107,9 @@ Generated Swift from `crates/rallo-ffi` (module `rallo_ffi`, C module
 | `completeItem` / `reopenItem` / `editItemText(id:…ifRevision:)` | | `ifRevision` is the row's snapshot; a newer write → `REVISION_CONFLICT` |
 | `deleteItem` / `restoreItem(id:ifRevision:)` | | soft delete; restore never re-enables the reminder |
 | `remindIn(id:duration:ifRevision:)` / `remindAt(id:rfc3339:ifRevision:)` | `reschedule` | creates or moves the reminder; capacity 32 enforced in core |
+| `exportToFile(path:format:overwrite:) throws -> ExportResult` | `export_to_file` | JSON backup or CSV (0004); atomic, mode 0600 |
+| `previewImportFile(path:) throws -> ImportSummary` | `inspect_import` | writes nothing; conflicts reported in the summary, not thrown |
+| `applyImportFile(path:) throws -> ImportSummary` | `apply_import` | snapshot first, then one transaction; any conflict aborts before writing |
 | `petVisibility()` / `setPetVisibility(visibility:)` | | `nil` = never introduced; setters return whether state changed |
 | `petPlacement()` / `setPetPlacement(placement:)` | | global AppKit points; `nil` resets to default |
 | `onboardingCompleted()` / `setOnboardingCompleted()` | | |

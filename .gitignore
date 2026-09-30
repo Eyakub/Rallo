@@ -8,3 +8,5 @@
 xcuserdata/
 *.xcresult
 DerivedData/
+# Claude Code agent worktrees.
+/.claude/worktrees/
