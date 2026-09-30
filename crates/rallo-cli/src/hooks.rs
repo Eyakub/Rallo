@@ -14,7 +14,8 @@
 //! key in its original order regardless of that global feature.
 
 use std::fs;
-use std::io;
+use std::io::{self, Write};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
@@ -309,7 +310,15 @@ fn write_atomic(path: &Path, content: &str) -> io::Result<()> {
     temp_name.push(file_name);
     temp_name.push(".tmp");
     let temporary = dir.join(temp_name);
-    fs::write(&temporary, content)?;
+    // Keep the file's permissions: agent settings can hold credentials, and a
+    // rewrite must never make one readable by other users. New files are 0600.
+    let mode = fs::metadata(path).map(|metadata| metadata.permissions().mode() & 0o7777).unwrap_or(0o600);
+    let _ = fs::remove_file(&temporary);
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(&temporary)?;
+    file.write_all(content.as_bytes())?;
+    drop(file);
+    // The umask may have dropped bits from `mode`; set it exactly.
+    fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))?;
     fs::rename(&temporary, path)
 }
 

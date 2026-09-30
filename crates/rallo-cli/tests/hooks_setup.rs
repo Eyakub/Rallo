@@ -243,3 +243,16 @@ fn codex_home_env_var_selects_the_hooks_json_location() {
     assert_eq!(install(&doc, "codex")["path"], codex_home.path().join("hooks.json").to_str().unwrap());
     assert!(codex_home.path().join("hooks.json").is_file());
 }
+
+#[test]
+fn rewriting_settings_keeps_their_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let setup = Setup::new();
+    fs::create_dir_all(setup.claude_settings().parent().unwrap()).unwrap();
+    fs::write(setup.claude_settings(), "{\"env\": {\"SECRET\": \"x\"}}\n").unwrap();
+    fs::set_permissions(setup.claude_settings(), fs::Permissions::from_mode(0o600)).unwrap();
+    let (code, _) = setup.json(&["setup", "hooks", "--agent", "claude", "--json"]);
+    assert_eq!(code, 0);
+    let mode = fs::metadata(setup.claude_settings()).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "settings.json must stay private");
+}
