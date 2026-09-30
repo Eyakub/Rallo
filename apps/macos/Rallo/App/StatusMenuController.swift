@@ -5,6 +5,7 @@ import AppKit
 final class StatusMenuController: NSObject, NSMenuDelegate {
     struct Actions {
         var togglePet: () -> Void
+        var toggleAnimations: () -> Void
         var openNotes: () -> Void
         var enableNotifications: () -> Void
         var exportBackup: () -> Void
@@ -19,6 +20,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let petVisible: () -> Bool
     private let notificationSummary: () -> String
     private let terminalCommandTitle: () -> String
+    var animationsPaused: () -> Bool = { false }
 
     init(
         actions: Actions,
@@ -58,6 +60,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private func populate(_ menu: NSMenu) {
         menu.addItem(item(petVisible() ? "Hide Pet" : "Show Pet", #selector(togglePet)))
+        let pause = item("Pause Animations", #selector(toggleAnimations))
+        pause.state = animationsPaused() ? .on : .off
+        menu.addItem(pause)
         menu.addItem(item("Open Notes…", #selector(openNotes), key: "n"))
         menu.addItem(.separator())
         menu.addItem(item("Export Backup (JSON)…", #selector(exportBackup)))
@@ -83,6 +88,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     @objc private func togglePet() { actions.togglePet() }
+    @objc private func toggleAnimations() { actions.toggleAnimations() }
     @objc private func openNotes() { actions.openNotes() }
     @objc private func enableNotifications() { actions.enableNotifications() }
     @objc private func exportBackup() { actions.exportBackup() }

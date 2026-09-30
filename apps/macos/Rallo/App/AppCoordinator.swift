@@ -17,6 +17,8 @@ final class AppCoordinator {
     private let drainer: NotificationDrainer
     private let transfer: TransferController
     private let terminalSetup: TerminalSetupController
+    private let petState: PetStateDriver
+    private var animationsPaused = false
     private var statusMenu: StatusMenuController?
     private var systemObservers: [NSObjectProtocol] = []
 
@@ -37,6 +39,7 @@ final class AppCoordinator {
         drainer = NotificationDrainer(core: core, adapter: notifications.adapter, log: log, fault: fault)
         transfer = TransferController(core: core, log: log)
         terminalSetup = TerminalSetupController(log: log)
+        petState = PetStateDriver(core: core, pet: pet, log: log)
         notesModel = NotesViewModel(core: core)
         notes = NotesPanelController(model: notesModel)
         observer = ChangeObserver(dataDir: dataDir)
@@ -47,6 +50,7 @@ final class AppCoordinator {
         let menu = StatusMenuController(
             actions: .init(
                 togglePet: { [weak self] in Task { await self?.togglePet() } },
+                toggleAnimations: { [weak self] in Task { await self?.toggleAnimations() } },
                 openNotes: { [weak self] in self?.openNotes(highlighting: nil) },
                 enableNotifications: { [weak self] in Task { await self?.enableNotifications() } },
                 exportBackup: { [weak self] in self?.transfer.export(.json) },
@@ -59,12 +63,17 @@ final class AppCoordinator {
             notificationSummary: { [weak self] in self?.notificationSummary ?? "" },
             terminalCommandTitle: { [weak self] in self?.terminalSetup.menuTitle ?? "Enable Terminal Command…" }
         )
+        menu.animationsPaused = { [weak self] in self?.animationsPaused ?? false }
         menu.install()
         statusMenu = menu
 
         pet.onClick = { [weak self] in self?.openNotes(highlighting: nil) }
         transfer.onShowNotes = { [weak self] in self?.openNotes(highlighting: nil) }
         notesModel.onEnableNotifications = { [weak self] in Task { await self?.turnOnNotifications() } }
+        petState.onDueBoundary = { [weak self] in
+            guard let self, self.notes.isOpen else { return }
+            Task { await self.notesModel.reload() }
+        }
         pet.onMoved = { [weak self] origin in Task { await self?.petMoved(to: origin) } }
         pet.contextMenu = { [weak self] in self?.statusMenu?.makeMenu() }
         notifications.onOpenItem = { [weak self] itemID in self?.openNotes(highlighting: itemID) }
@@ -178,6 +187,8 @@ final class AppCoordinator {
         if notes.isOpen {
             await notesModel.reload()
         }
+        animationsPaused = (try? await core.petAnimationsPaused()) ?? false
+        petState.refresh()
     }
 
     private func checkForChanges() async {
@@ -207,6 +218,15 @@ final class AppCoordinator {
             try await reloadFromCore()
         } catch {
             log.record("toggle_pet_failed", ["error": "\(error)"])
+        }
+    }
+
+    private func toggleAnimations() async {
+        do {
+            try await core.setPetAnimationsPaused(!animationsPaused)
+            try await reloadFromCore()
+        } catch {
+            log.record("toggle_animations_failed", ["error": "\(error)"])
         }
     }
 

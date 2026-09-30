@@ -108,6 +108,29 @@ final class CoreClient {
         }
     }
 
+    // MARK: Pet (0006)
+
+    func petSnapshot() async throws -> PetSnapshot {
+        try await worker.perform { try $0.petSnapshot() }
+    }
+
+    func petAnimationsPaused() async throws -> Bool {
+        try await worker.perform { try $0.petAnimationsPaused() }
+    }
+
+    @discardableResult
+    func setPetAnimationsPaused(_ paused: Bool) async throws -> Bool {
+        try await worker.perform { try $0.setPetAnimationsPaused(paused: paused) }
+    }
+
+    func acknowledgeReminder(_ item: ItemSnapshot) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.acknowledgeReminder(id: item.id, ifRevision: item.revision) }
+    }
+
+    func snoozeReminder(_ item: ItemSnapshot, duration: String) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.snoozeReminder(id: item.id, duration: duration, ifRevision: item.revision) }
+    }
+
     func openItems(limit: UInt32 = 50) async throws -> [ItemSnapshot] {
         try await worker.perform { try $0.listOpenItems(limit: limit) }
     }
