@@ -134,6 +134,21 @@ fn render_detail_human(detail: &ConflictDetail) {
         ConflictDetail::Capacity { limit, active } => {
             eprintln!("{active} of {limit} reminders are already active.");
         }
+        ConflictDetail::ImportConflicts { total, conflicts } => {
+            for conflict in conflicts {
+                let location = match (conflict.line, conflict.index) {
+                    (Some(line), _) => format!("line {line}"),
+                    (None, Some(index)) => format!("record {index}"),
+                    (None, None) => "record".to_owned(),
+                };
+                let id = conflict.id.map(|id| format!(" ({id})")).unwrap_or_default();
+                eprintln!("  {location}{id}: {}", conflict.reason);
+            }
+            if *total as usize > conflicts.len() {
+                eprintln!("{total} conflicts; showing {}", conflicts.len());
+            }
+            eprintln!("Nothing was imported.");
+        }
     }
 }
 

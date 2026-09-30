@@ -62,6 +62,12 @@ final class NotesViewModel: ObservableObject {
     @Published var editingID: String?
     @Published var editDraft = ""
     @Published var focusToken = 0
+    /// Swipe state: at most one row shows a tray; `liveSwipe` follows the
+    /// pointer or fingers while a swipe is in progress.
+    @Published var openSwipe: OpenSwipe?
+    @Published var liveSwipe: (id: String, offset: CGFloat)?
+    var hoveredID: String?
+    var rowWidth: CGFloat = 340
 
     private let core: CoreClient
     private var highlightTask: Task<Void, Never>?
@@ -129,9 +135,45 @@ final class NotesViewModel: ObservableObject {
         }
     }
 
-    /// Esc steps back one level: stop editing, then collapse, then close.
-    /// Returns whether it handled the key.
+    func swipeOffset(for id: String) -> CGFloat {
+        if let live = liveSwipe, live.id == id { return live.offset }
+        return SwipeMetrics.restingOffset(openSwipe?.id == id ? openSwipe?.side : nil)
+    }
+
+    func trackSwipe(_ id: String, offset: CGFloat) {
+        if let open = openSwipe, open.id != id { openSwipe = nil }
+        liveSwipe = (id, SwipeMetrics.rubberBanded(offset, rowWidth: rowWidth))
+    }
+
+    /// Settles a released swipe: open a tray, close it, or — pulled far
+    /// enough left — delete (undoable).
+    func endSwipe(_ item: ItemSnapshot, offset: CGFloat, projected: CGFloat) {
+        let settled = SwipeMetrics.rubberBanded(offset, rowWidth: rowWidth)
+        if settled <= -rowWidth * SwipeMetrics.fullDeleteFraction {
+            liveSwipe = (item.id, -rowWidth)
+            openSwipe = nil
+            Task { await delete(item) }
+            return
+        }
+        let target = abs(projected - offset) > abs(settled) ? projected : settled
+        let side: SwipeSide? = if target > SwipeMetrics.remindWidth / 3 {
+            .remind
+        } else if target < -SwipeMetrics.deleteWidth / 2 {
+            .delete
+        } else {
+            nil
+        }
+        openSwipe = side.map { OpenSwipe(id: item.id, side: $0) }
+        liveSwipe = nil
+    }
+
+    /// Esc steps back one level: close a swipe tray, stop editing, then
+    /// collapse, then close. Returns whether it handled the key.
     func handleEscape() -> Bool {
+        if openSwipe != nil {
+            openSwipe = nil
+            return true
+        }
         if editingID != nil {
             editingID = nil
             return true
@@ -185,6 +227,8 @@ final class NotesViewModel: ObservableObject {
     func delete(_ item: ItemSnapshot) async {
         do {
             let deleted = try await core.deleteItem(item)
+            if openSwipe?.id == item.id { openSwipe = nil }
+            if liveSwipe?.id == item.id { liveSwipe = nil }
             if expandedID == item.id { expandedID = nil }
             if editingID == item.id { editingID = nil }
             show(Toast(message: "Deleted “\(NoteParts(deleted.text).title)”", undo: .restore(deleted)))
@@ -267,6 +311,7 @@ struct NotesView: View {
     @ObservedObject var model: NotesViewModel
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var swipeMonitor = SwipeScrollMonitor()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -299,7 +344,11 @@ struct NotesView: View {
         .frame(width: 360, height: 460)
         .background(Theme.surface)
         .onChange(of: model.focusToken) { _, _ in composerFocused = true }
-        .onAppear { composerFocused = true }
+        .onAppear {
+            composerFocused = true
+            swipeMonitor.start(model: model)
+        }
+        .onDisappear { swipeMonitor.stop() }
     }
 
     /// Title on the left; the panda perches on the note field at the right.
@@ -388,48 +437,26 @@ struct NotesView: View {
         .padding(.bottom, 10)
     }
 
-    /// A `List` (not a stack) so rows get the native two-finger swipe:
-    /// left to delete, right for reminder presets.
     private var list: some View {
         ScrollViewReader { proxy in
-            List {
-                ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
-                    VStack(spacing: 0) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
                         if index > 0 {
                             // Inset to the text column, as in Reminders.
                             Rectangle().fill(Theme.divider).frame(height: 1).padding(.leading, 44).padding(.trailing, 10)
                         }
-                        NoteRow(item: item, model: model)
-                    }
-                    .id(item.id)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            Task { await model.delete(item) }
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                        SwipeableRow(item: item, model: model) {
+                            NoteRow(item: item, model: model)
                         }
-                        .tint(Theme.swipeDelete)
-                    }
-                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                        ForEach(RemindPreset.allCases) { preset in
-                            Button {
-                                Task { await model.remind(item, preset) }
-                            } label: {
-                                Label(preset.shortTitle, systemImage: preset.symbol)
-                            }
-                            .tint(preset.tint)
-                        }
+                        .id(item.id)
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
                 }
+                .padding(.horizontal, 6)
+                .padding(.top, 4)
+                .padding(.bottom, model.toast == nil ? 8 : 64)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .environment(\.defaultMinListRowHeight, 1)
-            .contentMargins(.top, 4, for: .scrollContent)
-            .contentMargins(.bottom, model.toast == nil ? 8 : 64, for: .scrollContent)
             .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.85), value: model.items.map(\.id))
             .animation(reduceMotion ? nil : .easeOut(duration: 0.35), value: model.highlightedItemID)
             .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.88), value: model.expandedID)
@@ -437,16 +464,6 @@ struct NotesView: View {
             .onChange(of: model.highlightedItemID) { _, id in
                 if let id { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(id, anchor: .center) } }
             }
-        }
-    }
-}
-
-private extension RemindPreset {
-    var tint: Color {
-        switch self {
-        case .inTwentyMinutes: Theme.swipeSoon
-        case .inOneHour: Theme.swipeLater
-        case .tomorrowMorning: Theme.swipeTomorrow
         }
     }
 }

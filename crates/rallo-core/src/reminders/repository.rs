@@ -194,6 +194,41 @@ pub(crate) fn insert_new(
     Ok(id)
 }
 
+/// Creates an already-imported reminder (0004 export/import): always
+/// `enabled = 0, disabled_reason = 'imported'`, generation 1, and no
+/// `notification_intents` row, regardless of what the imported document said
+/// — importing never schedules a burst of stale alerts. Preserves the
+/// deadline/time input and timestamps from the export.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn insert_imported(
+    tx: &Transaction<'_>,
+    id: Uuid,
+    item_id: Uuid,
+    deadline_ms: i64,
+    time_input: &str,
+    input_kind: InputKind,
+    input_offset_seconds: Option<i32>,
+    created_at_ms: i64,
+    updated_at_ms: i64,
+) -> CoreResult<()> {
+    tx.execute(
+        "INSERT INTO reminders (id, item_id, deadline_ms, time_input, input_kind, input_offset_seconds,
+                                 enabled, disabled_reason, generation, created_at_ms, updated_at_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 'imported', 1, ?7, ?8)",
+        params![
+            id.to_string(),
+            item_id.to_string(),
+            deadline_ms,
+            time_input,
+            input_kind.as_str(),
+            input_offset_seconds,
+            created_at_ms,
+            updated_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
 /// Re-arms an existing reminder (active or not) with a new deadline: enables
 /// it, clears any acknowledgement/disabled reason, and records a schedule
 /// intent — which bumps `generation` and supersedes prior pending intents

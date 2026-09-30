@@ -62,6 +62,36 @@ pub(crate) fn get_by_id(conn: &Connection, id: Uuid) -> CoreResult<Option<Item>>
         .optional()?)
 }
 
+/// Every item — live and deleted — oldest first then id, for a full export
+/// snapshot (0004). Deliberately unpaginated: export reads the whole store in
+/// one read transaction.
+pub(crate) fn all_items_for_export(conn: &Connection) -> CoreResult<Vec<Item>> {
+    let mut statement =
+        conn.prepare(&format!("SELECT {ITEM_COLUMNS} FROM items ORDER BY created_at_ms ASC, id ASC"))?;
+    Ok(statement.query_map([], item_from_row)?.collect::<Result<_, _>>()?)
+}
+
+/// Id-less CSV import dedupe key (0004): an existing, nondeleted item with
+/// byte-equal (unnormalized) text and the same `created_at_ms`. Deliberately
+/// exact, not `match_key`: CSV rows without an id have no other identity to
+/// go on.
+pub(crate) fn find_by_exact_text_and_created_at(
+    conn: &Connection,
+    text: &str,
+    created_at_ms: i64,
+) -> CoreResult<Option<Item>> {
+    Ok(conn
+        .query_row(
+            &format!(
+                "SELECT {ITEM_COLUMNS} FROM items
+                 WHERE text = ?1 AND created_at_ms = ?2 AND deleted_at_ms IS NULL LIMIT 1"
+            ),
+            params![text, created_at_ms],
+            item_from_row,
+        )
+        .optional()?)
+}
+
 fn item_not_found() -> CoreError {
     CoreError::not_found(ErrorCode::ItemNotFound, "no item matches that id")
 }

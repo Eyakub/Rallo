@@ -70,7 +70,17 @@ fn concurrent_writers_lose_nothing() {
             thread::spawn(move || {
                 let mut store = open(&dir);
                 for n in 0..25 {
-                    store.create_note(&format!("writer {writer} note {n}"), None).unwrap();
+                    // STORAGE_BUSY is the documented refusal once the 1 s lock
+                    // wait elapses (easy on a loaded machine with fullfsync);
+                    // nothing was written, so a caller retries.
+                    let text = format!("writer {writer} note {n}");
+                    loop {
+                        match store.create_note(&text, None) {
+                            Ok(_) => break,
+                            Err(error) if error.code() == ErrorCode::StorageBusy => continue,
+                            Err(error) => panic!("unexpected error: {error}"),
+                        }
+                    }
                 }
             })
         })
