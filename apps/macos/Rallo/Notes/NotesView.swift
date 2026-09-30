@@ -51,6 +51,7 @@ struct Toast: Identifiable {
 @MainActor
 final class NotesViewModel: ObservableObject {
     @Published var items: [ItemSnapshot] = []
+    @Published var agentSessions: [AgentSessionSnapshot] = []
     @Published var draft = ""
     @Published var errorMessage: String?
     @Published var highlightedItemID: String?
@@ -197,10 +198,27 @@ final class NotesViewModel: ObservableObject {
     func reload() async {
         do {
             items = try await core.openItems()
+            agentSessions = try await core.agentSessions()
             authorization = try await core.notificationAuthorization()
             errorMessage = nil
         } catch {
             errorMessage = "Couldn’t load notes: \(error.localizedDescription)"
+        }
+    }
+
+    /// Brings the session's terminal app forward; a no-op if Rallo couldn't
+    /// identify one (`appPath` is nil, so the row isn't clickable).
+    func activateAgent(_ session: AgentSessionSnapshot) {
+        guard let appPath = session.appPath else { return }
+        AgentSessionActivation.activate(appPath: appPath)
+    }
+
+    func dismissAgent(_ session: AgentSessionSnapshot) async {
+        do {
+            _ = try await core.dismissAgentSession(session)
+            await reload()
+        } catch {
+            await report(error)
         }
     }
 
@@ -349,6 +367,7 @@ struct NotesView: View {
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var swipeMonitor = SwipeScrollMonitor()
+    @StateObject private var agentsClock = AgentsClock()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -356,6 +375,11 @@ struct NotesView: View {
             composer
             if model.alertsBlocked, let authorization = model.authorization {
                 AlertsBlockedBanner(authorization: authorization, action: model.onEnableNotifications)
+            }
+            if !model.agentSessions.isEmpty {
+                AgentsSection(sessions: model.agentSessions, now: agentsClock.now, onActivate: model.activateAgent) {
+                    session in Task { await model.dismissAgent(session) }
+                }
             }
             if model.items.isEmpty {
                 EmptyNotesView()
@@ -387,8 +411,12 @@ struct NotesView: View {
         .onAppear {
             composerFocused = true
             swipeMonitor.start(model: model)
+            agentsClock.start()
         }
-        .onDisappear { swipeMonitor.stop() }
+        .onDisappear {
+            swipeMonitor.stop()
+            agentsClock.stop()
+        }
     }
 
     /// Title on the left; the panda perches on the note field at the right.

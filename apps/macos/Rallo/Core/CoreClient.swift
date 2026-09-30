@@ -161,4 +161,15 @@ final class CoreClient {
     func setOnboardingCompleted() async throws -> Bool {
         try await worker.perform { try $0.setOnboardingCompleted() }
     }
+
+    // MARK: Agent attention (0007)
+
+    func agentSessions() async throws -> [AgentSessionSnapshot] {
+        try await worker.perform { try $0.agentSessions() }
+    }
+
+    @discardableResult
+    func dismissAgentSession(_ session: AgentSessionSnapshot) async throws -> Bool {
+        try await worker.perform { try $0.dismissAgentSession(agent: session.agent, sessionId: session.sessionId) }
+    }
 }
