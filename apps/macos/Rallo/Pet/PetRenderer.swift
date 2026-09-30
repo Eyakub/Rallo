@@ -6,8 +6,9 @@ import QuartzCore
 final class PetView: NSView {
     enum Pose: String {
         case idle = "pet-idle"
-        case blink = "pet-blink"
         case sleep = "pet-sleep"
+        case nudge = "pet-nudge"
+        case celebrate = "pet-celebrate"
     }
 
     private static let dragThreshold: CGFloat = 3

@@ -5,7 +5,7 @@ import AppKit
 /// Window behaviour is fixed by docs/decisions/0002-pet-window-configuration.md.
 /// Features must not adjust level or collection behaviour ad hoc.
 final class PetPanel: NSPanel {
-    static let spriteSize = NSSize(width: 110, height: 92)
+    static let spriteSize = NSSize(width: 143, height: 118)
 
     init() {
         super.init(

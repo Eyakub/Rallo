@@ -2,60 +2,103 @@
 
 ## Provenance
 
-The `idle` pose was supplied by the user on 2026-09-30 as
-`rallo_exact_nudge.svg` (title "Rallo — A Gentle Nudge Pose"), an SVG
-whose only content is a single `<image>` embedding a base64 PNG
-(285x255px, RGB, no alpha, opaque cream background `#FCF8EF`, with a
-baked-in "A gentle nudge" text caption below the character). The
-character (a seated red panda with a raised paw and a soft ground
-shadow) was cut out, background-matted, and resampled to sprite size.
-The text caption was discarded — it is not part of the character art.
+The full pose set was supplied by the user on 2026-09-30 as a
+collection of SVGs, each an embedded base64 PNG of the same red panda
+character on an opaque cream background (`#FCF8EF`-ish), some with a
+baked-in text caption below the character:
+
+| Pose (`pet-<name>`) | Source SVG | Source PNG | Caption |
+|---|---|---|---|
+| `idle` | `rallo_exact_hero.svg` ("Rallo — Hero Pose") | 500x370, sitting, alert, tilted head | none |
+| `sleep` | `rallo_exact_resting.svg` ("Resting") | 290x235, curled up asleep | "Resting" |
+| `nudge` | `rallo_exact_nudge.svg` ("A Gentle Nudge") | 285x255, waving paw | "A gentle nudge" |
+| `celebrate` | `rallo_exact_all_done.svg` ("All done") | 280x280, floating, closed happy eyes | "All done" |
+
+Pose → app state mapping: `idle` = notes open, nothing due; `sleep` =
+no open notes; `nudge` = a reminder is due; `celebrate` = a reminder
+was just completed. (`rallo_exact_sheet.svg`, a combined character
+sheet, was not used directly — the four poses above were extracted
+from their own individual SVGs instead.)
+
+Each character was cut out with a foreground-aware matte (see below),
+its caption discarded, and all four composited onto one shared canvas
+so switching poses never changes the pet's apparent size or the height
+of its feet/shadow baseline.
+
+Note: the `celebrate` (and to a lesser extent `sleep`/`nudge`) source
+art is a noticeably more painterly/textured illustration style than
+`idle`'s flatter cel-shaded style — that mismatch is inherent to the
+supplied source SVGs, not something this pipeline corrects.
 
 ## Files
 
 | File | Size (px) | Notes |
 |---|---|---|
-| `pet-idle.png` | 110 x 92 | @1x, used on standard-DPI displays |
-| `pet-idle@2x.png` | 220 x 184 | @2x, used on Retina displays |
+| `pet-idle.png`, `pet-sleep.png`, `pet-nudge.png`, `pet-celebrate.png` | 143 x 118 | @1x, standard-DPI |
+| `pet-idle@2x.png`, `pet-sleep@2x.png`, `pet-nudge@2x.png`, `pet-celebrate@2x.png` | 286 x 236 | @2x, Retina |
 
-Point size in the app: 110 x 92 pt (`PetPanel.spriteSize`). The
-character was cropped to its tight bounds plus a small even margin, so
-the source (245x201px content inside a 285x255px canvas) comfortably
-covers the @2x export without upscaling.
+Point size in the app: 143 x 118 pt (`PetPanel.spriteSize`). Every pose
+shares this exact canvas: the character is scaled so it reads as the
+same size across poses (see below) and is bottom-centre aligned so its
+feet/shadow baseline sits at the same row in every file — `celebrate`
+floats slightly above its own shadow rather than touching it, matching
+its source art.
 
 ## How these were produced
 
-`scripts/import-pet-art.py` (repo root) is the reproducible pipeline:
+`scripts/import-pet-art.py` (repo root) is the reproducible pipeline.
+Run all four poses together in one command so their relative scale is
+computed consistently:
 
 ```
-scripts/import-pet-art.py rallo_exact_nudge.svg --pose idle --width 110 \
+scripts/import-pet-art.py \
+    --pose idle=rallo_exact_hero.svg \
+    --pose sleep=rallo_exact_resting.svg \
+    --pose nudge=rallo_exact_nudge.svg \
+    --pose celebrate=rallo_exact_all_done.svg \
+    --shadow-band-bottom celebrate=30 \
     --out-dir assets/pet/rallo
 ```
 
-It: (1) decodes the embedded base64 PNG losslessly; (2) removes the
-solid background with a local-gradient flood fill that follows smooth
-gradients (the soft ground shadow) from the border inward but stops at
-any sharp edge (the character's silhouette), so interior colors that
-merely resemble the background — e.g. the cream muzzle — are never
-touched, while the shadow is kept as a genuine soft translucent shape
-instead of being clipped or left as a solid halo; (3) finds the largest
-connected opaque blob and crops to its tight bounds plus a small even
-margin, which also discards separate smaller blobs such as the baked-in
-text caption; (4) resamples to the target point width (aspect
-preserved) with premultiplied-alpha-aware Lanczos resizing, which
+It, per pose: (1) decodes the embedded base64 PNG losslessly; (2)
+mattes the character with a foreground-aware technique — a
+local-gradient flood fill from the border finds the background, and
+near the silhouette boundary the true foreground colour is estimated
+from nearby confidently-interior pixels so edge alpha comes from
+projecting the pixel onto the background→foreground colour line
+instead of a fixed distance threshold (which is what previously caused
+a pale fringe around high-contrast fur on dark backdrops); thin
+isolated structures (whiskers, hair tufts) fall back to a
+nearest-character colour bleed so they stay dark instead of pale; (3)
+a separate pass looks in a band below the character for a near-uniform
+darkening of the background (a soft ground shadow) and re-expresses it
+as a warm paw-ink tone with alpha from luma falloff, so it reads as a
+darkening on any backdrop rather than a solid pale halo — `celebrate`
+floats above its shadow with a real gap, so it needs a deeper search
+band (`--shadow-band-bottom celebrate=30`) to reach it without also
+catching its caption; (4) finds the largest connected character blob
+plus any shadow found near it and crops to that tight union, discarding
+a separate smaller blob such as the baked-in caption; (5) with more
+than one `--pose` given, normalises scale across poses via the
+geometric mean of each character's own silhouette bounding box
+(`sqrt(w·h)`, pose-aspect-independent), calibrated against whichever
+supplied pose has the smallest native size so nothing is ever upscaled
+beyond its source resolution (`nudge` turned out to be the limiting
+pose here), then composites every pose onto one shared canvas sized to
+the largest scaled pose plus a small margin, bottom-centre aligned;
+(6) resamples with premultiplied-alpha-aware Lanczos resizing, which
 avoids dark/light fringing on transparent edges that a naive resize
 would introduce.
 
-Re-run this script whenever a new pose arrives as a similar SVG.
+Re-run the full four-pose command above (not a single `--pose`) when a
+new pose arrives, so its size is calibrated against the existing set
+rather than in isolation — dropping a single `--pose` on its own fits
+that pose to its own content, independent of the shared canvas.
 
-## blink / sleep
+## blink
 
-Not derived from this source. A hand-repainted "closed eyes" attempt
-(cloning fur texture over the pupils and drawing a lid curve) was tried
-and rejected — at this resolution and with Pillow-only tooling it
-produced visible rectangular cloning artifacts and did not match the
-source's soft painterly shading. `pet-blink@2x.png` and
-`pet-sleep@2x.png` in `apps/macos/Rallo/Resources/Sprites/` are still
-the placeholder art from `scripts/generate-placeholder-sprites.py`.
-Matching source art (a version of this red panda with genuinely closed
-eyes, drawn by the same artist/process) is needed to replace them.
+Retired. `pet-blink@2x.png` (placeholder art from
+`scripts/generate-placeholder-sprites.py`) has been deleted along with
+the `PetView.Pose.blink` case — there is no matching source art for a
+genuinely closed-eyes blink pose. `celebrate` (closed happy eyes) is
+the closest available expression.
