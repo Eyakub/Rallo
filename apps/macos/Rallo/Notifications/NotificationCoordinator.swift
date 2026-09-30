@@ -14,6 +14,9 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
     /// Called on the main thread for an explicit Done/Snooze action.
     var onAction: (_ reminderID: String, _ generation: Int64, _ action: NotificationAction, _ itemID: String?) -> Void
         = { _, _, _, _ in }
+    /// Called on the main thread for a click on a long-wait notification
+    /// (0008): its identifier has `AgentNotificationIdentifier.prefix`.
+    var onActivateAgent: (_ agent: String, _ sessionId: String) -> Void = { _, _ in }
 
     init(log: DiagnosticsLog) {
         self.log = log
@@ -48,7 +51,20 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         var fields = Self.ids(response.notification.request)
         fields["action"] = response.actionIdentifier
         log.record("notification_response", fields)
-        let userInfo = response.notification.request.content.userInfo
+        let request = response.notification.request
+        if request.identifier.hasPrefix(NotificationAdapter.agentPrefix) {
+            let userInfo = request.content.userInfo
+            let agent = userInfo["agent"] as? String
+            let sessionId = userInfo["session_id"] as? String
+            DispatchQueue.main.async { [onActivateAgent] in
+                if response.actionIdentifier != UNNotificationDismissActionIdentifier, let agent, let sessionId {
+                    onActivateAgent(agent, sessionId)
+                }
+                completionHandler()
+            }
+            return
+        }
+        let userInfo = request.content.userInfo
         let itemID = userInfo["item_id"] as? String
         let reminderID = userInfo["reminder_id"] as? String
         let generation = (userInfo["generation"] as? NSNumber)?.int64Value

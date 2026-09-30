@@ -7,6 +7,7 @@ import UserNotifications
 struct NotificationAdapter {
     static let reminderPrefix = "rallo.reminder."
     static let probePrefix = "rallo.probe."
+    static let agentPrefix = AgentNotificationIdentifier.prefix
 
     let center = UNUserNotificationCenter.current()
 

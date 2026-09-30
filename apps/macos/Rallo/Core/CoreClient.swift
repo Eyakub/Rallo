@@ -172,4 +172,15 @@ final class CoreClient {
     func dismissAgentSession(_ session: AgentSessionSnapshot) async throws -> Bool {
         try await worker.perform { try $0.dismissAgentSession(agent: session.agent, sessionId: session.sessionId) }
     }
+
+    // MARK: Agent attention reach (0008)
+
+    func agentsNotifyLongWait() async throws -> Bool {
+        try await worker.perform { try $0.agentsNotifyLongWait() }
+    }
+
+    @discardableResult
+    func setAgentsNotifyLongWait(_ enabled: Bool) async throws -> Bool {
+        try await worker.perform { try $0.setAgentsNotifyLongWait(enabled: enabled) }
+    }
 }
