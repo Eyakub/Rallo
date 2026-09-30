@@ -71,6 +71,7 @@ remove it under System Settings → General → Login Items).
 ```sh
 scripts/set-version.sh 0.2.0 && git commit -am "chore(release): 0.2.0"
 scripts/release.sh 0.2.0             # checks, build, package, verify: nothing published
+scripts/lifecycle-test.sh build/dist/0.2.0 --upgrade-from <previous release assets>
 scripts/release.sh 0.2.0 --publish   # tag v0.2.0, push the tag, create the GitHub release
 ```
 
