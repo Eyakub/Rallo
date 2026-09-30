@@ -44,6 +44,7 @@ cargo test --workspace
 - `docs/cli-contract.md`, `docs/reminder-semantics.md`, `docs/platform-support.md`
 - `docs/backup-and-restore.md` — backup kinds and exact restore steps
 - `docs/distribution.md` — install, update, uninstall, and making a release
+- `docs/release-report.md` — verified Macs, performance, signing, known limitations
 - `skills/rallo/SKILL.md` — how agents should use `rallo`
 - `docs/decisions/` — decision records with real observations
 - `docs/progress.md` — progress log
