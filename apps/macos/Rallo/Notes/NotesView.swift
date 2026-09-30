@@ -9,6 +9,10 @@ final class NotesViewModel: ObservableObject {
     @Published var completingIDs: Set<String> = []
     /// The last note marked done from the panel, offered for undo.
     @Published var undoable: ItemSnapshot?
+    /// At most one row shows its full text; at most one is being edited.
+    @Published var expandedID: String?
+    @Published var editingID: String?
+    @Published var editDraft = ""
     @Published var focusToken = 0
 
     private let core: CoreClient
@@ -34,6 +38,61 @@ final class NotesViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             self?.highlightedItemID = nil
         }
+    }
+
+    func toggleExpanded(_ item: ItemSnapshot) {
+        if expandedID == item.id {
+            expandedID = nil
+            editingID = nil
+        } else {
+            expandedID = item.id
+            editingID = nil
+        }
+    }
+
+    func beginEditing(_ item: ItemSnapshot) {
+        expandedID = item.id
+        editDraft = item.text
+        editingID = item.id
+    }
+
+    func cancelEditing() {
+        editingID = nil
+    }
+
+    func saveEdit(_ item: ItemSnapshot) async {
+        let text = editDraft
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        do {
+            let updated = try await core.editItemText(item, text: text)
+            editingID = nil
+            await reload()
+            highlight(updated.id)
+        } catch let error as RalloError {
+            if case let .Conflict(code, _) = error, code == "REVISION_CONFLICT" {
+                errorMessage = "That note changed elsewhere; here’s the latest. Your edit wasn’t saved."
+                editingID = nil
+            } else {
+                errorMessage = error.displayMessage
+            }
+            await reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Esc steps back one level: stop editing, then collapse, then close.
+    /// Returns whether it handled the key.
+    func handleEscape() -> Bool {
+        if editingID != nil {
+            editingID = nil
+            return true
+        }
+        if expandedID != nil {
+            expandedID = nil
+            return true
+        }
+        return false
     }
 
     func reload() async {
@@ -251,12 +310,7 @@ struct NotesView: View {
                             // Inset to the text column, as in Reminders.
                             Rectangle().fill(Theme.divider).frame(height: 1).padding(.leading, 44).padding(.trailing, 10)
                         }
-                        NoteRow(
-                            item: item,
-                            highlighted: item.id == model.highlightedItemID,
-                            completing: model.completingIDs.contains(item.id),
-                            onComplete: { Task { await model.complete(item) } }
-                        )
+                        NoteRow(item: item, model: model)
                         .id(item.id)
                         .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
@@ -267,89 +321,12 @@ struct NotesView: View {
             }
             .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.85), value: model.items.map(\.id))
             .animation(reduceMotion ? nil : .easeOut(duration: 0.35), value: model.highlightedItemID)
+            .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.88), value: model.expandedID)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: model.editingID)
             .onChange(of: model.highlightedItemID) { _, id in
                 if let id { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(id, anchor: .center) } }
             }
         }
-    }
-}
-
-private struct NoteRow: View {
-    let item: ItemSnapshot
-    let highlighted: Bool
-    let completing: Bool
-    let onComplete: () -> Void
-    @State private var hovering = false
-
-    private var created: Date { Date(timeIntervalSince1970: TimeInterval(item.createdAtMs) / 1000) }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            CompletionButton(completing: completing, action: onComplete)
-                .accessibilityLabel("Mark as done")
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.text)
-                    .font(.system(size: 14))
-                    .lineSpacing(2)
-                    .lineLimit(5)
-                    .strikethrough(completing, color: Theme.bark)
-                    .foregroundStyle(completing ? Theme.bark : Theme.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(created, format: .relative(presentation: .named, unitsStyle: .wide))
-                    .font(Theme.rounded(12))
-                    .foregroundStyle(Theme.bark)
-            }
-        }
-        .padding(.vertical, 10)
-        .padding(.leading, 10)
-        .padding(.trailing, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(highlighted ? Theme.highlight : (hovering ? Theme.hover : .clear))
-        )
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .contextMenu {
-            Button("Mark as Done", action: onComplete)
-            Divider()
-            Button("Copy Text") { copy(item.text) }
-            Button("Copy ID for the Terminal") { copy(item.id) }
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    private func copy(_ string: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
-    }
-}
-
-/// Reminders-style completion circle; fills with a bamboo check when used.
-private struct CompletionButton: View {
-    let completing: Bool
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                Circle()
-                    .strokeBorder(completing ? Theme.bamboo : (hovering ? Theme.rust : Theme.bark), lineWidth: 1.5)
-                    .background(Circle().fill(completing ? Theme.bamboo : .clear))
-                if completing {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color.white)
-                }
-            }
-            .frame(width: 18, height: 18)
-            .frame(width: 26, height: 22)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .disabled(completing)
-        .help("Mark as done")
     }
 }
 

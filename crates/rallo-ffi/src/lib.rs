@@ -114,6 +114,12 @@ impl RalloStore {
         Ok(self.store().complete(&id, &opts)?.item.into())
     }
 
+    /// Replaces an item's text; `if_revision` guards the snapshot being edited.
+    pub fn edit_item_text(&self, id: String, text: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(self.store().edit_text(&id, &text, &opts)?.item.into())
+    }
+
     /// Reopens a done item (the panel's undo). Never re-enables a reminder.
     pub fn reopen_item(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
         let opts = MutationOptions { request_id: None, if_revision };

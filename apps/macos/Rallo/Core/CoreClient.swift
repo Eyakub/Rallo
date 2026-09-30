@@ -26,6 +26,10 @@ final class CoreClient {
         try await worker.perform { try $0.completeItem(id: item.id, ifRevision: item.revision) }
     }
 
+    func editItemText(_ item: ItemSnapshot, text: String) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.editItemText(id: item.id, text: text, ifRevision: item.revision) }
+    }
+
     func reopenItem(_ item: ItemSnapshot) async throws -> ItemSnapshot {
         try await worker.perform { try $0.reopenItem(id: item.id, ifRevision: item.revision) }
     }

@@ -47,6 +47,7 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.delegate = self
+        panel.onEscape = { [weak model] in model?.handleEscape() ?? false }
         panel.contentView = NSHostingView(rootView: NotesView(model: model))
         // A compact panel only closes; minimise/zoom would be dead controls.
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
@@ -68,9 +69,14 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
     }
 }
 
-/// Esc closes the notes panel, as the escape route from any panel should.
+/// Esc steps back (stop editing, collapse a note) and finally closes the
+/// panel, as the escape route from any panel should.
 private final class NotesWindow: NSPanel {
+    var onEscape: () -> Bool = { false }
+
     override func cancelOperation(_ sender: Any?) {
-        orderOut(sender)
+        if !onEscape() {
+            orderOut(sender)
+        }
     }
 }
