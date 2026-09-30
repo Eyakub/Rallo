@@ -51,3 +51,34 @@ Relative (`--in`) and absolute (`--at`, RFC 3339 with explicit offset) inputs
 resolve once to a fixed UTC deadline. Native triggers use full UTC calendar
 components derived from that stored instant, never local hour/minute alone,
 and are never recomputed from the original relative text.
+
+## M2 end-to-end fault injection
+
+`scripts/fault-notifications.sh` drives the installed app against the real
+UserNotifications center, one isolated data directory per scenario, killing
+the app at `--fault-injection` points (0005). Run 2026-09-30 on macOS 27.0
+(26A428), MacBook Pro Mac15,6, authorization `denied` for Rallo (so an
+accepted request reports `unavailable/permission_denied`, as specified):
+
+| Scenario | Result |
+|---|---|
+| CLI `remind` while the app runs | accepted and read back ≈2 s after the CLI returned; one pending request |
+| Crash after the durable attempt mark, before `add()` | nothing submitted; status `pending/submitting`; relaunch scheduled exactly one request |
+| Crash after macOS accepted, before bookkeeping | request pending in macOS; relaunch resolved it from readback evidence with **no second `add()`** |
+| Crash during cancellation (after removal) | request gone; cancellation `pending`; applied on relaunch |
+| Attempt interrupted, deadline passes while down | `unavailable/delivery_unconfirmed`; never replayed, no late alert |
+| App could not launch before the deadline | CLI warning; `unavailable/deadline_elapsed_unattempted`; no late alert |
+| Fires with no Rallo process | listed as delivered right after the deadline; relaunch reported `delivered/observed_in_notification_center` |
+| Two data directories at once | each store's requests untouched by the other's cleanup |
+
+Further observations on this machine:
+
+- With authorization `denied`, `add()` still succeeds and the request reads
+  back as pending (it is simply not presented).
+- A plain quit and relaunch keeps pending requests. Rebuilding and
+  reinstalling the ad-hoc-signed development app did remove them (and
+  delivered entries); the drainer re-added future ones via
+  `missing_from_readback`. Whether a Developer ID-signed update behaves the
+  same is unverified.
+- Presentation with authorization granted and notification clicks/actions
+  remain unverified (authorization was never granted here).

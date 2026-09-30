@@ -46,12 +46,18 @@ enum NotificationProbe {
             return (0, await schedule(tag: rest[0], delay: Double(rest[1])!, itemID: rest.count > 2 ? rest[2] : nil))
         case "inspect":
             return (0, await inspect())
+        case "inspect-reminders" where rest.count <= 1:
+            return (0, await inspectReminders(prefix: rest.first ?? NotificationAdapter.reminderPrefix))
+        case "remove-reminders" where !rest.isEmpty && rest.allSatisfy({ $0.hasPrefix(NotificationAdapter.reminderPrefix) }):
+            adapter.removePending(rest)
+            adapter.removeDelivered(rest)
+            return (0, ["removed": rest])
         case "cancel" where rest.count == 1:
             return (0, await cancel(tag: rest[0]))
         case "cleanup":
             return (0, await cleanup(prefix: prefix))
         default:
-            return (2, ["error": "usage: --probe status | capacity N | deliver N DELAY_S | min-delay | schedule TAG DELAY_S [ITEM_ID] | inspect | cancel TAG | cleanup"])
+            return (2, ["error": "usage: --probe status | capacity N | deliver N DELAY_S | min-delay | schedule TAG DELAY_S [ITEM_ID] | inspect | inspect-reminders [PREFIX] | remove-reminders ID... | cancel TAG | cleanup"])
         }
     }
 
@@ -226,6 +232,26 @@ enum NotificationProbe {
             ["identifier": notification.request.identifier, "delivered_epoch_s": notification.date.timeIntervalSince1970]
         }
         return ["now_epoch_s": Date().timeIntervalSince1970, "pending": pending, "delivered": delivered]
+    }
+
+    /// Read-only view of reminder requests for end-to-end checks: identifiers,
+    /// generation, and trigger instants only — never notification text.
+    private static func inspectReminders(prefix: String) async -> [String: Any] {
+        func fields(_ request: UNNotificationRequest) -> [String: Any] {
+            let native = request.native
+            return [
+                "identifier": request.identifier,
+                "generation": native.generation ?? NSNull(),
+                "trigger_ms": native.triggerMs ?? NSNull(),
+            ]
+        }
+        let pending = await adapter.pending(prefix: prefix).map(fields)
+        let delivered = await adapter.delivered(prefix: prefix).map { notification -> [String: Any] in
+            var entry = fields(notification.request)
+            entry["delivered_ms"] = Int64(notification.date.timeIntervalSince1970 * 1000)
+            return entry
+        }
+        return ["now_ms": Int64(Date().timeIntervalSince1970 * 1000), "pending": pending, "delivered": delivered]
     }
 
     private static func cancel(tag: String) async -> [String: Any] {
