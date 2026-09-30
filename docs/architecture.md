@@ -120,6 +120,11 @@ Generated Swift from `crates/rallo-ffi` (module `rallo_ffi`, C module
 | `beginPlatformAttempt(intentId:generation:) throws -> BeginOutcome` | `begin_platform_attempt` | `.started(AttemptToken)` or `.superseded`; commits before any native effect |
 | `finishPlatformAttempt(token:outcome:) throws -> Finished` | `finish_platform_attempt` | compare-and-set on the token; `NativeOutcome` reports what the native call did |
 | `applyNotificationAction(reminderId:generation:action:) throws -> ActionOutcome` | `apply_notification_action` | `.applied(ItemSnapshot)` or `.stale(item:reason:)` for a tapped `rallo.done`/`rallo.snooze.10m` |
+| `acknowledgeReminder(id:ifRevision:) throws -> ItemSnapshot` | `acknowledge` | wraps 0003's `acknowledge`; already-inactive is a no-op |
+| `snoozeReminder(id:duration:ifRevision:) throws -> ItemSnapshot` | `snooze` | `--in` syntax only; requires an existing reminder |
+| `petSnapshot() throws -> PetSnapshot` | `pet_snapshot` | cheap read-only projection (`open_count`, `due_count`, `next_due_at_ms`, `completion_seq`, `save_seq`) for `decidePet`'s input |
+| `decidePet(inputs:) -> PetDecision` | `pet::decide` | free function; pure priority-table reducer (0006), no store access |
+| `petAnimationsPaused()` / `setPetAnimationsPaused(paused:)` | | menu-bar "pause animation"; setters return whether state changed |
 
 `ItemSnapshot.reminder` carries the deadline, state, and the core's
 scheduling status (`schedulingState`, e.g. `pending` / `awaiting_app` until the
