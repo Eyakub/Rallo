@@ -76,9 +76,11 @@ fails() { ! "$@"; }
 schema() { sqlite3 "$1" "PRAGMA user_version"; }
 count_items() { sqlite3 "$1" "SELECT count(*) FROM items"; }
 notes_ok() { local list; list="$("$1" list --json)" && grep -q '"first note"' <<<"$list" && grep -q '"second note"' <<<"$list"; }
-# Undoes 0002_reminders.sql: the store as a schema v1 build left it.
+# Undoes 0002_reminders.sql and 0003_agent_sessions.sql: the store as a
+# schema v1 build left it.
 downgrade_to_v1() {
-  sqlite3 "$db" "DROP TABLE notification_observations; DROP TABLE notification_intents; DROP TABLE reminders;
+  sqlite3 "$db" "DROP TABLE IF EXISTS agent_sessions; DELETE FROM metadata WHERE key = 'agents.state_seq';
+    DROP TABLE notification_observations; DROP TABLE notification_intents; DROP TABLE reminders;
     DROP TABLE request_receipts; DROP INDEX items_match_key; PRAGMA user_version = 1;"
 }
 
@@ -95,7 +97,6 @@ expect_exit 0 "rallo hide" rallo hide
 expect_exit 0 "save a note through the terminal link" rallo note "first note"
 expect_exit 0 "save a second note" rallo note "second note"
 expect_exit 0 "doctor after a fresh install" rallo doctor
-supported="$(rallo --version --json | sed -E 's/.*"database_schema_version":([0-9]+).*/\1/')"
 
 echo "-- moved app"
 mv "$app" "$HOME/Desktop/Rallo.app"
@@ -122,6 +123,11 @@ check "install.sh backed up the notes first" said "Backed up your notes first."
 check "app is now $new_v" test "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" = "$new_v"
 expect_exit 0 "rallo --version" rallo --version --json
 check "embedded CLI reports $new_v" said "\"cli_version\":\"$new_v\""
+# The schema of the release under test, not of the --upgrade-from one
+# installed first. The old CLI's pre-update backup may already have migrated
+# part of the way; the new CLI's first open finishes it.
+supported="$(rallo --version --json | sed -E 's/.*"database_schema_version":([0-9]+).*/\1/')"
+expect_exit 0 "the new CLI opens the store" rallo list
 check "store migrated to schema $supported" test "$(schema "$db")" = "$supported"
 pre_migration="$(ls -t "$RALLO_DATA_DIR"/backups/pre-migration-v1-*.sqlite3 2>/dev/null | head -1)"
 check "pre-migration snapshot is the v1 store" test "$(schema "$pre_migration")" = 1
