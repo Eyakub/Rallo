@@ -54,10 +54,14 @@ final class PetStateDriver {
                 seenAgentDoneSeq: seen.agentDone,
                 wasDue: wasDue
             ))
+            let newAgentWaiting = snapshot.agentWaitingSeq > seen.agentWaiting
             // Every event up to now is consumed by this decision, played or
             // not: a burst of saves becomes one acknowledgement, and work
             // finished while something is due is never celebrated later.
             watermarks.consume(snapshot)
+            if newAgentWaiting {
+                await announceNewlyWaitingAgent()
+            }
             let becameDue = decision.pose == .due && !wasDue
             wasDue = decision.pose == .due
             armDueTimer(snapshot.nextDueAtMs)
@@ -91,6 +95,22 @@ final class PetStateDriver {
                 self.refresh()
             }
         }
+    }
+
+    /// VoiceOver announcement for a new waiting agent (0008): "Claude Code in
+    /// shop is waiting for permission: Bash." The most recently updated
+    /// waiting session is the one that just crossed the watermark.
+    private func announceNewlyWaitingAgent() async {
+        guard NSWorkspace.shared.isVoiceOverEnabled else { return }
+        guard let sessions = try? await core.agentSessions(),
+              let session = AgentSessionFormatting.sorted(sessions).first(where: { $0.state == "waiting" })
+        else { return }
+        NSAccessibility.post(
+            element: NSApp.mainWindow ?? NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [.announcement: AgentSessionFormatting.waitingAnnouncement(for: session),
+                       .priority: NSAccessibilityPriorityLevel.high.rawValue]
+        )
     }
 
     /// The next deadline is the only time the base state changes without a
