@@ -39,9 +39,13 @@ mutation also accepts `--if-revision N` (0003 §9).
 | `import --file PATH\|- [--dry-run]` | Validates an entire export document (JSON or CSV, detected by content) before any write, classifies every record as new/identical/conflict, and applies it in one transaction behind a pre-import backup (0004). `--file -` reads from stdin. Any conflict aborts the whole import with nothing written, dry run or not. Imported reminders are always disabled and must be explicitly rescheduled. Never starts the app; a successful (non-dry-run) import signals one that is already running. |
 | `setup terminal` | Links the CLI inside this running, installed app onto PATH as `rallo` (spec §10; same rules as the menu's "Enable Terminal Command…"): prefers `~/.local/bin`, falls back to `~/bin`; repairs a link left by a moved/reinstalled copy of the app; reports an already-correct link idempotently (`changed`-free success); never replaces a `rallo` that isn't a symlink to some installed `Rallo.app/Contents/Helpers/rallo`, on PATH or at the target directory. Refuses to run unless this executable is inside `/Applications` or `~/Applications`. Never touches a data directory, never starts or signals the app. |
 | `setup skill [--print] [--agent claude\|codex]...` | Writes the agent skill embedded in this CLI (`skills/rallo/SKILL.md` of the same version) for every *detected* agent -- Claude Code/Cursor (`~/.claude` is a directory) and Codex (`$CODEX_HOME`, or `~/.codex` when that's unset/empty, is a directory) -- or, when neither is detected, Claude Code/Cursor alone. `--agent` (repeatable) installs only the named agents instead, creating their directories even when undetected. Claude Code/Cursor's copy goes to `~/.claude/skills/rallo/SKILL.md`; Codex's goes to `$CODEX_HOME/skills/rallo/SKILL.md` and Codex additionally gets `$CODEX_HOME/rules/rallo.rules`, a generated Codex execpolicy file that pre-approves Rallo's everyday note/reminder commands (never `update`/`setup`/`backup`/`import`/`export`/`doctor`) so Codex's sandbox doesn't block its notes store in `~/Library`. Every chosen target is inspected before anything is written: if any holds something that isn't Rallo's own (skill or rules), the whole command fails (`SKILL_CONFLICT`, exit 4, naming every such path) and nothing is written. Otherwise each target is installed/updated atomically (temp file + rename), reporting an identical file idempotently and replacing an older Rallo copy (skill: frontmatter `name: rallo`; rules: first line starting `# Rallo <version>: written by \`rallo setup skill\`...`). Warns when no `rallo` is on PATH. `--print` writes the skill to stdout instead, installs nothing, and ignores `--agent`. Works from any copy of the CLI; never touches a data directory, never starts or signals the app. |
-| `doctor [--json]` | Read-only health report (M4, spec §8/§10): app install/embedding, terminal command, agent skill, data directory permissions/schema/integrity/size, whether the app is running, last-observed notification authorization, active-reminder/unresolved-intent counts, and `backups/` contents. Never opens the store the normal way (no migration), never writes, never signals or launches the app. Exits `0` if every check is `ok`/`warning`, `1` if any is a `problem` (`DOCTOR_PROBLEMS`; see 0004/backup-and-restore.md for repair steps). |
+| `doctor [--json]` | Read-only health report (M4, spec §8/§10): app install/embedding, terminal command, agent skill, agent hooks, data directory permissions/schema/integrity/size, whether the app is running, last-observed notification authorization, active-reminder/unresolved-intent counts, and `backups/` contents. Never opens the store the normal way (no migration), never writes, never signals or launches the app. Exits `0` if every check is `ok`/`warning`, `1` if any is a `problem` (`DOCTOR_PROBLEMS`; see 0004/backup-and-restore.md for repair steps). |
 | `backup [--output PATH] [--force] [--json]` | Writes a consistent snapshot of the database via SQLite's online backup API (`docs/backup-and-restore.md`): default `<data dir>/backups/manual-<now_ms>.sqlite3`, mode `0600`, atomic (temp file + `fsync` + rename). Refuses to overwrite an existing file without `--force` (`FILE_EXISTS`, exit 4, like `export`). Works while the app is running. Never starts or signals the app: like `export`, it only reads the store. |
 | `update [--check] [--json]` | Distribution build only (`docs/distribution.md`): checks GitHub Releases for a newer version and, unless `--check`, downloads, verifies, and installs it. **The only Rallo command that uses the network, and only when run directly** — no background checks, no automatic updater. Refuses (`NOT_INSTALLED`, exit 2) unless this CLI is the one embedded in an installed `/Applications` or `~/Applications` copy. `--check` reports and stops. Otherwise: verifies the downloaded zip's SHA-256 against `SHA256SUMS`, the extracted bundle's identifier/version, its code signature, and that its embedded CLI runs and reports the same version — all before touching the installed app; backs up the data directory first, like `rallo backup` (skipped with no data yet); quits a running Rallo (`SIGTERM`, 5 s); swaps the app bundle atomically, restoring the previous one if the swap itself fails; and relaunches in the background exactly as other commands launch the app (pet visibility unchanged). |
+| `agent-event --agent claude\|codex` | 0007: reads one Claude Code/Codex hook payload (JSON, capped at 1 MiB) from stdin and records the mapped session state (`docs/decisions/0007-agent-attention.md`'s event table). Hidden from `--help`: `rallo setup hooks` installs it as the hook command; it is not meant to be typed by hand. **Always exits 0 and writes nothing to stdout** (a nonzero exit or stdout output could block or contaminate the calling agent); every problem (invalid JSON, a missing/too-long `session_id`, a busy or unavailable store) is one line on stderr instead. Only `hook_event_name`, `session_id`, `cwd`, `notification_type`, and `tool_name` are ever read; prompt/model text (`prompt`, `last_assistant_message`) is never read, stored, or logged. Walks process ancestry (no `ps`, no shelling out) to find the terminal/editor app to bring forward, only for a `waiting`/`working` write. On a change, posts the usual per-data-directory change signal; never launches or nudges the app. |
+| `agents [--json]` | Lists fresh (≤24h) Claude Code/Codex sessions the pet is tracking (0007): `waiting`/`done` only (`working` is never shown), waiting first then most recent first. Never signals or launches the app: it only reads the store. |
+| `agents clear [--agent claude\|codex] [--session ID] [--json]` | Removes tracked sessions matching the given filters (default: every session, any freshness — not limited to what `agents` would currently show); reports the number removed. Posts the change signal when it removed at least one. |
+| `setup hooks [--agent claude\|codex]... [--remove] [--print] [--json]` | Installs the `agent-event` hook command (0007) for every *detected* agent -- Claude Code/Cursor and Codex, using the same detection `setup skill` does -- or, when neither is detected, Claude Code alone; `--agent` (repeatable) targets only the named agents instead. Merges into Claude Code's `~/.claude/settings.json` `hooks` (created as `{}` if missing) and/or Codex's `$CODEX_HOME/hooks.json` `hooks` (created as `{"hooks":{}}` if missing): Claude gets `PermissionRequest`, `Notification`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionEnd`; Codex gets `PermissionRequest`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `Interrupt`. Each event gets one group with no `matcher` (so it fires for every tool): `{"hooks": [{"type": "command", "command": "\"<installed CLI path>\" agent-event --agent <claude\|codex>", "timeout": 10}]}`. The CLI path is this running, installed copy's embedded CLI (same resolution as `update`); refuses (`NOT_INSTALLED`, exit 2) from a copy that isn't installed in `/Applications` or `~/Applications` (skipped for `--remove`, which never needs that path). Rallo's own entries are recognised by shape (a command containing `/Rallo.app/Contents/Helpers/rallo` and ` agent-event --agent `), not by exact path, so a stale entry from a moved/reinstalled copy is still found and replaced. Re-running removes every Rallo entry it finds first, then (unless `--remove`) appends fresh ones, dropping an emptied group/event array/`hooks` key only if this pass itself emptied it; reports `already_installed` and writes nothing when that nets out to no change. `--remove` deletes only Rallo's entries and reports `removed`/`not_present`. Everything else in the file, including key order, is preserved exactly. Before a file's first write it is copied to `<file>.rallo-backup` (skipped if one already exists); writes are atomic (temp file + rename). A file that is not valid JSON (or not a JSON object) is refused (`HOOKS_CONFIG_INVALID`, exit 4, naming every such path) with nothing written to *any* target -- every target is checked before anything is written. `--print` shows the groups this would add per targeted agent and writes nothing. Never touches a data directory, never starts or signals the app. |
 | `--version [--json]` | CLI, core, database schema, and JSON contract versions. |
 
 Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
@@ -97,17 +101,43 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   targeted path -- named in the message -- holds a skill or rules file that
   isn't Rallo's, left untouched; nothing is written for any target) is an
   error.
+- `agent-event` never emits JSON (or anything else) to stdout, `--json` or
+  not: every outcome, success or failure, is silent on stdout by design (0007).
+- `agents` JSON: `{"sessions": [{"agent", "session_id", "state", "cwd",
+  "detail", "app_path", "app_pid", "updated_at_ms"}, ...]}`, fresh (≤24h)
+  `waiting`/`done` rows only, waiting first then most recent first. `agent` is
+  `"claude"`/`"codex"`; `state` is `"waiting"`/`"done"`; `cwd`/`detail`/
+  `app_path`/`app_pid` are `null` when not known (e.g. no terminal ancestor
+  was found, or an agent never reports a tool name for that event).
+- `agents clear` JSON: `{"cleared": N}`. Posts the change signal when `N > 0`.
+- `setup hooks` JSON: success is `{"hooks": {"targets": [{"agent", "status",
+  "path", "backup_path"}, ...]}}`, one entry per targeted agent. `status` is
+  `installed`, `updated`, `already_installed` (install mode), or `removed`,
+  `not_present` (`--remove`); `backup_path` is `null` unless this call's write
+  was this file's first modification and a `<file>.rallo-backup` was made (or
+  no write happened at all, e.g. `already_installed`/`not_present`).
+  `--print` reports `{"hooks": {"groups": [{"agent", "path", "events"}, ...]}}`
+  instead, installing nothing. `HOOKS_CONFIG_INVALID` (exit 4, naming every
+  unparsable file) and `NOT_INSTALLED` (exit 2, install/`--print` only) are
+  errors, not partial successes -- nothing is written for any target either way.
 - `doctor` JSON: `{"ok", "checks": [{"id", "status", "summary", "fix"}, ...],
   "problem_count", "warning_count"}`. `ok` is `true` only when
   `problem_count` is `0` (independent of `warning_count`, which never affects
   the exit code). `status` is `"ok"`, `"warning"`, or `"problem"`; `fix` is
-  `null` unless there is a concrete next step. The eight checks, always
+  `null` unless there is a concrete next step. The nine checks, always
   present and always in this order: `app_install`, `terminal_command`,
-  `agent_skill`, `data_directory`, `app_running`, `notifications`, `reminders`, `backups`
-  (`docs/backup-and-restore.md`). This is the one command whose top-level
-  `ok`/exit code can be non-`true`/nonzero without `"ok": false` in the usual
-  error-envelope sense — `doctor` always uses the success envelope, since it
-  always successfully produces a report.
+  `agent_skill`, `agent_hooks`, `data_directory`, `app_running`,
+  `notifications`, `reminders`, `backups` (`docs/backup-and-restore.md`).
+  `agent_hooks` (0007) is `ok` "Not installed (optional)..." when no Rallo
+  hook entry exists anywhere, `ok` "Installed for ..." when every one found
+  points at this installed copy's CLI path, a `warning` with fix
+  `rallo setup hooks` when at least one points elsewhere (a stale path, or
+  this copy isn't installed at all), and `ok` (unchanged, noting the path)
+  when a hooks file itself isn't valid JSON -- like `agent_skill`, `doctor`
+  never writes, so an invalid file is only ever reported, never touched. This
+  is the one command whose top-level `ok`/exit code can be non-`true`/nonzero
+  without `"ok": false` in the usual error-envelope sense — `doctor` always
+  uses the success envelope, since it always successfully produces a report.
 - `backup` JSON: success is `{"backup": {"path", "bytes"}}`. `FILE_EXISTS`
   (exit 4) mirrors `export`.
 - `update` JSON: `--check`, and a non-`--check` run that finds nothing newer,
@@ -158,6 +188,16 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   - `update`: `Rallo X.Y.Z is up to date.` when there is nothing to do;
     `Updated Rallo X.Y.Z → A.B.C.` (with `Backup: PATH` appended when one was
     made) after installing.
+  - `agent-event`: nothing, ever, on stdout -- see above.
+  - `agents`: one line per session, waiting first: `waiting  Claude Code ·
+    rallo — Waiting for permission: Bash · 2 min ago` (agent label, cwd's
+    basename, a detail phrase, and a relative age); `No agent sessions.` when
+    empty.
+  - `agents clear`: `Cleared N agent session(s).`
+  - `setup hooks`: one line per targeted agent stating what happened (added/
+    updated/already installed/removed/no hooks present) and the file path;
+    Codex's line also notes that it will ask to trust the new hooks next time
+    it starts. `--print` prints the groups it would add as JSON.
 - `SIGPIPE` has its default behaviour (`rallo list | head` ends quietly).
 
 ## Input rules
@@ -197,6 +237,14 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   preserved); a relaunch failure is a `warnings` entry, exit 0, same rule as
   every other launch failure above. `update --check`, and a run that finds
   nothing newer, never launch or signal anything.
+- `agent-event` (0007): posts the change signal on a pet-visible change (a
+  new/changed `waiting`/`done` row, or a deleted one); **never** launches or
+  nudge-launches the app, even though it is technically a write -- an agent
+  finishing a tool call must never be the reason Rallo's icon appears.
+- `agents clear` posts the change signal when it removed at least one
+  session; `agents` (read-only) never signals or launches anything.
+- `setup hooks` never signals or launches the app, and does not touch a
+  data directory.
 
 ## Exit codes
 
@@ -206,7 +254,7 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
 | 1 | `DOCTOR_PROBLEMS` — `rallo doctor` found at least one `problem`-level check (used by no other command) |
 | 2 | Invalid arguments or input (nothing committed), including `INVALID_IMPORT`, `NOT_INSTALLED` |
 | 3 | Not found |
-| 4 | Conflict / ambiguous: `AMBIGUOUS_ID`, `AMBIGUOUS_ITEM`, `REVISION_CONFLICT`, `REQUEST_ID_CONFLICT`, `ITEM_DELETED`, `ITEM_NOT_OPEN`, `NO_REMINDER`, `REMINDER_CAPACITY_REACHED`, `IMPORT_CONFLICT`, `FILE_EXISTS`, `TERMINAL_COMMAND_CONFLICT` |
+| 4 | Conflict / ambiguous: `AMBIGUOUS_ID`, `AMBIGUOUS_ITEM`, `REVISION_CONFLICT`, `REQUEST_ID_CONFLICT`, `ITEM_DELETED`, `ITEM_NOT_OPEN`, `NO_REMINDER`, `REMINDER_CAPACITY_REACHED`, `IMPORT_CONFLICT`, `FILE_EXISTS`, `TERMINAL_COMMAND_CONFLICT`, `SKILL_CONFLICT`, `HOOKS_CONFIG_INVALID` |
 | 5 | Storage failure or lock timeout |
 | 6 | Installation/platform failure for platform-only commands (e.g. `show` when the app cannot be found); `update`'s `UPDATE_CHECK_FAILED`, `UPDATE_DOWNLOAD_FAILED`, `UPDATE_VERIFICATION_FAILED`, `UPDATE_APP_BUSY`, `UPDATE_INSTALL_FAILED` |
 | 7 | Incompatible schema, including an export document newer than this build supports |

@@ -88,6 +88,21 @@ Cursor were tested with it (`agent-evaluation.md`); `scripts/agent-eval`
 supports Codex too (`RALLO_EVAL_AGENT=codex`) once its skill and rules are
 installed.
 
+`rallo setup hooks` (Claude Code and Codex; not Cursor, which has no hook
+mechanism) goes further than the skill: it wires up the `agent-event` hook
+command so the pet notices *while an agent is running*, not just when it
+reads the skill. It waves when Claude Code or Codex is waiting on a
+permission answer and shows a check when one finishes, without any network
+call or global input monitoring -- `docs/decisions/0007-agent-attention.md`
+has the full design. It edits `~/.claude/settings.json` and/or
+`$CODEX_HOME/hooks.json` the same carefully-merged way `setup skill` edits
+its files (nothing else in either file is touched, and a backup is made
+before the first change); `rallo doctor` reports whether it's installed and
+pointing at the right copy. Like `setup skill`, it only works from an
+installed copy in `/Applications` or `~/Applications`, since the hook
+command needs an absolute path. Codex will ask you to trust the new hooks
+the next time it starts.
+
 ## Uninstall
 
 ```sh
