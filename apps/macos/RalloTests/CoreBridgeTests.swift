@@ -98,7 +98,7 @@ final class CoreBridgeTests: XCTestCase {
         let revision = try store.changeRevision()
         XCTAssertFalse(try store.setPetVisibility(visibility: .hidden))
         XCTAssertEqual(try store.changeRevision(), revision)
-        try store.setPetPlacement(placement: PetPlacement(x: 120.5, y: -40))
+        XCTAssertTrue(try store.setPetPlacement(placement: PetPlacement(x: 120.5, y: -40)))
         let reopened = try RalloStore.open(dataDir: dataDir.path)
         XCTAssertEqual(try reopened.petVisibility(), .hidden)
         XCTAssertEqual(try reopened.petPlacement(), PetPlacement(x: 120.5, y: -40))
