@@ -567,3 +567,22 @@ fn import_accepts_stdin_with_dash() {
     let (_, list) = target.json(&["list", "--json"]);
     assert_eq!(list["items"][0]["text"], "via stdin");
 }
+
+#[test]
+fn unreadable_store_names_the_sandbox_case() {
+    use std::os::unix::fs::PermissionsExt;
+    let parent = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(parent.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_rallo"))
+        .args(["--json", "note", "x"])
+        .env("RALLO_DATA_DIR", parent.path().join("data"))
+        .env("RALLO_APP_PATH", "/nonexistent")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    std::fs::set_permissions(parent.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let doc = parse(&output);
+    assert_eq!(doc["error"]["code"], "STORAGE_UNAVAILABLE");
+    let message = doc["error"]["message"].as_str().unwrap();
+    assert!(message.contains("sandbox") && message.contains("rallo setup skill"), "{message}");
+}

@@ -58,7 +58,19 @@ impl From<CoreError> for Failure {
         };
         let code = error.code().as_str();
         let detail = error.detail().cloned().map(Box::new);
-        Self { exit, code, message: error.to_string(), detail }
+        let mut message = error.to_string();
+        // EACCES/EPERM on the store: most often an agent's sandbox, which
+        // can't see ~/Library. Said only here, when it has happened, so agents
+        // don't assume it up front.
+        if matches!(error, CoreError::Storage { .. })
+            && (message.contains("(os error 13)") || message.contains("(os error 1)"))
+        {
+            message.push_str(
+                ". If an agent's sandbox is running this command, Rallo's data is outside it: let `rallo` run \
+                 outside the sandbox (for Codex, `rallo setup skill` adds rules that allow it)",
+            );
+        }
+        Self { exit, code, message, detail }
     }
 }
 
