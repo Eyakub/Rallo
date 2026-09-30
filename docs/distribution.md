@@ -103,6 +103,18 @@ installed copy in `/Applications` or `~/Applications`, since the hook
 command needs an absolute path. Codex will ask you to trust the new hooks
 the next time it starts.
 
+A waiting or finished agent reaches further than the pet
+(`docs/decisions/0008-agent-attention-reach.md`): the menu bar's paw carries
+the waiting-agent count and a tooltip listing every session, and an "Agents"
+section at the top of the menu brings one forward without opening the
+panel. An opt-in menu toggle, "Notify When an Agent Waits 5 Minutes" (off by
+default), posts one local notification per waiting period once a session
+has waited that long, using the same notification permission as reminders.
+Two global shortcuts work from any app, without Accessibility or Input
+Monitoring permission: ⌃⌥⌘J brings the longest-waiting agent's terminal
+forward (press again within 5 s to cycle through the rest), and ⌃⌥⌘N opens
+or closes the notes panel.
+
 ## Uninstall
 
 ```sh
