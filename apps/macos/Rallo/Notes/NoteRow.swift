@@ -77,7 +77,13 @@ struct NoteRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture { if !editing { model.toggleExpanded(item) } }
+        .onTapGesture {
+            if model.openSwipe != nil {
+                model.openSwipe = nil
+            } else if !editing {
+                model.toggleExpanded(item)
+            }
+        }
         .contextMenu {
             Button("Mark as Done") { Task { await model.complete(item) } }
             Button("Edit") { model.beginEditing(item) }
