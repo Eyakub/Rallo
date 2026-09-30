@@ -96,7 +96,7 @@ trap 'rm -rf "$stage"' EXIT
 if [ -n "$from" ]; then
   cp "$from"/Rallo-*-macos-arm64.zip "$from/SHA256SUMS" "$stage/" 2>/dev/null ||
     fail "$from needs Rallo-<version>-macos-arm64.zip and SHA256SUMS"
-elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+elif command -v gh >/dev/null 2>&1 && gh auth token --hostname github.com >/dev/null 2>&1; then
   say "Downloading ${version:+v$version }from $REPO (gh)…"
   gh release download ${version:+"v$version"} --repo "$REPO" \
     --pattern 'Rallo-*-macos-arm64.zip' --pattern SHA256SUMS --dir "$stage" ||
