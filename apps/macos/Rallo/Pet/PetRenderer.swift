@@ -242,7 +242,7 @@ final class PetView: NSView {
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .button }
     override func accessibilityLabel() -> String? { label }
-    override func accessibilityHelp() -> String? { "Opens your notes" }
+    override func accessibilityHelp() -> String? { "Opens or closes your notes" }
 
     override func accessibilityPerformPress() -> Bool {
         onClick()

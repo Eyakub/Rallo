@@ -72,7 +72,10 @@ final class AppCoordinator {
         menu.install()
         statusMenu = menu
 
-        pet.onClick = { [weak self] in self?.openNotes(highlighting: nil) }
+        pet.onClick = { [weak self] in
+            guard let self else { return }
+            if notes.isOpen { notes.close() } else { openNotes(highlighting: nil) }
+        }
         transfer.onShowNotes = { [weak self] in self?.openNotes(highlighting: nil) }
         notesModel.onEnableNotifications = { [weak self] in Task { await self?.turnOnNotifications() } }
         petState.onDueBoundary = { [weak self] in
