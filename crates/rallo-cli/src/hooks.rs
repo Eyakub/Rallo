@@ -114,12 +114,14 @@ impl OrderedValue {
     }
 }
 
-/// `"<abs cli path>" agent-event --agent <claude|codex>` (0007): the path is
-/// quoted because hooks run without an interactive shell's word-splitting
-/// rules, and a `Home With Spaces` install path is real (other setup
-/// commands are tested against one).
+/// `"<abs cli path>" agent-event --agent <claude|codex> || true` (0007): the
+/// path is quoted because a `Home With Spaces` install path is real (other
+/// setup commands are tested against one). Both agents run hook commands
+/// through a shell, and `|| true` keeps a missing or older CLI (one without
+/// `agent-event`, which exits 2) from ever failing a hook: exit 2 on `Stop`
+/// or `UserPromptSubmit` would block the agent.
 fn command_string(cli_path: &Path, agent: Agent) -> String {
-    format!("\"{}\" agent-event --agent {}", cli_path.display(), agent.json_name())
+    format!("\"{}\" agent-event --agent {} || true", cli_path.display(), agent.json_name())
 }
 
 /// Rallo's own entries are recognised by shape, not by an exact path match,

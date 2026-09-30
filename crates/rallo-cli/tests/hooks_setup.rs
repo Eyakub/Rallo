@@ -102,7 +102,7 @@ fn install_merges_creates_the_expected_events_and_is_idempotent() {
 
     let content: Value = serde_json::from_str(&fs::read_to_string(setup.claude_settings()).unwrap()).unwrap();
     let expected_command =
-        format!("\"{}\" agent-event --agent claude", setup.app.join("Contents/Helpers/rallo").display());
+        format!("\"{}\" agent-event --agent claude || true", setup.app.join("Contents/Helpers/rallo").display());
     for event in ["PermissionRequest", "Notification", "PostToolUse", "UserPromptSubmit", "Stop", "SessionEnd"] {
         let commands = rallo_group_commands(&content, event);
         assert_eq!(commands, vec![expected_command.clone()], "event {event}: {content}");

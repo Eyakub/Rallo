@@ -91,7 +91,9 @@ Automation permission.
     `$CODEX_HOME/hooks.json` (default `~/.codex`). Default: every detected
     agent, as `setup skill` does.
   - The command is the installed app's CLI by absolute path
-    (`…/Rallo.app/Contents/Helpers/rallo agent-event --agent X`), because
+    (`"…/Rallo.app/Contents/Helpers/rallo" agent-event --agent X || true`:
+    both agents run hooks through a shell, and `|| true` means an older CLI
+    without `agent-event`, which exits 2, can't block `Stop`), because
     hooks run without the user's interactive PATH. Refuses (`NOT_INSTALLED`)
     from a copy that isn't in an installed app.
   - Rallo's entries are recognised by that command shape. Re-running
