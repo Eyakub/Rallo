@@ -40,6 +40,7 @@ mutation also accepts `--if-revision N` (0003 §9).
 | `setup terminal` | Links the CLI inside this running, installed app onto PATH as `rallo` (spec §10; same rules as the menu's "Enable Terminal Command…"): prefers `~/.local/bin`, falls back to `~/bin`; repairs a link left by a moved/reinstalled copy of the app; reports an already-correct link idempotently (`changed`-free success); never replaces a `rallo` that isn't a symlink to some installed `Rallo.app/Contents/Helpers/rallo`, on PATH or at the target directory. Refuses to run unless this executable is inside `/Applications` or `~/Applications`. Never touches a data directory, never starts or signals the app. |
 | `doctor [--json]` | Read-only health report (M4, spec §8/§10): app install/embedding, terminal command, data directory permissions/schema/integrity/size, whether the app is running, last-observed notification authorization, active-reminder/unresolved-intent counts, and `backups/` contents. Never opens the store the normal way (no migration), never writes, never signals or launches the app. Exits `0` if every check is `ok`/`warning`, `1` if any is a `problem` (`DOCTOR_PROBLEMS`; see 0004/backup-and-restore.md for repair steps). |
 | `backup [--output PATH] [--force] [--json]` | Writes a consistent snapshot of the database via SQLite's online backup API (`docs/backup-and-restore.md`): default `<data dir>/backups/manual-<now_ms>.sqlite3`, mode `0600`, atomic (temp file + `fsync` + rename). Refuses to overwrite an existing file without `--force` (`FILE_EXISTS`, exit 4, like `export`). Works while the app is running. Never starts or signals the app: like `export`, it only reads the store. |
+| `update [--check] [--json]` | Distribution build only (`docs/distribution.md`): checks GitHub Releases for a newer version and, unless `--check`, downloads, verifies, and installs it. **The only Rallo command that uses the network, and only when run directly** — no background checks, no automatic updater. Refuses (`NOT_INSTALLED`, exit 2) unless this CLI is the one embedded in an installed `/Applications` or `~/Applications` copy. `--check` reports and stops. Otherwise: verifies the downloaded zip's SHA-256 against `SHA256SUMS`, the extracted bundle's identifier/version, its code signature, and that its embedded CLI runs and reports the same version — all before touching the installed app; backs up the data directory first, like `rallo backup` (skipped with no data yet); quits a running Rallo (`SIGTERM`, 5 s); swaps the app bundle atomically, restoring the previous one if the swap itself fails; and relaunches in the background exactly as other commands launch the app (pet visibility unchanged). |
 | `--version [--json]` | CLI, core, database schema, and JSON contract versions. |
 
 Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
@@ -98,6 +99,13 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   always successfully produces a report.
 - `backup` JSON: success is `{"backup": {"path", "bytes"}}`. `FILE_EXISTS`
   (exit 4) mirrors `export`.
+- `update` JSON: `--check`, and a non-`--check` run that finds nothing newer,
+  both report `{"current", "latest", "update_available", "release_url"}`.
+  Installing a newer release reports `{"current", "installed_version",
+  "release_url", "backup_path", "previous_removed"}`; `backup_path` is `null`
+  when there was no data directory yet to back up. A failed relaunch after an
+  otherwise-successful install is a `warnings` entry, not a failure (exit 0),
+  matching every other app nudge.
 - Human output goes to stdout; diagnostics/warnings/candidates go to stderr.
   Stored text is shown with control characters and bidi overrides replaced by
   U+FFFD and line breaks flattened; JSON output is always lossless.
@@ -132,6 +140,9 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   - `doctor`: one line per check, `[ok]`/`[warning]`/`[problem]` followed by
     its id and summary; a `fix`, when present, is an indented line beneath it.
   - `backup`: `Backup saved to PATH (N bytes).`
+  - `update`: `Rallo X.Y.Z is up to date.` when there is nothing to do;
+    `Updated Rallo X.Y.Z → A.B.C.` (with `Backup: PATH` appended when one was
+    made) after installing.
 - `SIGPIPE` has its default behaviour (`rallo list | head` ends quietly).
 
 ## Input rules
@@ -164,6 +175,11 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
 - `doctor` and `backup` never signal or launch the app: `doctor` never opens
   the store the normal way at all (no migration under its read-only
   inspection), and `backup` only reads the store, like `export`.
+- `update`, after a successful install, relaunches exactly as `show`/other
+  nudges launch the app (background, no activation, current pet visibility
+  preserved); a relaunch failure is a `warnings` entry, exit 0, same rule as
+  every other launch failure above. `update --check`, and a run that finds
+  nothing newer, never launch or signal anything.
 
 ## Exit codes
 
@@ -175,7 +191,7 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
 | 3 | Not found |
 | 4 | Conflict / ambiguous: `AMBIGUOUS_ID`, `AMBIGUOUS_ITEM`, `REVISION_CONFLICT`, `REQUEST_ID_CONFLICT`, `ITEM_DELETED`, `ITEM_NOT_OPEN`, `NO_REMINDER`, `REMINDER_CAPACITY_REACHED`, `IMPORT_CONFLICT`, `FILE_EXISTS`, `TERMINAL_COMMAND_CONFLICT` |
 | 5 | Storage failure or lock timeout |
-| 6 | Installation/platform failure for platform-only commands (e.g. `show` when the app cannot be found) |
+| 6 | Installation/platform failure for platform-only commands (e.g. `show` when the app cannot be found); `update`'s `UPDATE_CHECK_FAILED`, `UPDATE_DOWNLOAD_FAILED`, `UPDATE_VERIFICATION_FAILED`, `UPDATE_APP_BUSY`, `UPDATE_INSTALL_FAILED` |
 | 7 | Incompatible schema, including an export document newer than this build supports |
 
 See `docs/backup-and-restore.md` for the kinds of backups Rallo makes
