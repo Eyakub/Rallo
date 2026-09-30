@@ -1,6 +1,6 @@
 ---
 name: rallo
-description: Save, find, complete, snooze, and delete the user's notes and one-time reminders in Rallo (a local macOS app with a desktop pet) through the `rallo` command. Use only when the user asks to note, remember, remind, or change something in Rallo.
+description: Save, find, complete, snooze, and delete the user's notes and one-time reminders in Rallo (a local macOS app with a desktop pet) through the `rallo` command. Use only when the user asks to note, remember, remind, or change something in Rallo. Rallo items live in the app, not in the workspace's files.
 ---
 
 # Rallo
@@ -24,15 +24,13 @@ Enable Terminal Command…). Never pretend a note was saved.
 This works only in a local shell on the user's Mac. A remote machine, SSH
 session, or container cannot reach Rallo's data; say so instead of trying.
 
-If a command fails with a storage permission error, an agent sandbox is
-blocking it: Rallo's store lives outside the sandbox (in `~/Library`). Ask the
-user to let `rallo` run outside the sandbox (in Codex, `rallo setup skill`
-adds rules for this). Never retry with a different data directory.
-
 ## 2. When to act
 
 - Save or change items **only when the user asks** ("note that…",
   "remind me…", "mark X done"). Never turn conversation into tasks on your own.
+- "Remember X", "note X", or "don't forget X" with no time is a plain note:
+  save it without asking for a time. It is a reminder only when the user says
+  when ("remind me in 20 minutes", "tomorrow at 9").
 - Never mark something done because you finished a reply, a command exited
   0, or you went idle. Done means the user (or a check they defined) said so.
 - Never delete, complete, or edit unrelated items to "clean up".
@@ -110,9 +108,10 @@ Every delete ends up targeting one full ID. Get there like this:
    from one row on a page, and treat duplicates as ambiguous even if one is
    newer or open. `rallo --json delete --text "<exact text>"` does the same
    check atomically (exit 3 no match, exit 4 with candidates).
-3. **Partial or approximate wording**: search without `--exact` to *offer*
-   candidates. Approximate matches never authorize a deletion by themselves.
-   Ask the user to pick.
+3. **Partial or approximate wording** ("the deployment thing"): search
+   first, without `--exact`, using its key word, and *offer* what you find;
+   don't ask what they meant before looking. Approximate matches never
+   authorize a deletion by themselves. Ask the user to pick.
 4. Delete with the full ID, `--if-revision N`, and a retry-stable
    `--request-id`. If the item changed first (exit 4), show the current text
    and confirm again.
