@@ -57,7 +57,7 @@ impl NotificationAuthorization {
         }
     }
 
-    fn code(self) -> i64 {
+    pub fn code(self) -> i64 {
         match self {
             Self::NotDetermined => 0,
             Self::Denied => 1,
@@ -67,7 +67,10 @@ impl NotificationAuthorization {
         }
     }
 
-    fn from_code(code: i64) -> Option<Self> {
+    /// Decodes a raw `notifications.authorization` metadata value (also used
+    /// by `doctor`'s read-only inspection, which reads the same column
+    /// directly rather than through a `Store`).
+    pub fn from_code(code: i64) -> Option<Self> {
         match code {
             0 => Some(Self::NotDetermined),
             1 => Some(Self::Denied),
