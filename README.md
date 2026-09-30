@@ -32,5 +32,6 @@ cargo test --workspace
 - `rallo-macos-build-plan.md` — authoritative specification
 - `docs/architecture.md` — what is built and its interfaces
 - `docs/cli-contract.md`, `docs/reminder-semantics.md`, `docs/platform-support.md`
+- `docs/backup-and-restore.md` — backup kinds and exact restore steps
 - `docs/decisions/` — decision records with real observations
 - `docs/progress.md` — progress log

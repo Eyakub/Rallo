@@ -38,6 +38,8 @@ mutation also accepts `--if-revision N` (0003 §9).
 | `export --output PATH\|- [--format json\|csv] [--force]` | Writes a versioned export (0004): JSON is a lossless backup (items, reminders, timestamps, deleted state); CSV is spreadsheet-friendly but excludes deleted items and reminder detail beyond a resolved deadline/state. `--format` defaults from the `--output` extension (`.csv` → csv, otherwise json). `--output -` writes the export bytes directly to stdout (no envelope, `--json` ignored). Refuses to overwrite an existing file unless `--force`. Never starts the app: exporting only reads the store. |
 | `import --file PATH\|- [--dry-run]` | Validates an entire export document (JSON or CSV, detected by content) before any write, classifies every record as new/identical/conflict, and applies it in one transaction behind a pre-import backup (0004). `--file -` reads from stdin. Any conflict aborts the whole import with nothing written, dry run or not. Imported reminders are always disabled and must be explicitly rescheduled. Never starts the app; a successful (non-dry-run) import signals one that is already running. |
 | `setup terminal` | Links the CLI inside this running, installed app onto PATH as `rallo` (spec §10; same rules as the menu's "Enable Terminal Command…"): prefers `~/.local/bin`, falls back to `~/bin`; repairs a link left by a moved/reinstalled copy of the app; reports an already-correct link idempotently (`changed`-free success); never replaces a `rallo` that isn't a symlink to some installed `Rallo.app/Contents/Helpers/rallo`, on PATH or at the target directory. Refuses to run unless this executable is inside `/Applications` or `~/Applications`. Never touches a data directory, never starts or signals the app. |
+| `doctor [--json]` | Read-only health report (M4, spec §8/§10): app install/embedding, terminal command, data directory permissions/schema/integrity/size, whether the app is running, last-observed notification authorization, active-reminder/unresolved-intent counts, and `backups/` contents. Never opens the store the normal way (no migration), never writes, never signals or launches the app. Exits `0` if every check is `ok`/`warning`, `1` if any is a `problem` (`DOCTOR_PROBLEMS`; see 0004/backup-and-restore.md for repair steps). |
+| `backup [--output PATH] [--force] [--json]` | Writes a consistent snapshot of the database via SQLite's online backup API (`docs/backup-and-restore.md`): default `<data dir>/backups/manual-<now_ms>.sqlite3`, mode `0600`, atomic (temp file + `fsync` + rename). Refuses to overwrite an existing file without `--force` (`FILE_EXISTS`, exit 4, like `export`). Works while the app is running. Never starts or signals the app: like `export`, it only reads the store. |
 | `--version [--json]` | CLI, core, database schema, and JSON contract versions. |
 
 Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
@@ -83,6 +85,19 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   `/Applications` or `~/Applications`) and `TERMINAL_COMMAND_CONFLICT` (an
   existing `rallo`, on PATH or at the target directory, that is not Rallo's
   own link) are errors, not partial successes.
+- `doctor` JSON: `{"ok", "checks": [{"id", "status", "summary", "fix"}, ...],
+  "problem_count", "warning_count"}`. `ok` is `true` only when
+  `problem_count` is `0` (independent of `warning_count`, which never affects
+  the exit code). `status` is `"ok"`, `"warning"`, or `"problem"`; `fix` is
+  `null` unless there is a concrete next step. The seven checks, always
+  present and always in this order: `app_install`, `terminal_command`,
+  `data_directory`, `app_running`, `notifications`, `reminders`, `backups`
+  (`docs/backup-and-restore.md`). This is the one command whose top-level
+  `ok`/exit code can be non-`true`/nonzero without `"ok": false` in the usual
+  error-envelope sense — `doctor` always uses the success envelope, since it
+  always successfully produces a report.
+- `backup` JSON: success is `{"backup": {"path", "bytes"}}`. `FILE_EXISTS`
+  (exit 4) mirrors `export`.
 - Human output goes to stdout; diagnostics/warnings/candidates go to stderr.
   Stored text is shown with control characters and bidi overrides replaced by
   U+FFFD and line breaks flattened; JSON output is always lossless.
@@ -114,6 +129,9 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   - `setup terminal`: states what happened (added/repaired/already set up)
     and the full CLI path; when the link's directory isn't on PATH, adds the
     exact `export PATH=...` line to add to the shell's startup file.
+  - `doctor`: one line per check, `[ok]`/`[warning]`/`[problem]` followed by
+    its id and summary; a `fix`, when present, is an indented line beneath it.
+  - `backup`: `Backup saved to PATH (N bytes).`
 - `SIGPIPE` has its default behaviour (`rallo list | head` ends quietly).
 
 ## Input rules
@@ -143,18 +161,26 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   there is no pending native work to hand off. `--dry-run` never signals.
 - `setup terminal` never signals or launches the app: it only manages the
   PATH symlink, and does not touch a data directory at all.
+- `doctor` and `backup` never signal or launch the app: `doctor` never opens
+  the store the normal way at all (no migration under its read-only
+  inspection), and `backup` only reads the store, like `export`.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Success / committed |
+| 1 | `DOCTOR_PROBLEMS` — `rallo doctor` found at least one `problem`-level check (used by no other command) |
 | 2 | Invalid arguments or input (nothing committed), including `INVALID_IMPORT`, `NOT_INSTALLED` |
 | 3 | Not found |
 | 4 | Conflict / ambiguous: `AMBIGUOUS_ID`, `AMBIGUOUS_ITEM`, `REVISION_CONFLICT`, `REQUEST_ID_CONFLICT`, `ITEM_DELETED`, `ITEM_NOT_OPEN`, `NO_REMINDER`, `REMINDER_CAPACITY_REACHED`, `IMPORT_CONFLICT`, `FILE_EXISTS`, `TERMINAL_COMMAND_CONFLICT` |
 | 5 | Storage failure or lock timeout |
 | 6 | Installation/platform failure for platform-only commands (e.g. `show` when the app cannot be found) |
 | 7 | Incompatible schema, including an export document newer than this build supports |
+
+See `docs/backup-and-restore.md` for the kinds of backups Rallo makes
+(automatic pre-migration/pre-import snapshots, `rallo backup`, `rallo
+export`) and exact restore steps.
 
 A saved note or reminder whose app nudge failed still exits 0 and reports the
 problem in `warnings`. Failure before commit is nonzero and mutates nothing.
