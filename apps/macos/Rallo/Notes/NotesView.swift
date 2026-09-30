@@ -68,6 +68,15 @@ final class NotesViewModel: ObservableObject {
     @Published var liveSwipe: (id: String, offset: CGFloat)?
     var hoveredID: String?
     var rowWidth: CGFloat = 340
+    @Published var authorization: NotificationAuthorization?
+    /// Asks for permission (never asked yet) or opens System Settings (denied).
+    var onEnableNotifications: () -> Void = {}
+
+    /// Reminders exist but macOS won't show their alerts.
+    var alertsBlocked: Bool {
+        guard authorization == .denied || authorization == .notDetermined else { return false }
+        return items.contains { $0.reminder?.state == .active }
+    }
 
     private let core: CoreClient
     private var highlightTask: Task<Void, Never>?
@@ -188,6 +197,7 @@ final class NotesViewModel: ObservableObject {
     func reload() async {
         do {
             items = try await core.openItems()
+            authorization = try await core.notificationAuthorization()
             errorMessage = nil
         } catch {
             errorMessage = "Couldn’t load notes: \(error.localizedDescription)"
@@ -322,6 +332,9 @@ struct NotesView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             composer
+            if model.alertsBlocked, let authorization = model.authorization {
+                AlertsBlockedBanner(authorization: authorization, action: model.onEnableNotifications)
+            }
             if model.items.isEmpty {
                 EmptyNotesView()
             } else {
@@ -470,6 +483,46 @@ struct NotesView: View {
                 if let id { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(id, anchor: .center) } }
             }
         }
+    }
+}
+
+/// One explanation for every "won't alert" row, with the way to fix it.
+private struct AlertsBlockedBanner: View {
+    let authorization: NotificationAuthorization
+    let action: () -> Void
+
+    private var denied: Bool { authorization == .denied }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "bell.slash")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.rust)
+                .accessibilityHidden(true)
+            Text(denied
+                 ? "Reminders won’t alert you: notifications for Rallo are off in System Settings."
+                 : "Reminders won’t alert you until you allow notifications.")
+                .font(Theme.rounded(12))
+                .foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Button(action: action) {
+                Text(denied ? "Turn On" : "Allow")
+                    .font(Theme.rounded(12, .semibold))
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.swipeSoon))
+            }
+            .buttonStyle(.plain)
+            .help(denied ? "Opens Rallo’s notification settings" : "Asks macOS for permission to show alerts")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.highlight))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .combine)
     }
 }
 

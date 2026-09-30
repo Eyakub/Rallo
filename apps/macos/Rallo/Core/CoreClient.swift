@@ -78,6 +78,12 @@ final class CoreClient {
         }
     }
 
+    /// As last observed by the drainer (0005); the core's copy, so every
+    /// view agrees with the scheduling status it reports.
+    func notificationAuthorization() async throws -> NotificationAuthorization {
+        try await worker.perform { try $0.notificationAuthorization() }
+    }
+
     func notificationIdentifierPrefix() async throws -> String {
         try await worker.perform { $0.notificationIdentifierPrefix() }
     }

@@ -27,6 +27,11 @@ struct NoteParts: Equatable {
 extension ReminderSnapshot {
     var deadline: Date { Date(timeIntervalSince1970: TimeInterval(deadlineMs) / 1000) }
 
+    /// macOS will not present this reminder's alert.
+    var alertBlocked: Bool {
+        schedulingReason == "permission_denied" || schedulingReason == "permission_not_requested"
+    }
+
     /// A short qualifier for the row, straight from the core's scheduling
     /// status (0005); `nil` when it is simply scheduled.
     var statusNote: (text: String, help: String)? {
@@ -34,11 +39,11 @@ extension ReminderSnapshot {
         case ("pending", _):
             ("not scheduled yet", "Saved. Rallo hasn’t handed this reminder to macOS yet.")
         case ("scheduled", "permission_not_requested"):
-            ("notifications off", "Scheduled, but notifications aren’t enabled. Choose Enable Notifications in the Rallo menu.")
+            ("won’t alert", "Saved and handed to macOS, but Rallo isn’t allowed to show notifications yet.")
         case ("delivered", _):
             ("sent", "macOS delivered this notification.")
         case ("unavailable", "permission_denied"):
-            ("notifications off", "Notifications are turned off for Rallo in System Settings.")
+            ("won’t alert", "Notifications for Rallo are off in System Settings, so no alert will appear.")
         case ("unavailable", "delivery_unconfirmed"):
             ("may not have alerted", "Rallo couldn’t confirm the alert. Snooze to try again.")
         case ("unavailable", _):
@@ -202,7 +207,7 @@ struct NoteRow: View {
         let when = ReminderLabel.text(for: reminder.deadline)
         let overdue = reminder.deadline <= .now
         return HStack(spacing: 4) {
-            Image(systemName: overdue ? "bell.fill" : "bell")
+            Image(systemName: reminder.alertBlocked ? "bell.slash" : (overdue ? "bell.fill" : "bell"))
                 .font(.system(size: 10, weight: .semibold))
             Text(when.prefix(1).uppercased() + when.dropFirst())
             if let note = reminder.statusNote {

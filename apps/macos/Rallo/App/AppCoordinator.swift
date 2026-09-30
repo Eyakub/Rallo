@@ -60,6 +60,7 @@ final class AppCoordinator {
 
         pet.onClick = { [weak self] in self?.openNotes(highlighting: nil) }
         transfer.onShowNotes = { [weak self] in self?.openNotes(highlighting: nil) }
+        notesModel.onEnableNotifications = { [weak self] in Task { await self?.turnOnNotifications() } }
         pet.onMoved = { [weak self] origin in Task { await self?.petMoved(to: origin) } }
         pet.contextMenu = { [weak self] in self?.statusMenu?.makeMenu() }
         notifications.onOpenItem = { [weak self] itemID in self?.openNotes(highlighting: itemID) }
@@ -98,6 +99,13 @@ final class AppCoordinator {
             forName: .NSSystemClockDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.drainer.requestDrain("clock_changed") }
+        })
+        // Coming back from System Settings: pick up a permission change now
+        // rather than at the next heartbeat.
+        systemObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.drainer.requestDrain("did_become_active") }
         })
     }
 
@@ -222,6 +230,17 @@ final class AppCoordinator {
         _ = await notifications.requestAuthorization()
         await refreshNotificationSummary()
         drainer.requestDrain("authorization")
+    }
+
+    /// Never asked: the system prompt. Denied: macOS won't ask again, so
+    /// open Rallo's page in System Settings.
+    private func turnOnNotifications() async {
+        let settings = await notifications.adapter.settings()
+        if settings.authorizationStatus == .notDetermined {
+            await enableNotifications()
+        } else if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "com.razlio.rallo")") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     /// The core applies the action only if the notification still matches
