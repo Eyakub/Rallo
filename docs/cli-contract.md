@@ -49,9 +49,15 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   `warnings`. No ANSI sequences; keys are sorted. Diagnostics, help, and
   ambiguity candidates go to stderr.
 - Mutation JSON follows 0003 §11: `item` (with `display_id` and a nested
-  `reminder`, or `null`), `changed`, `replayed`, `scheduling`
-  (`null`/`pending`/`scheduled`/`unavailable`), `cancellation`. `delete` adds
-  `undo: {command, item_id}`.
+  `reminder`, or `null`), `changed`, `replayed`, `scheduling`, `cancellation`.
+  `delete` adds `undo: {command, item_id}`.
+- `scheduling` (`null`/`pending`/`scheduled`/`delivered`/`unavailable`) and its
+  `reason` come from the app's native notification evidence once M2 is
+  draining (`awaiting_app`, `submitting`, `retrying`, `native_capacity`,
+  `permission_denied`, `accepted`, `permission_not_requested`,
+  `observed_in_notification_center`, or an abandonment code); the full table
+  is `docs/decisions/0005-notification-protocol.md`. `cancellation` stays
+  `null`/`pending` with reason `awaiting_app`/`retrying`.
 - `list`/`search` JSON: `items`, `total_count` (independent of page size),
   `next_cursor`.
 - Errors: `{"ok": false, "error": {"code", "message", "detail"?}}`. `detail`

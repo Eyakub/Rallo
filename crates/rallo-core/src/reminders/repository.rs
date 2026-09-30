@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use super::MAX_ACTIVE_REMINDERS;
 use super::model::{CancellationStatus, DisabledReason, InputKind, Reminder, SchedulingStatus};
+use super::protocol::{self, NotificationAuthorization};
 use crate::shared::errors::{ConflictDetail, CoreError, CoreResult, ErrorCode};
 
 const REMINDER_COLUMNS: &str = "id, item_id, deadline_ms, time_input, input_kind, input_offset_seconds, \
@@ -53,25 +54,47 @@ pub(crate) fn fetch_by_item(conn: &Connection, item_id: Uuid) -> CoreResult<Opti
         .optional()?)
 }
 
+/// Looks up a reminder by its own id (0005 `apply_notification_action`),
+/// rather than by the item it belongs to.
+pub(crate) fn fetch_by_id(conn: &Connection, id: Uuid) -> CoreResult<Option<Reminder>> {
+    Ok(conn
+        .query_row(
+            &format!("SELECT {REMINDER_COLUMNS} FROM reminders WHERE id = ?1"),
+            [id.to_string()],
+            reminder_from_row,
+        )
+        .optional()?)
+}
+
 /// Kind of `notification_intents` row inserted by an "intent" (0003 §3).
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IntentKind {
     Schedule,
     Cancel,
 }
 
 impl IntentKind {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Schedule => "schedule",
             Self::Cancel => "cancel",
         }
     }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "schedule" => Some(Self::Schedule),
+            "cancel" => Some(Self::Cancel),
+            _ => None,
+        }
+    }
 }
 
-/// "Intent" per 0003 §3: bumps the reminder's generation, marks its `pending`
-/// intents `superseded`, and inserts a `pending` intent of `kind` for the new
-/// generation. Returns the new generation.
+/// "Intent" per 0003 §3, extended by 0005: bumps the reminder's generation,
+/// marks its unresolved (`pending` or `attempting`) intents `superseded` —
+/// so an in-flight attempt that finishes after a newer intent was recorded
+/// can never mark it applied — and inserts a `pending` intent of `kind` for
+/// the new generation. Returns the new generation.
 pub(crate) fn record_intent(tx: &Transaction<'_>, reminder_id: Uuid, kind: IntentKind, now_ms: i64) -> CoreResult<i64> {
     let reminder_id = reminder_id.to_string();
     let generation: i64 = tx.query_row(
@@ -81,7 +104,7 @@ pub(crate) fn record_intent(tx: &Transaction<'_>, reminder_id: Uuid, kind: Inten
     )?;
     tx.execute(
         "UPDATE notification_intents SET state = 'superseded', resolved_at_ms = ?2
-         WHERE reminder_id = ?1 AND state = 'pending'",
+         WHERE reminder_id = ?1 AND state IN ('pending', 'attempting')",
         params![reminder_id, now_ms],
     )?;
     tx.execute(
@@ -243,35 +266,106 @@ pub(crate) fn schedule_refresh_if_active(tx: &Transaction<'_>, item_id: Uuid, no
     Ok(())
 }
 
-/// M1 has nothing draining intents yet, so an active reminder always reports
-/// `pending`/`awaiting_app` (0003 §11); computed from the unresolved
-/// `schedule` intent that every activation leaves behind.
+/// The full 0005 status table, computed from the reminder's current
+/// generation's `schedule` intent only. `None` if there is none (no
+/// reminder, or its current generation recorded a `cancel` intent instead).
 pub(crate) fn scheduling_status(
     conn: &Connection,
     reminder: Option<&Reminder>,
 ) -> CoreResult<Option<SchedulingStatus>> {
     let Some(reminder) = reminder else { return Ok(None) };
-    let pending: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM notification_intents
-         WHERE reminder_id = ?1 AND kind = 'schedule' AND state IN ('pending', 'attempting'))",
-        [reminder.id.to_string()],
+    let intent: Option<(String, i64, Option<String>)> = conn
+        .query_row(
+            "SELECT state, attempt_count, error_code FROM notification_intents
+             WHERE reminder_id = ?1 AND generation = ?2 AND kind = 'schedule'",
+            params![reminder.id.to_string(), reminder.generation],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((state, attempt_count, error_code)) = intent else { return Ok(None) };
+
+    let observed_at_ms: Option<i64> = conn
+        .query_row(
+            "SELECT observed_at_ms FROM notification_observations WHERE reminder_id = ?1 AND generation = ?2",
+            params![reminder.id.to_string(), reminder.generation],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let delivered_observed: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM notification_observations
+         WHERE reminder_id = ?1 AND generation = ?2 AND delivered_observed_at_ms IS NOT NULL)",
+        params![reminder.id.to_string(), reminder.generation],
         |row| row.get(0),
     )?;
-    Ok(pending.then_some(SchedulingStatus { state: "pending", reason: "awaiting_app", observed_at_ms: None }))
+
+    Ok(Some(match state.as_str() {
+        "pending" if error_code.is_none() && attempt_count == 0 => {
+            SchedulingStatus { state: "pending", reason: "awaiting_app", observed_at_ms }
+        }
+        "attempting" => SchedulingStatus { state: "pending", reason: "submitting", observed_at_ms },
+        "pending" => match error_code.as_deref() {
+            Some("native_capacity") => SchedulingStatus { state: "pending", reason: "native_capacity", observed_at_ms },
+            Some("permission_denied") => {
+                SchedulingStatus { state: "unavailable", reason: "permission_denied", observed_at_ms }
+            }
+            _ => SchedulingStatus { state: "pending", reason: "retrying", observed_at_ms },
+        },
+        "applied" if delivered_observed => {
+            SchedulingStatus { state: "delivered", reason: "observed_in_notification_center", observed_at_ms }
+        }
+        "applied" => match protocol::read_authorization(conn)? {
+            NotificationAuthorization::Authorized
+            | NotificationAuthorization::Provisional
+            | NotificationAuthorization::Ephemeral => {
+                SchedulingStatus { state: "scheduled", reason: "accepted", observed_at_ms }
+            }
+            NotificationAuthorization::NotDetermined => {
+                SchedulingStatus { state: "scheduled", reason: "permission_not_requested", observed_at_ms }
+            }
+            NotificationAuthorization::Denied => {
+                SchedulingStatus { state: "unavailable", reason: "permission_denied", observed_at_ms }
+            }
+        },
+        "abandoned" => {
+            SchedulingStatus { state: "unavailable", reason: abandon_reason(error_code.as_deref()), observed_at_ms }
+        }
+        "superseded" => unreachable!(
+            "record_intent supersedes only pending/attempting; the current generation's own intent never is"
+        ),
+        other => unreachable!("notification_intents.state CHECK constraint excludes {other:?}"),
+    }))
 }
 
-/// An unresolved cancel intent reports `pending`/`awaiting_app`, independent
-/// of the reminder's current enabled flag.
+/// The three abandonment codes `next_platform_work` ever writes.
+fn abandon_reason(error_code: Option<&str>) -> &'static str {
+    match error_code {
+        Some("deadline_elapsed_unattempted") => "deadline_elapsed_unattempted",
+        Some("deadline_elapsed_retrying") => "deadline_elapsed_retrying",
+        Some("delivery_unconfirmed") => "delivery_unconfirmed",
+        other => unreachable!(
+            "an abandoned schedule intent always carries one of the three abandonment codes, got {other:?}"
+        ),
+    }
+}
+
+/// Cancellation status per 0005: an unresolved cancel intent of the
+/// reminder's current generation reports `pending`/`awaiting_app` (never
+/// attempted) or `pending`/`retrying`; `None` without one.
 pub(crate) fn cancellation_status(
     conn: &Connection,
     reminder: Option<&Reminder>,
 ) -> CoreResult<Option<CancellationStatus>> {
     let Some(reminder) = reminder else { return Ok(None) };
-    let pending: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM notification_intents
-         WHERE reminder_id = ?1 AND kind = 'cancel' AND state IN ('pending', 'attempting'))",
-        [reminder.id.to_string()],
-        |row| row.get(0),
-    )?;
-    Ok(pending.then_some(CancellationStatus { state: "pending", reason: "awaiting_app" }))
+    let attempt_count: Option<i64> = conn
+        .query_row(
+            "SELECT attempt_count FROM notification_intents
+             WHERE reminder_id = ?1 AND generation = ?2 AND kind = 'cancel' AND state IN ('pending', 'attempting')",
+            params![reminder.id.to_string(), reminder.generation],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(attempt_count.map(|attempt_count| CancellationStatus {
+        state: "pending",
+        reason: if attempt_count == 0 { "awaiting_app" } else { "retrying" },
+    }))
 }
