@@ -1,8 +1,12 @@
 use std::io::{self, Write};
 use std::process::ExitCode;
 
+use rallo_core::items::ItemView;
+use rallo_core::shared::errors::ConflictDetail;
 use rallo_core::{CoreError, ErrorCode};
 use serde_json::{Map, Value, json};
+
+use crate::local_time::format_local;
 
 /// Process exit codes; part of the CLI contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,17 +27,20 @@ impl From<Exit> for ExitCode {
     }
 }
 
-/// A command failure before (or instead of) any commit.
+/// A command failure before (or instead of) any commit. `detail` is boxed:
+/// `ConflictDetail::Current` embeds a full `ItemView`, and this type is
+/// carried through every fallible command's `Result`.
 #[derive(Debug)]
 pub struct Failure {
     pub exit: Exit,
     pub code: &'static str,
     pub message: String,
+    pub detail: Option<Box<ConflictDetail>>,
 }
 
 impl Failure {
     pub fn new(exit: Exit, code: &'static str, message: impl Into<String>) -> Self {
-        Self { exit, code, message: message.into() }
+        Self { exit, code, message: message.into(), detail: None }
     }
 }
 
@@ -46,7 +53,9 @@ impl From<CoreError> for Failure {
             CoreError::Storage { .. } => Exit::Storage,
             CoreError::IncompatibleSchema { .. } => Exit::Incompatible,
         };
-        Self::new(exit, error.code().as_str(), error.to_string())
+        let code = error.code().as_str();
+        let detail = error.detail().cloned().map(Box::new);
+        Self { exit, code, message: error.to_string(), detail }
     }
 }
 
@@ -81,14 +90,69 @@ impl Output {
 
     pub fn failure(&self, failure: &Failure) -> ExitCode {
         if self.json {
+            let mut error = Map::new();
+            error.insert("code".into(), json!(failure.code));
+            error.insert("message".into(), json!(failure.message));
+            if let Some(detail) = &failure.detail {
+                error.insert("detail".into(), serde_json::to_value(detail).expect("ConflictDetail serializes"));
+            }
             let mut envelope = envelope(false);
-            envelope.insert("error".into(), json!({ "code": failure.code, "message": failure.message }));
+            envelope.insert("error".into(), Value::Object(error));
             write_stdout(&Value::Object(envelope).to_string());
         } else {
             eprintln!("error: {}", sanitize_line(&failure.message));
+            if let Some(detail) = &failure.detail {
+                render_detail_human(detail);
+            }
         }
         failure.exit.into()
     }
+}
+
+/// Human-readable rendering of a conflict's structured detail (0003 §11):
+/// ambiguity candidates, the current snapshot on a stale revision, or the
+/// active/limit counts at capacity. Always to stderr; nothing was mutated.
+fn render_detail_human(detail: &ConflictDetail) {
+    match detail {
+        ConflictDetail::Candidates { total, candidates } => {
+            for view in candidates {
+                eprintln!("  {}", candidate_line(view));
+            }
+            if *total as usize > candidates.len() {
+                eprintln!("{total} matches; showing {}", candidates.len());
+            }
+        }
+        ConflictDetail::Current { item } => {
+            eprintln!(
+                "current: {}  revision {}  “{}”",
+                item.item.status.as_str(),
+                item.item.revision,
+                preview(&item.item.text, 100),
+            );
+            eprintln!("Nothing changed.");
+        }
+        ConflictDetail::Capacity { limit, active } => {
+            eprintln!("{active} of {limit} reminders are already active.");
+        }
+    }
+}
+
+/// One candidate line distinguishing an ambiguous match without requiring the
+/// reader to memorize IDs: display ID, open/done, creation time, reminder
+/// time if any, and a text preview.
+fn candidate_line(view: &ItemView) -> String {
+    let reminder = view
+        .reminder
+        .as_ref()
+        .map(|reminder| format!("  reminder {}", format_local(reminder.deadline_ms)))
+        .unwrap_or_default();
+    format!(
+        "{}  {}  created {}{reminder}  “{}”",
+        view.display_id,
+        view.item.status.as_str(),
+        format_local(view.item.created_at_ms),
+        preview(&view.item.text, 60),
+    )
 }
 
 fn envelope(ok: bool) -> Map<String, Value> {

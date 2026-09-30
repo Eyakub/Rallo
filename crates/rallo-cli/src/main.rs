@@ -1,10 +1,13 @@
 mod args;
 mod commands;
+mod local_time;
 mod output;
 
 use std::process::ExitCode;
 
 use clap::Parser;
+use rallo_core::items::MutationOptions;
+use rallo_core::reminders::TimeSpec;
 use rallo_core::storage::paths;
 use rallo_core::{Store, StoreOptions};
 
@@ -25,6 +28,15 @@ fn main() -> ExitCode {
     }
 }
 
+/// Exactly one of `--in`/`--at` is required by clap for every caller.
+fn time_spec(in_: Option<String>, at: Option<String>) -> TimeSpec {
+    match (in_, at) {
+        (Some(in_), None) => TimeSpec::In(in_),
+        (None, Some(at)) => TimeSpec::At(at),
+        _ => unreachable!("clap enforces exactly one of --in/--at"),
+    }
+}
+
 fn run(cli: Cli, out: &Output) -> commands::CommandResult {
     if cli.version {
         return commands::version(out);
@@ -38,10 +50,46 @@ fn run(cli: Cli, out: &Output) -> commands::CommandResult {
     let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
     let mut store = Store::open(StoreOptions::new(data_dir))?;
     match command {
-        Command::Note { text, stdin } => commands::note(out, &mut store, text, stdin),
-        Command::List => commands::list(out, &store),
+        Command::Note { text, stdin, request_id } => commands::note(out, &mut store, text, stdin, request_id),
+        Command::Remind { text, stdin, in_, at, request_id } => {
+            commands::remind(out, &mut store, text, stdin, time_spec(in_, at), request_id)
+        }
+        Command::List { all, deleted, due, limit, cursor } => {
+            commands::list(out, &store, all, deleted, due, limit, cursor)
+        }
+        Command::Get { id } => commands::get(out, &store, &id),
+        Command::Search { text, exact, include_deleted, limit, cursor } => {
+            commands::search(out, &store, text, exact, include_deleted, limit, cursor)
+        }
+        Command::Edit { id, text, request_id, if_revision } => {
+            commands::edit(out, &mut store, &id, &text, MutationOptions { request_id, if_revision })
+        }
+        Command::Done { id, request_id, if_revision } => {
+            commands::done(out, &mut store, &id, MutationOptions { request_id, if_revision })
+        }
+        Command::Reopen { id, request_id, if_revision } => {
+            commands::reopen(out, &mut store, &id, MutationOptions { request_id, if_revision })
+        }
+        Command::Restore { id, request_id, if_revision } => {
+            commands::restore(out, &mut store, &id, MutationOptions { request_id, if_revision })
+        }
+        Command::Reschedule { id, in_, at, request_id, if_revision } => {
+            commands::reschedule(out, &mut store, &id, time_spec(in_, at), MutationOptions { request_id, if_revision })
+        }
+        Command::Snooze { id, duration, request_id, if_revision } => {
+            commands::snooze(out, &mut store, &id, &duration, MutationOptions { request_id, if_revision })
+        }
+        Command::Acknowledge { id, request_id, if_revision } => {
+            commands::acknowledge(out, &mut store, &id, MutationOptions { request_id, if_revision })
+        }
+        Command::CancelReminder { id, request_id, if_revision } => {
+            commands::cancel_reminder(out, &mut store, &id, MutationOptions { request_id, if_revision })
+        }
+        Command::Delete { id, text, request_id, if_revision } => {
+            commands::delete(out, &mut store, id, text, MutationOptions { request_id, if_revision })
+        }
         Command::Show { reset_position } => commands::show(out, &mut store, reset_position),
         Command::Hide => commands::hide(out, &mut store),
-        Command::Status => commands::status(out, &store),
+        Command::Status { id } => commands::status(out, &store, id),
     }
 }

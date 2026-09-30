@@ -1,8 +1,9 @@
 use std::io::{self, Read};
 use std::path::Path;
 
-use rallo_core::items::{ItemView, ListFilter, ListQuery};
+use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome, Page, SearchQuery};
 use rallo_core::preferences::PetVisibility;
+use rallo_core::reminders::{CancellationStatus, ReminderState, SchedulingStatus, TimeSpec};
 use rallo_core::shared::{signal, text};
 use rallo_core::storage::instance_lock::InstanceLock;
 use rallo_core::storage::migrations::SCHEMA_VERSION;
@@ -10,6 +11,7 @@ use rallo_core::{ErrorCode, Store};
 use rallo_platform_macos::{change_signal, launch};
 use serde_json::{Value, json};
 
+use crate::local_time::format_local;
 use crate::output::{Exit, Failure, Output, preview};
 
 pub type CommandResult = Result<(), Failure>;
@@ -30,6 +32,26 @@ pub fn version(out: &Output) -> CommandResult {
 
 fn item_json(view: &ItemView) -> Value {
     serde_json::to_value(view).expect("ItemView serializes")
+}
+
+/// The standard mutation output shape (0003 §11): item, changed, replayed,
+/// scheduling, cancellation. `delete` adds `undo` on top of this.
+fn mutation_fields(outcome: &MutationOutcome) -> Value {
+    json!({
+        "item": item_json(&outcome.item),
+        "changed": outcome.changed,
+        "replayed": outcome.replayed,
+        "scheduling": outcome.scheduling,
+        "cancellation": outcome.cancellation,
+    })
+}
+
+fn page_json(page: &Page<ItemView>) -> Value {
+    json!({
+        "items": page.items.iter().map(item_json).collect::<Vec<_>>(),
+        "total_count": page.total_count,
+        "next_cursor": page.next_cursor,
+    })
 }
 
 /// Reads `--stdin` input with a hard bound so an oversized stream cannot
@@ -56,43 +78,318 @@ fn read_stdin_text() -> Result<String, Failure> {
     Ok(input)
 }
 
-pub fn note(out: &Output, store: &mut Store, arg_text: Option<String>, from_stdin: bool) -> CommandResult {
-    let note_text = match arg_text {
-        Some(value) if !from_stdin => value,
-        _ => read_stdin_text()?,
-    };
-    let outcome = store.create_note(&note_text, None)?;
+fn resolve_text(arg_text: Option<String>, from_stdin: bool) -> Result<String, Failure> {
+    match arg_text {
+        Some(value) if !from_stdin => Ok(value),
+        _ => read_stdin_text(),
+    }
+}
+
+pub fn note(
+    out: &Output,
+    store: &mut Store,
+    arg_text: Option<String>,
+    from_stdin: bool,
+    request_id: Option<String>,
+) -> CommandResult {
+    let note_text = resolve_text(arg_text, from_stdin)?;
+    let outcome = store.create_note(&note_text, request_id.as_deref())?;
     let view = &outcome.item;
     // Committed. Everything below is a best-effort nudge to the app.
     let mut warnings = Vec::new();
-    if store.pet_visibility()? == Some(PetVisibility::Visible) {
-        nudge_app(store.data_dir(), launch::LaunchMode::Background, &mut warnings);
+    nudge_passive(store, &mut warnings);
+    out.success(mutation_fields(&outcome), &warnings, || {
+        format!("Saved “{}” ({})", preview(&view.item.text, 80), view.display_id)
+    });
+    Ok(())
+}
+
+/// `remind TEXT|--stdin (--in|--at)` (0003 §3): always creates a new item
+/// with an active reminder, so this always nudges the app to start draining
+/// the schedule intent, regardless of pet visibility.
+pub fn remind(
+    out: &Output,
+    store: &mut Store,
+    arg_text: Option<String>,
+    from_stdin: bool,
+    when: TimeSpec,
+    request_id: Option<String>,
+) -> CommandResult {
+    let note_text = resolve_text(arg_text, from_stdin)?;
+    let outcome = store.create_reminder(&note_text, &when, request_id.as_deref())?;
+    let view = &outcome.item;
+    let mut warnings = Vec::new();
+    nudge_reminder_intent(store, &mut warnings);
+    let deadline_ms = view.reminder.as_ref().expect("remind always attaches a reminder").deadline_ms;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        // Never "Reminder set": the app has not yet confirmed native scheduling (M2).
+        format!(
+            "Saved “{}” ({}); reminder at {} — scheduling pending",
+            preview(&view.item.text, 80),
+            view.display_id,
+            format_local(deadline_ms)
+        )
+    });
+    Ok(())
+}
+
+fn list_filter(all: bool, deleted: bool, due: bool) -> ListFilter {
+    if all {
+        ListFilter::All
+    } else if deleted {
+        ListFilter::Deleted
+    } else if due {
+        ListFilter::Due
     } else {
-        signal_if_running(store.data_dir());
+        ListFilter::Open
     }
+}
+
+pub fn list(
+    out: &Output,
+    store: &Store,
+    all: bool,
+    deleted: bool,
+    due: bool,
+    limit: u32,
+    cursor: Option<String>,
+) -> CommandResult {
+    let filter = list_filter(all, deleted, due);
+    let page = store.list(ListQuery { filter, limit, cursor })?;
+    out.success(page_json(&page), &[], || human_page(&page, "No matching notes."));
+    Ok(())
+}
+
+pub fn search(
+    out: &Output,
+    store: &Store,
+    text: String,
+    exact: bool,
+    include_deleted: bool,
+    limit: u32,
+    cursor: Option<String>,
+) -> CommandResult {
+    let page = store.search(SearchQuery { text, exact, include_deleted, limit, cursor })?;
+    out.success(page_json(&page), &[], || human_page(&page, "No matches."));
+    Ok(())
+}
+
+fn human_page(page: &Page<ItemView>, empty_message: &str) -> String {
+    if page.items.is_empty() {
+        return empty_message.to_owned();
+    }
+    let mut lines: Vec<String> = page.items.iter().map(list_line).collect();
+    if page.total_count as usize > page.items.len() {
+        lines.push(format!("{} matches; showing {}", page.total_count, page.items.len()));
+    }
+    lines.join("\n")
+}
+
+fn list_line(view: &ItemView) -> String {
+    let marker = if view.item.status.as_str() == "done" { "[done] " } else { "" };
+    let reminder =
+        view.reminder.as_ref().map(|r| format!("  (reminder {})", format_local(r.deadline_ms))).unwrap_or_default();
+    format!("{}  {marker}{}{reminder}", view.display_id, preview(&view.item.text, 100))
+}
+
+pub fn get(out: &Output, store: &Store, id: &str) -> CommandResult {
+    let view = store.get_item(id)?;
+    let scheduling = store.scheduling_status(&view)?;
+    let cancellation = store.cancellation_status(&view)?;
     out.success(
-        json!({ "item": item_json(view), "scheduling": outcome.scheduling, "cancellation": outcome.cancellation }),
-        &warnings,
-        || format!("Saved “{}” ({})", preview(&view.item.text, 80), view.display_id),
+        json!({ "item": item_json(&view), "scheduling": scheduling, "cancellation": cancellation }),
+        &[],
+        || item_human(&view, scheduling.as_ref(), cancellation.as_ref()),
     );
     Ok(())
 }
 
-pub fn list(out: &Output, store: &Store) -> CommandResult {
-    let page = store.list(ListQuery {
-        filter: ListFilter::Open,
-        limit: rallo_core::items::service::DEFAULT_PAGE_SIZE,
-        cursor: None,
-    })?;
-    out.success(json!({ "items": page.items.iter().map(item_json).collect::<Vec<_>>() }), &[], || {
-        if page.items.is_empty() {
-            "No open notes.".to_owned()
+fn item_human(
+    view: &ItemView,
+    scheduling: Option<&SchedulingStatus>,
+    cancellation: Option<&CancellationStatus>,
+) -> String {
+    let mut lines = vec![
+        format!("{}  {}  revision {}", view.display_id, view.item.status.as_str(), view.item.revision),
+        format!("“{}”", preview(&view.item.text, 200)),
+    ];
+    if let Some(reminder) = &view.reminder {
+        lines.push(format!("Reminder: {} ({})", format_local(reminder.deadline_ms), reminder.state().as_str()));
+        if let Some(scheduling) = scheduling {
+            lines.push(format!("Scheduling: {} ({})", scheduling.state, scheduling.reason));
+        }
+        if let Some(cancellation) = cancellation {
+            lines.push(format!("Cancellation: {} ({})", cancellation.state, cancellation.reason));
+        }
+    }
+    lines.join("\n")
+}
+
+pub fn edit(out: &Output, store: &mut Store, id: &str, new_text: &str, opts: MutationOptions) -> CommandResult {
+    let outcome = store.edit_text(id, new_text, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_after(store, &outcome, &mut warnings);
+    let view = &outcome.item;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        if outcome.changed {
+            format!("Updated “{}” ({})", preview(&view.item.text, 80), view.display_id)
         } else {
-            page.items
-                .iter()
-                .map(|view| format!("{}  {}", view.display_id, preview(&view.item.text, 100)))
-                .collect::<Vec<_>>()
-                .join("\n")
+            format!("No change: “{}” ({}) already matches.", preview(&view.item.text, 80), view.display_id)
+        }
+    });
+    Ok(())
+}
+
+pub fn done(out: &Output, store: &mut Store, id: &str, opts: MutationOptions) -> CommandResult {
+    let outcome = store.complete(id, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_after(store, &outcome, &mut warnings);
+    let view = &outcome.item;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        if outcome.changed {
+            format!("Done: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        } else {
+            format!("Already done: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        }
+    });
+    Ok(())
+}
+
+pub fn reopen(out: &Output, store: &mut Store, id: &str, opts: MutationOptions) -> CommandResult {
+    let outcome = store.reopen(id, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_passive(store, &mut warnings);
+    let view = &outcome.item;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        if outcome.changed {
+            format!("Reopened “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        } else {
+            format!("Already open: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        }
+    });
+    Ok(())
+}
+
+pub fn restore(out: &Output, store: &mut Store, id: &str, opts: MutationOptions) -> CommandResult {
+    let outcome = store.restore(id, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_passive(store, &mut warnings);
+    let view = &outcome.item;
+    // Restore never re-enables an old reminder (0003 §3); say so when one exists.
+    let reminder_note = view.reminder.as_ref().map(|_| " (its old reminder was not re-enabled)").unwrap_or("");
+    out.success(mutation_fields(&outcome), &warnings, || {
+        if outcome.changed {
+            format!("Restored “{}” ({}){reminder_note}", preview(&view.item.text, 80), view.display_id)
+        } else {
+            format!("Not deleted: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        }
+    });
+    Ok(())
+}
+
+pub fn reschedule(out: &Output, store: &mut Store, id: &str, when: TimeSpec, opts: MutationOptions) -> CommandResult {
+    let outcome = store.reschedule(id, &when, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_reminder_intent(store, &mut warnings);
+    let view = &outcome.item;
+    let deadline_ms = view.reminder.as_ref().expect("reschedule always attaches a reminder").deadline_ms;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        format!(
+            "Rescheduled “{}” ({}); reminder at {} — scheduling pending",
+            preview(&view.item.text, 80),
+            view.display_id,
+            format_local(deadline_ms)
+        )
+    });
+    Ok(())
+}
+
+pub fn snooze(out: &Output, store: &mut Store, id: &str, duration: &str, opts: MutationOptions) -> CommandResult {
+    let outcome = store.snooze(id, duration, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_reminder_intent(store, &mut warnings);
+    let view = &outcome.item;
+    let deadline_ms = view.reminder.as_ref().expect("snooze always keeps a reminder").deadline_ms;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        format!(
+            "Snoozed “{}” ({}); reminder at {} — scheduling pending",
+            preview(&view.item.text, 80),
+            view.display_id,
+            format_local(deadline_ms)
+        )
+    });
+    Ok(())
+}
+
+pub fn acknowledge(out: &Output, store: &mut Store, id: &str, opts: MutationOptions) -> CommandResult {
+    let outcome = store.acknowledge(id, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_reminder_intent(store, &mut warnings);
+    let view = &outcome.item;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        if outcome.changed {
+            format!("Acknowledged “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        } else {
+            format!("No active reminder to acknowledge: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        }
+    });
+    Ok(())
+}
+
+pub fn cancel_reminder(out: &Output, store: &mut Store, id: &str, opts: MutationOptions) -> CommandResult {
+    let outcome = store.cancel_reminder(id, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_reminder_intent(store, &mut warnings);
+    let view = &outcome.item;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        if outcome.changed {
+            format!("Reminder cancelled for “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        } else {
+            format!("No active reminder to cancel: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        }
+    });
+    Ok(())
+}
+
+/// `delete ID | --text TEXT` (0003 §8): exactly one selector, enforced by
+/// clap. `--if-revision` only applies to the ID form (also enforced by clap).
+pub fn delete(
+    out: &Output,
+    store: &mut Store,
+    id: Option<String>,
+    text_selector: Option<String>,
+    opts: MutationOptions,
+) -> CommandResult {
+    let outcome = match id {
+        Some(id) => store.delete(&id, &opts)?,
+        None => {
+            let text_selector = text_selector.expect("clap requires exactly one of id / --text");
+            store.delete_by_text(&text_selector, opts.request_id.as_deref())?
+        }
+    };
+    let mut warnings = Vec::new();
+    nudge_after(store, &outcome, &mut warnings);
+
+    let view = &outcome.item;
+    let mut fields = mutation_fields(&outcome);
+    fields["undo"] = json!({ "command": format!("rallo restore {}", view.display_id), "item_id": view.item.id });
+
+    // 0003 §3/§8: restoring never re-enables the reminder; say so when this
+    // item's reminder was disabled by a deletion (this call or an earlier one
+    // replayed through `--request-id`).
+    let reminder_deleted = view.reminder.as_ref().is_some_and(|r| r.state() == ReminderState::Deleted);
+    out.success(fields, &warnings, || {
+        let headline = if outcome.changed {
+            format!("Deleted “{}”. Undo: rallo restore {}", preview(&view.item.text, 80), view.display_id)
+        } else {
+            format!("Already deleted: “{}”. Undo: rallo restore {}", preview(&view.item.text, 80), view.display_id)
+        };
+        if reminder_deleted {
+            format!(
+                "{headline}\nRestoring will not re-enable its reminder; removing the scheduled alert is still pending."
+            )
+        } else {
+            headline
         }
     });
     Ok(())
@@ -125,7 +422,16 @@ pub fn hide(out: &Output, store: &mut Store) -> CommandResult {
     Ok(())
 }
 
-pub fn status(out: &Output, store: &Store) -> CommandResult {
+/// `status` (no ID): existing app/storage/pet overview. `status ID`: the item
+/// plus its scheduling/cancellation detail, same shape as `get`.
+pub fn status(out: &Output, store: &Store, id: Option<String>) -> CommandResult {
+    match id {
+        Some(id) => get(out, store, &id),
+        None => status_overview(out, store),
+    }
+}
+
+fn status_overview(out: &Output, store: &Store) -> CommandResult {
     let running = InstanceLock::is_held(store.data_dir())?;
     let app = launch::locate_app().ok();
     let visibility = store.pet_visibility()?;
@@ -185,6 +491,42 @@ fn nudge_app(data_dir: &Path, mode: launch::LaunchMode, warnings: &mut Vec<Strin
     }
     let result = launch::locate_app().and_then(|app| launch::launch(&app, mode, data_dir));
     if let Err(error) = result {
-        warnings.push(format!("saved, but the app was not started: {error}"));
+        warnings.push(format!("the change is saved, but the Rallo app was not started: {error}"));
+    }
+}
+
+/// Existing nudge behaviour for plain note/edit/done/reopen/delete/restore
+/// writes (build plan §5): signal a running app; otherwise only background-
+/// launch it if the pet is visible. Never fails the command.
+fn nudge_passive(store: &Store, warnings: &mut Vec<String>) {
+    if store.pet_visibility().unwrap_or(None) == Some(PetVisibility::Visible) {
+        nudge_app(store.data_dir(), launch::LaunchMode::Background, warnings);
+    } else {
+        signal_if_running(store.data_dir());
+    }
+}
+
+/// Nudge for a command that changed reminder scheduling/cancellation intent
+/// (build plan §5/§8): signal if running, else background-launch, regardless
+/// of pet visibility, since native work is now pending. A launch failure is a
+/// warning; the exit code stays 0.
+fn nudge_reminder_intent(store: &Store, warnings: &mut Vec<String>) {
+    nudge_app(store.data_dir(), launch::LaunchMode::Background, warnings);
+}
+
+/// `done`/`delete`/`edit` only queue a reminder intent conditionally (an
+/// active reminder being cancelled, or a preview payload refresh); other
+/// mutations touch no reminder at all. A pending schedule or cancel intent on
+/// the resulting item is the signal that this call (or an idempotent replay
+/// of it) left native work for the app to do.
+fn touched_reminder_intent(outcome: &MutationOutcome) -> bool {
+    outcome.changed && (outcome.scheduling.is_some() || outcome.cancellation.is_some())
+}
+
+fn nudge_after(store: &Store, outcome: &MutationOutcome, warnings: &mut Vec<String>) {
+    if touched_reminder_intent(outcome) {
+        nudge_reminder_intent(store, warnings);
+    } else {
+        nudge_passive(store, warnings);
     }
 }

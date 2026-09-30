@@ -14,10 +14,18 @@ command -v hyperfine >/dev/null || { echo "error: hyperfine not found (brew inst
 out="$REPO_ROOT/build/benchmarks/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out"
 data="$(mktemp -d)"
-trap 'rm -rf "$data"' EXIT
+seeded="$(mktemp -d)"
+trap 'rm -rf "$data" "$seeded"' EXIT
 export RALLO_DATA_DIR="$data"
 # Keep the app out of the measurement: hidden notes never launch it.
 "$rallo" hide >/dev/null
+RALLO_DATA_DIR="$seeded" "$rallo" hide >/dev/null
+
+seed_example="$CARGO_TARGET_DIR/release/examples/seed"
+if [ ! -x "$seed_example" ]; then
+  echo "error: $seed_example not found; run: cargo build --release -p rallo-core --example seed" >&2
+  exit 1
+fi
 
 bench() {
   local name="$1"; shift
@@ -38,4 +46,9 @@ PY
   bench "version" "$rallo --version"
   bench "note (durable commit)" "$rallo note benchmark-note"
   bench "list (first page)" "$rallo list --json"
+
+  echo "seeding $seeded with 10,000 items (one-time setup, not measured)..." >&2
+  "$seed_example" "$seeded" 10000 >&2
+  bench "list (10k items, first page)" "$rallo --data-dir $seeded list --json"
+  bench "search --exact (10k items)" "$rallo --data-dir $seeded search --exact --json 'seed note 4999'"
 } | tee "$out/summary.txt"
