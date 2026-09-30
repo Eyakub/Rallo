@@ -110,10 +110,19 @@ Generated Swift from `crates/rallo-ffi` (module `rallo_ffi`, C module
 | `petVisibility()` / `setPetVisibility(visibility:)` | | `nil` = never introduced; setters return whether state changed |
 | `petPlacement()` / `setPetPlacement(placement:)` | | global AppKit points; `nil` resets to default |
 | `onboardingCompleted()` / `setOnboardingCompleted()` | | |
+| `notificationIdentifierPrefix() -> String` | `notification_prefix` | `rallo.reminder.<scope>.`; Swift filters `UNUserNotificationCenter` requests to it before reporting them |
+| `notificationAuthorization() throws -> NotificationAuthorization` | `notification_authorization` | last-observed authorization; `notDetermined` before the first drain pass |
+| `recordNativeObservations(authorization:pending:delivered:) throws -> CleanupPlan` | `record_native_observations` | 0005 drain-pass step 1; `pending`/`delivered` are this store's own `NativeRequest`s |
+| `nextPlatformWork() throws -> NextWork` | `next_platform_work` | mutating: may abandon elapsed schedule intents; `.work(PlatformWork)` or `.idle(nextWakeAtMs:)` |
+| `beginPlatformAttempt(intentId:generation:) throws -> BeginOutcome` | `begin_platform_attempt` | `.started(AttemptToken)` or `.superseded`; commits before any native effect |
+| `finishPlatformAttempt(token:outcome:) throws -> Finished` | `finish_platform_attempt` | compare-and-set on the token; `NativeOutcome` reports what the native call did |
+| `applyNotificationAction(reminderId:generation:action:) throws -> ActionOutcome` | `apply_notification_action` | `.applied(ItemSnapshot)` or `.stale(item:reason:)` for a tapped `rallo.done`/`rallo.snooze.10m` |
 
 `ItemSnapshot.reminder` carries the deadline, state, and the core's
 scheduling status (`schedulingState`, e.g. `pending` / `awaiting_app` until the
-app has scheduled it); Swift displays it and never derives it.
+app has scheduled it); Swift displays it and never derives it. The full
+scheduling/cancellation status table and the notification protocol's types are
+specified in `docs/decisions/0005-notification-protocol.md`.
 
 Errors cross as `RalloError` with a stable `code` string:
 `InvalidInput`, `NotFound`, `Conflict` (e.g. `REVISION_CONFLICT`),

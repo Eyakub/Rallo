@@ -5,6 +5,11 @@ M1–M2. This file records the contract as it is implemented and the platform
 behaviour it relies on. Observations are from macOS 27.0 (26A428) on the
 machine in `platform-support.md`; they are not claims about other versions.
 
+The M2 notification protocol — intent lifecycle, the `reminders::protocol`
+operations, the full scheduling/cancellation status table, and the
+fault-injection list — is specified in
+`docs/decisions/0005-notification-protocol.md`.
+
 ## Product capacity: 32 active reminders
 
 Rallo caps the MVP at **32 active reminders**. This is a deliberately
