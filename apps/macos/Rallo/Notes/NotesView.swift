@@ -190,13 +190,19 @@ struct NotesView: View {
         }
     }
 
+    /// A question prompts offloading what's on someone's mind better than a
+    /// label does; it changes only with whether notes already exist.
+    private var prompt: String {
+        model.items.isEmpty ? "What’s on your mind?" : "Something else on your mind?"
+    }
+
     private var hasDraft: Bool {
         !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField(text: $model.draft, prompt: Text("Add a note…").foregroundStyle(Theme.bark), axis: .vertical) {
+            TextField(text: $model.draft, prompt: Text(prompt).foregroundStyle(Theme.bark), axis: .vertical) {
                 Text("New note")
             }
             .textFieldStyle(.plain)
