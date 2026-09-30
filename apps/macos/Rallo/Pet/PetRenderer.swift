@@ -124,6 +124,9 @@ final class PetView: NSView {
         badgeText.fontSize = 11
         badgeText.font = NSFont.systemFont(ofSize: 11, weight: .bold)
         badgeText.foregroundColor = NSColor.white.cgColor
+        // Without this the count cross-fades, so a badge appearing shows the
+        // stale "0" it kept while hidden.
+        badgeText.actions = ["contents": NSNull()]
         badge.addSublayer(badgeText)
         layer?.addSublayer(badge)
 
