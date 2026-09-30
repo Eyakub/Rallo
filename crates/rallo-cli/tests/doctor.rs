@@ -36,7 +36,13 @@ impl Cli {
 
     fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_rallo"));
-        command.args(args).env("RALLO_DATA_DIR", self.data_dir()).env_remove("RALLO_APP_PATH");
+        command
+            .args(args)
+            .env("RALLO_DATA_DIR", self.data_dir())
+            .env_remove("RALLO_APP_PATH")
+            // So a real $CODEX_HOME on the machine running the tests never
+            // leaks into agent_skill's Codex detection.
+            .env_remove("CODEX_HOME");
         command
     }
 
@@ -272,6 +278,46 @@ fn outdated_agent_skill_is_a_warning_with_the_setup_fix() {
     let agent_skill = Cli::check(&parse(&output), "agent_skill").clone();
     assert_eq!(agent_skill["status"], "warning");
     assert_eq!(agent_skill["fix"], "rallo setup skill");
+}
+
+#[test]
+fn codex_current_skill_without_rules_is_a_warning_with_the_agent_fix() {
+    let cli = Cli::new();
+    let home = cli.dir.path().join("home");
+    let install = cli
+        .command(&["setup", "skill", "--json", "--agent", "codex"])
+        .env("HOME", &home)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(install.status.code(), Some(0), "{}", String::from_utf8_lossy(&install.stdout));
+    fs::remove_file(home.join(".codex/rules/rallo.rules")).unwrap();
+
+    let output = cli.command(&["doctor", "--json"]).env("HOME", &home).stdin(Stdio::null()).output().unwrap();
+    let agent_skill = Cli::check(&parse(&output), "agent_skill").clone();
+    assert_eq!(agent_skill["status"], "warning");
+    assert_eq!(agent_skill["fix"], "rallo setup skill --agent codex");
+}
+
+#[test]
+fn all_current_for_claude_and_codex_reports_installed_for_both() {
+    let cli = Cli::new();
+    let home = cli.dir.path().join("home");
+    let install = cli
+        .command(&["setup", "skill", "--json", "--agent", "claude", "--agent", "codex"])
+        .env("HOME", &home)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(install.status.code(), Some(0), "{}", String::from_utf8_lossy(&install.stdout));
+
+    let output = cli.command(&["doctor", "--json"]).env("HOME", &home).stdin(Stdio::null()).output().unwrap();
+    let agent_skill = Cli::check(&parse(&output), "agent_skill").clone();
+    assert_eq!(agent_skill["status"], "ok");
+    let summary = agent_skill["summary"].as_str().unwrap();
+    assert!(summary.contains("Claude Code and Cursor"), "{summary}");
+    assert!(summary.contains("Codex"), "{summary}");
+    assert!(agent_skill["fix"].is_null());
 }
 
 #[test]
