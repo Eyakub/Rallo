@@ -10,8 +10,16 @@ drainer in the app process that holds the instance lock.
 
 ## Identity
 
-- Native request identifier: `rallo.reminder.<reminder uuid>` — stable per
-  reminder, so re-adding replaces a pending request of an older generation.
+- Native request identifier: `rallo.reminder.<scope>.<reminder uuid>` —
+  stable per reminder, so re-adding replaces a pending request of an older
+  generation. `<scope>` is the fnv1a64 of the canonical data directory (the
+  same scope as the Darwin signal names).
+- **Scoping is a safety rule.** Every data directory shares one macOS
+  notification center (one app identity), so a store observes and cleans up
+  only identifiers under its own `rallo.reminder.<scope>.` prefix. Another
+  store's requests, probe requests, and anything else are never observed
+  and never removed; an isolated test instance cannot touch a user's real
+  reminders.
 - `userInfo`: `reminder_id`, `item_id`, `generation` (integer), `deadline_ms`.
   No note text outside `content.title/body`.
 - Category `rallo.reminder` with actions `rallo.done` (complete the item) and
@@ -60,10 +68,10 @@ Called at the start of every drain pass with Rallo-owned requests only.
    current generation with a future deadline (> now + 2 s) that is neither
    pending nor delivered goes back to `pending` with `missing_from_readback`
    and backoff.
-5. Returns identifiers to remove, both lists limited to the
-   `rallo.reminder.` prefix:
-   - `remove_pending`: unparsable identifiers, unknown reminders, reminders
-     not enabled.
+5. Returns identifiers to remove, both lists limited to this store's
+   prefix:
+   - `remove_pending`: unparsable identifiers inside the prefix, unknown
+     reminders, reminders not enabled.
    - `remove_delivered`: delivered entries of reminders not enabled
      (completed, deleted, cancelled, acknowledged). Delivered entries of
      enabled reminders stay: the user has not acted on them.
