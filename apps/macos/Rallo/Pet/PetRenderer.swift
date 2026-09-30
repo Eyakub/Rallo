@@ -227,7 +227,8 @@ final class PetView: NSView {
         guard dragStart != nil else { return }
         if dragging, let window {
             onDragEnded(window.frame.origin)
-        } else {
+        } else if event.clickCount < 2 {
+            // A double-click is one request, not open-then-close.
             onClick()
         }
     }
