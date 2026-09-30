@@ -296,6 +296,23 @@ pub enum SetupCommand {
         #[arg(long = "agent", value_enum)]
         agents: Vec<Agent>,
     },
+    /// Installs the `agent-event` hook command for every detected agent
+    /// (0007): merges into Claude Code's `~/.claude/settings.json` and/or
+    /// Codex's `$CODEX_HOME/hooks.json`. Never replaces a hook entry that
+    /// isn't Rallo's own.
+    Hooks {
+        /// Install only for these agents (repeatable). Default: every
+        /// detected agent, or Claude Code if none is detected.
+        #[arg(long = "agent", value_enum)]
+        agents: Vec<Agent>,
+        /// Remove Rallo's hook entries instead of installing them.
+        #[arg(long, conflicts_with = "print")]
+        remove: bool,
+        /// Print the hook entries this would add per agent instead of
+        /// writing anything.
+        #[arg(long)]
+        print: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]

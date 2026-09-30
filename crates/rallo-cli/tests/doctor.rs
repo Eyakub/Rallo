@@ -78,7 +78,7 @@ fn fresh_data_dir_is_reported_as_no_data_yet_and_never_created() {
     assert_eq!(code, 0, "{doc}");
     assert_eq!(doc["ok"], true);
     assert_eq!(doc["problem_count"], 0);
-    assert_eq!(doc["checks"].as_array().unwrap().len(), 8);
+    assert_eq!(doc["checks"].as_array().unwrap().len(), 9);
 
     let data_directory = Cli::check(&doc, "data_directory");
     assert_eq!(data_directory["status"], "ok");
@@ -330,6 +330,7 @@ fn human_output_marks_every_check_and_indents_fixes() {
         "app_install",
         "terminal_command",
         "agent_skill",
+        "agent_hooks",
         "data_directory",
         "app_running",
         "notifications",

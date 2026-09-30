@@ -71,13 +71,13 @@ impl Agent {
 }
 
 /// Claude Code's personal skills directory, which Cursor also reads.
-fn claude_home(home: &Path) -> PathBuf {
+pub(crate) fn claude_home(home: &Path) -> PathBuf {
     home.join(".claude")
 }
 
 /// `$CODEX_HOME` if set and non-empty, else `$HOME/.codex` -- shared by the
 /// Codex CLI and the Codex tab of the ChatGPT desktop app.
-fn codex_home(home: &Path) -> PathBuf {
+pub(crate) fn codex_home(home: &Path) -> PathBuf {
     match env::var_os("CODEX_HOME").filter(|value| !value.is_empty()) {
         Some(value) => PathBuf::from(value),
         None => home.join(".codex"),

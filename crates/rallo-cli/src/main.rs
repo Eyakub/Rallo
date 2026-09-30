@@ -2,6 +2,7 @@ mod agent_event;
 mod args;
 mod commands;
 mod doctor;
+mod hooks;
 mod local_time;
 mod output;
 mod skill;
@@ -56,6 +57,7 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
         return match setup_command {
             SetupCommand::Terminal => commands::setup_terminal(out),
             SetupCommand::Skill { print, agents } => commands::setup_skill(out, print, agents),
+            SetupCommand::Hooks { agents, remove, print } => hooks::run(out, agents, remove, print),
         }
         .map(|()| ExitCode::SUCCESS);
     }

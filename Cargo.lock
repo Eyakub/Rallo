@@ -578,6 +578,7 @@ name = "rallo-cli"
 version = "0.2.0"
 dependencies = [
  "clap",
+ "indexmap",
  "libc",
  "rallo-core",
  "rallo-platform-macos",

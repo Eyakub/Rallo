@@ -17,6 +17,7 @@ use rallo_core::storage::paths;
 use rallo_platform_macos::{launch, terminal_command};
 use serde_json::{Value, json};
 
+use crate::hooks;
 use crate::output::{Exit, Failure, Output};
 use crate::skill;
 
@@ -76,6 +77,7 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>) -> Result<ExitCode, Failur
     let (app_install, app) = check_app_install(home.as_deref());
     let terminal_command_check = check_terminal_command(app.as_deref(), home.as_deref());
     let agent_skill = check_agent_skill(home.as_deref());
+    let agent_hooks = check_agent_hooks(home.as_deref(), app.as_deref());
     let data_directory = check_data_directory(&data_dir, inspection.as_ref());
 
     // Only probe the instance lock if the data directory already exists:
@@ -92,6 +94,7 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>) -> Result<ExitCode, Failur
         app_install,
         terminal_command_check,
         agent_skill,
+        agent_hooks,
         data_directory,
         app_running,
         notifications,
@@ -385,6 +388,65 @@ fn not_installed_check() -> Check {
         "Not installed (optional): `rallo setup skill` teaches Claude Code, Cursor, and Codex to use Rallo.",
         None,
     )
+}
+
+/// `agent_hooks` (0007): read-only, like `agent_skill` -- scans both agents'
+/// hook config files for Rallo's own entries (by shape, `hooks::
+/// is_rallo_command`'s pattern) without ever writing anything. `app` is the
+/// app `check_app_install` located, if any, so a found entry's CLI path can
+/// be compared against this installed copy's.
+fn check_agent_hooks(home: Option<&Path>, app: Option<&Path>) -> Check {
+    let Some(home) = home else {
+        return Check::new("agent_hooks", CheckStatus::Ok, "Not checked: $HOME is not set.", None);
+    };
+
+    let mut found: Vec<(skill::Agent, String)> = Vec::new();
+    let mut invalid_paths = Vec::new();
+    for agent in skill::Agent::ALL {
+        match hooks::find_rallo_entries(&hooks::hooks_path(agent, home)) {
+            hooks::ReadResult::NotPresent => {}
+            hooks::ReadResult::Invalid => invalid_paths.push(hooks::hooks_path(agent, home)),
+            hooks::ReadResult::Found(commands) => found.extend(commands.into_iter().map(|command| (agent, command))),
+        }
+    }
+
+    let invalid_note = if invalid_paths.is_empty() {
+        String::new()
+    } else {
+        let listed = invalid_paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ");
+        format!(" {listed} could not be parsed as JSON; left alone.")
+    };
+
+    if found.is_empty() {
+        return Check::new(
+            "agent_hooks",
+            CheckStatus::Ok,
+            format!(
+                "Not installed (optional): `rallo setup hooks` lets the pet tell you when Claude Code or Codex \
+                 needs you.{invalid_note}"
+            ),
+            None,
+        );
+    }
+
+    let expected_cli_path = app.map(terminal_command::cli_path);
+    let all_match = found.iter().all(|(_, command)| {
+        expected_cli_path.as_deref().is_some_and(|expected| hooks::extract_cli_path(command) == expected.to_str())
+    });
+
+    if !all_match {
+        return Check::new(
+            "agent_hooks",
+            CheckStatus::Warning,
+            format!("Rallo's hooks point at a different CLI path than this installed copy.{invalid_note}"),
+            Some("rallo setup hooks".into()),
+        );
+    }
+
+    let mut labels: Vec<&'static str> = found.iter().map(|(agent, _)| hooks::hook_label(*agent)).collect();
+    labels.sort_unstable();
+    labels.dedup();
+    Check::new("agent_hooks", CheckStatus::Ok, format!("Installed for {}.{invalid_note}", labels.join(" and ")), None)
 }
 
 /// The line to add when `link`'s directory is missing from a non-interactive

@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+indexmap.workspace = true
 libc.workspace = true
 rallo-core.workspace = true
 rallo-platform-macos.workspace = true
