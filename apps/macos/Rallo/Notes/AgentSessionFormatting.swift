@@ -71,7 +71,23 @@ enum AgentSessionFormatting {
         return "\(name)\(place), \(accessibleState(for: session)), \(accessibleTime(updatedAtMs: session.updatedAtMs, now: now))"
     }
 
-    private static func accessibleState(for session: AgentSessionSnapshot) -> String {
+    /// "Claude Code is waiting in shop", for the long-wait notification's
+    /// title (0008). Its body is `subtitle(for:)`.
+    static func notificationTitle(for session: AgentSessionSnapshot) -> String {
+        let name = agentName(session.agent)
+        guard let folder = folder(cwd: session.cwd) else { return "\(name) is waiting" }
+        return "\(name) is waiting in \(folder)"
+    }
+
+    /// "Claude Code in shop is waiting for permission: Bash.", for the
+    /// VoiceOver announcement when a session enters `waiting` (0008).
+    static func waitingAnnouncement(for session: AgentSessionSnapshot) -> String {
+        let name = agentName(session.agent)
+        let place = folder(cwd: session.cwd).map { " in \($0)" } ?? ""
+        return "\(name)\(place) is \(accessibleState(for: session))."
+    }
+
+    static func accessibleState(for session: AgentSessionSnapshot) -> String {
         switch session.state {
         case "waiting":
             if let detail = session.detail, !detail.isEmpty { return "waiting for permission: \(detail)" }

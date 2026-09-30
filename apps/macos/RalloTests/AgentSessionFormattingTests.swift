@@ -53,6 +53,28 @@ final class AgentSessionFormattingTests: XCTestCase {
         XCTAssertEqual(AgentSessionFormatting.relativeTime(updatedAtMs: nowMs - 90 * 60_000, now: now), "1 h")
     }
 
+    // MARK: Notification title and VoiceOver announcement (0008)
+
+    func testNotificationTitleNamesTheFolder() {
+        XCTAssertEqual(AgentSessionFormatting.notificationTitle(for: session(agent: "claude", cwd: "/Users/x/code/shop")),
+                       "Claude Code is waiting in shop")
+    }
+
+    func testNotificationTitleWithoutCwdOmitsThePlace() {
+        XCTAssertEqual(AgentSessionFormatting.notificationTitle(for: session(cwd: nil)), "Claude Code is waiting")
+    }
+
+    func testWaitingAnnouncementForAPermissionRequest() {
+        let row = session(agent: "claude", cwd: "/Users/x/code/shop", detail: "Bash")
+        XCTAssertEqual(AgentSessionFormatting.waitingAnnouncement(for: row),
+                       "Claude Code in shop is waiting for permission: Bash.")
+    }
+
+    func testWaitingAnnouncementWithoutCwdOrDetail() {
+        let row = session(cwd: nil, detail: nil)
+        XCTAssertEqual(AgentSessionFormatting.waitingAnnouncement(for: row), "Claude Code is waiting for you.")
+    }
+
     // MARK: Accessibility label
 
     func testAccessibilityLabelForAWaitingPermissionRow() {
