@@ -32,8 +32,8 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 440),
+        let panel = NotesWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 460),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -48,6 +48,9 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.delegate = self
         panel.contentView = NSHostingView(rootView: NotesView(model: model))
+        // A compact panel only closes; minimise/zoom would be dead controls.
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
         return panel
     }
 
@@ -62,5 +65,12 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
         let above = anchor.maxY + 8
         let y = above + size.height <= area.maxY ? above : max(area.minY + 8, anchor.minY - size.height - 8)
         return NSPoint(x: x, y: y)
+    }
+}
+
+/// Esc closes the notes panel, as the escape route from any panel should.
+private final class NotesWindow: NSPanel {
+    override func cancelOperation(_ sender: Any?) {
+        orderOut(sender)
     }
 }

@@ -22,6 +22,14 @@ final class CoreClient {
         try await worker.perform { try $0.createNote(text: text) }
     }
 
+    func completeItem(_ item: ItemSnapshot) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.completeItem(id: item.id, ifRevision: item.revision) }
+    }
+
+    func reopenItem(_ item: ItemSnapshot) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.reopenItem(id: item.id, ifRevision: item.revision) }
+    }
+
     func openItems(limit: UInt32 = 50) async throws -> [ItemSnapshot] {
         try await worker.perform { try $0.listOpenItems(limit: limit) }
     }

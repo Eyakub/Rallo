@@ -9,7 +9,7 @@ mod types;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use rallo_core::items::{ListFilter, ListQuery};
+use rallo_core::items::{ListFilter, ListQuery, MutationOptions};
 use rallo_core::shared::signal;
 use rallo_core::storage::{instance_lock, migrations, paths};
 use rallo_core::{Store, StoreOptions};
@@ -105,6 +105,19 @@ impl RalloStore {
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+
+    /// Marks an item done. `if_revision` guards a snapshot the UI showed;
+    /// a changed item fails with `REVISION_CONFLICT` instead of being overwritten.
+    pub fn complete_item(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(self.store().complete(&id, &opts)?.item.into())
+    }
+
+    /// Reopens a done item (the panel's undo). Never re-enables a reminder.
+    pub fn reopen_item(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(self.store().reopen(&id, &opts)?.item.into())
     }
 
     pub fn pet_visibility(&self) -> Result<Option<PetVisibility>, RalloError> {

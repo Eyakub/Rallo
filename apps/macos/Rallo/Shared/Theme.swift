@@ -1,23 +1,39 @@
 import AppKit
 import SwiftUI
 
-/// Rallo's warm palette with explicit light and dark variants. Views that
-/// paint their own background must use these instead of system label
-/// colours, which would turn white on a cream background in Dark Mode.
+/// Rallo's palette, drawn from the red panda itself, with explicit light and
+/// dark variants. Views that paint their own background must use these
+/// instead of system label colours, which turn white in Dark Mode.
 enum Theme {
-    static let backgroundTop = Color(light: 0xFFF7EC, dark: 0x2B211C)
-    static let backgroundBottom = Color(light: 0xFCE4CE, dark: 0x1C1512)
-    static let textPrimary = Color(light: 0x3B2A21, dark: 0xF7EADF)
-    static let textSecondary = Color(light: 0x86695A, dark: 0xBCA597)
-    static let accent = Color(light: 0xCF6A31, dark: 0xF2935A)
-    static let field = Color(light: 0xFFFFFF, lightAlpha: 0.92, dark: 0xFFFFFF, darkAlpha: 0.07)
-    static let fieldBorder = Color(light: 0xEBC6A8, dark: 0xFFFFFF, darkAlpha: 0.12)
-    static let row = Color(light: 0xFFFFFF, lightAlpha: 0.55, dark: 0xFFFFFF, darkAlpha: 0.04)
-    static let rowHighlight = Color(light: 0xCF6A31, lightAlpha: 0.14, dark: 0xF2935A, darkAlpha: 0.18)
+    // Surfaces: warm white by day, bamboo-forest night by dark.
+    static let surfaceTop = Color(light: 0xFCF8F5, dark: 0x221A16)
+    static let surfaceBottom = Color(light: 0xF8EDE4, dark: 0x1A1411)
+    // Paw ink / belly cream.
+    static let ink = Color(light: 0x2B1A13, dark: 0xF5E8DC)
+    // Bark: secondary text (≥ 4.5:1 on both surfaces).
+    static let bark = Color(light: 0x7D5F50, dark: 0xB59C8D)
+    // Fur rust: the accent. Lighter ember on dark for contrast.
+    static let rust = Color(light: 0xB4501F, dark: 0xF08A4B)
+    // Bamboo: completion.
+    static let bamboo = Color(light: 0x5E8C4A, dark: 0x8DBF74)
+    static let field = Color(light: 0xFFFFFF, dark: 0xFFFFFF, darkAlpha: 0.06)
+    static let fieldStroke = Color(light: 0xE8D6C8, dark: 0xFFFFFF, darkAlpha: 0.12)
+    static let hover = Color(light: 0x2B1A13, lightAlpha: 0.045, dark: 0xF5E8DC, darkAlpha: 0.06)
+    static let divider = Color(light: 0x2B1A13, lightAlpha: 0.14, dark: 0xF5E8DC, darkAlpha: 0.12)
+    static let toast = Color(light: 0x2B1A13, dark: 0xF5E8DC)
+    static let onToast = Color(light: 0xF5E8DC, dark: 0x2B1A13)
+    // The toast inverts the surface, so its accent inverts too.
+    static let toastAccent = Color(light: 0xF08A4B, dark: 0xB4501F)
+    static let highlight = Color(light: 0xB4501F, lightAlpha: 0.10, dark: 0xF08A4B, darkAlpha: 0.14)
     static let error = Color(light: 0xB3261E, dark: 0xFF8A80)
 
-    static var background: LinearGradient {
-        LinearGradient(colors: [backgroundTop, backgroundBottom], startPoint: .top, endPoint: .bottom)
+    static var surface: LinearGradient {
+        LinearGradient(colors: [surfaceTop, surfaceBottom], startPoint: .top, endPoint: .bottom)
+    }
+
+    /// The app's own voice (titles, empty states, buttons).
+    static func rounded(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .rounded)
     }
 }
 

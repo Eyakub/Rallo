@@ -177,7 +177,7 @@ final class AppCoordinator {
     // MARK: Notes and notifications
 
     private func openNotes(highlighting itemID: String?) {
-        notesModel.highlightedItemID = itemID
+        notesModel.highlight(itemID, for: 4)
         notes.open(near: pet.isVisible ? pet.frame : nil)
         log.record("notes_opened", ["item_id": itemID ?? NSNull()])
     }
