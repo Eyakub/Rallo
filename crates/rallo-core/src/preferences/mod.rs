@@ -9,6 +9,7 @@ use crate::storage::database::{Store, bump_revision};
 const PET_VISIBILITY: &str = "pet.visibility";
 const PET_PLACEMENT: &str = "pet.placement";
 const ONBOARDING_COMPLETED: &str = "onboarding.completed";
+const NOTIFICATIONS_PREVIEW_TEXT: &str = "notifications.preview_text";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -82,5 +83,16 @@ impl Store {
 
     pub fn set_onboarding_completed(&mut self) -> CoreResult<bool> {
         self.write_preference(ONBOARDING_COMPLETED, Some(&true))
+    }
+
+    /// Whether a text edit refreshes an active reminder's notification
+    /// payload (0003 §3 `edit`). Off by default: previews can leak note text
+    /// into a system notification.
+    pub fn preview_text_enabled(&self) -> CoreResult<bool> {
+        Ok(self.read_preference(NOTIFICATIONS_PREVIEW_TEXT)?.unwrap_or(false))
+    }
+
+    pub fn set_preview_text_enabled(&mut self, enabled: bool) -> CoreResult<bool> {
+        self.write_preference(NOTIFICATIONS_PREVIEW_TEXT, Some(&enabled))
     }
 }

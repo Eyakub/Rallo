@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 use std::path::Path;
 
-use rallo_core::items::{Item, ListFilter};
+use rallo_core::items::{ItemView, ListFilter, ListQuery};
 use rallo_core::preferences::PetVisibility;
 use rallo_core::shared::{signal, text};
 use rallo_core::storage::instance_lock::InstanceLock;
@@ -28,18 +28,8 @@ pub fn version(out: &Output) -> CommandResult {
     Ok(())
 }
 
-fn item_json(item: &Item) -> Value {
-    json!({
-        "id": item.id,
-        "display_id": item.display_id(),
-        "text": item.text,
-        "status": item.status,
-        "created_at_ms": item.created_at_ms,
-        "updated_at_ms": item.updated_at_ms,
-        "completed_at_ms": item.completed_at_ms,
-        "deleted_at_ms": item.deleted_at_ms,
-        "revision": item.revision,
-    })
+fn item_json(view: &ItemView) -> Value {
+    serde_json::to_value(view).expect("ItemView serializes")
 }
 
 /// Reads `--stdin` input with a hard bound so an oversized stream cannot
@@ -71,7 +61,8 @@ pub fn note(out: &Output, store: &mut Store, arg_text: Option<String>, from_stdi
         Some(value) if !from_stdin => value,
         _ => read_stdin_text()?,
     };
-    let item = store.create_note(&note_text)?;
+    let outcome = store.create_note(&note_text, None)?;
+    let view = &outcome.item;
     // Committed. Everything below is a best-effort nudge to the app.
     let mut warnings = Vec::new();
     if store.pet_visibility()? == Some(PetVisibility::Visible) {
@@ -79,21 +70,27 @@ pub fn note(out: &Output, store: &mut Store, arg_text: Option<String>, from_stdi
     } else {
         signal_if_running(store.data_dir());
     }
-    out.success(json!({ "item": item_json(&item), "scheduling": null }), &warnings, || {
-        format!("Saved “{}” ({})", preview(&item.text, 80), item.display_id())
-    });
+    out.success(
+        json!({ "item": item_json(view), "scheduling": outcome.scheduling, "cancellation": outcome.cancellation }),
+        &warnings,
+        || format!("Saved “{}” ({})", preview(&view.item.text, 80), view.display_id),
+    );
     Ok(())
 }
 
 pub fn list(out: &Output, store: &Store) -> CommandResult {
-    let items = store.list_items(ListFilter::Open, rallo_core::items::service::DEFAULT_PAGE_SIZE)?;
-    out.success(json!({ "items": items.iter().map(item_json).collect::<Vec<_>>() }), &[], || {
-        if items.is_empty() {
+    let page = store.list(ListQuery {
+        filter: ListFilter::Open,
+        limit: rallo_core::items::service::DEFAULT_PAGE_SIZE,
+        cursor: None,
+    })?;
+    out.success(json!({ "items": page.items.iter().map(item_json).collect::<Vec<_>>() }), &[], || {
+        if page.items.is_empty() {
             "No open notes.".to_owned()
         } else {
-            items
+            page.items
                 .iter()
-                .map(|item| format!("{}  {}", item.display_id(), preview(&item.text, 100)))
+                .map(|view| format!("{}  {}", view.display_id, preview(&view.item.text, 100)))
                 .collect::<Vec<_>>()
                 .join("\n")
         }
@@ -132,7 +129,14 @@ pub fn status(out: &Output, store: &Store) -> CommandResult {
     let running = InstanceLock::is_held(store.data_dir())?;
     let app = launch::locate_app().ok();
     let visibility = store.pet_visibility()?;
-    let open_count = store.list_items(ListFilter::Open, rallo_core::items::service::DEFAULT_PAGE_SIZE)?.len();
+    let open_count = store
+        .list(ListQuery {
+            filter: ListFilter::Open,
+            limit: rallo_core::items::service::DEFAULT_PAGE_SIZE,
+            cursor: None,
+        })?
+        .items
+        .len();
     let fields = json!({
         "app": { "running": running, "path": app },
         "storage": {

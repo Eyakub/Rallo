@@ -2,7 +2,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::thread;
 
-use rallo_core::items::ListFilter;
+use rallo_core::items::{ListFilter, ListQuery};
 use rallo_core::preferences::PetVisibility;
 use rallo_core::shared::clock::ManualClock;
 use rallo_core::storage::database::DATABASE_FILE;
@@ -32,15 +32,21 @@ fn notes_persist_across_reopen_with_revision_bumps() {
     let clock = Arc::new(ManualClock::new(1_000));
     let mut store = Store::open(StoreOptions::new(temp.path()).with_clock(clock.clone())).unwrap();
     assert_eq!(store.change_revision().unwrap(), 0);
-    let first = store.create_note("first").unwrap();
+    let first = store.create_note("first", None).unwrap().item;
     clock.advance(5);
-    let second = store.create_note("second\n  indented").unwrap();
+    let second = store.create_note("second\n  indented", None).unwrap().item;
     assert_eq!(store.change_revision().unwrap(), 2);
-    assert_eq!((first.created_at_ms, second.created_at_ms), (1_000, 1_005));
+    assert_eq!((first.item.created_at_ms, second.item.created_at_ms), (1_000, 1_005));
     drop(store);
 
     let store = open(temp.path());
-    let texts: Vec<_> = store.list_items(ListFilter::Open, 50).unwrap().into_iter().map(|item| item.text).collect();
+    let texts: Vec<_> = store
+        .list(ListQuery { filter: ListFilter::Open, limit: 50, cursor: None })
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|view| view.item.text)
+        .collect();
     assert_eq!(texts, ["second\n  indented", "first"], "newest first, text verbatim");
 }
 
@@ -48,10 +54,10 @@ fn notes_persist_across_reopen_with_revision_bumps() {
 fn rejected_input_commits_nothing() {
     let temp = tempfile::tempdir().unwrap();
     let mut store = open(temp.path());
-    let error = store.create_note("   \n").unwrap_err();
+    let error = store.create_note("   \n", None).unwrap_err();
     assert_eq!(error.code(), ErrorCode::TextEmpty);
     assert_eq!(store.change_revision().unwrap(), 0);
-    assert!(store.list_items(ListFilter::Open, 50).unwrap().is_empty());
+    assert!(store.list(ListQuery { filter: ListFilter::Open, limit: 50, cursor: None }).unwrap().items.is_empty());
 }
 
 #[test]
@@ -64,7 +70,7 @@ fn concurrent_writers_lose_nothing() {
             thread::spawn(move || {
                 let mut store = open(&dir);
                 for n in 0..25 {
-                    store.create_note(&format!("writer {writer} note {n}")).unwrap();
+                    store.create_note(&format!("writer {writer} note {n}"), None).unwrap();
                 }
             })
         })

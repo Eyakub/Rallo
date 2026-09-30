@@ -6,6 +6,7 @@
 
 pub mod items;
 pub mod preferences;
+pub mod reminders;
 pub mod shared;
 pub mod storage;
 

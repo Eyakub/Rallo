@@ -38,7 +38,7 @@ CREATE TABLE notification_intents (
     reminder_id        TEXT NOT NULL REFERENCES reminders (id),
     generation         INTEGER NOT NULL,
     kind               TEXT NOT NULL CHECK (kind IN ('schedule', 'cancel')),
-    state              TEXT NOT NULL CHECK (state IN ('pending', 'attempting', 'applied', 'superseded')),
+    state              TEXT NOT NULL CHECK (state IN ('pending', 'attempting', 'applied', 'superseded', 'abandoned')),
     created_at_ms      INTEGER NOT NULL,
     attempt_count      INTEGER NOT NULL DEFAULT 0,
     last_attempt_at_ms INTEGER,
@@ -68,6 +68,10 @@ CREATE TABLE request_receipts (
     created_at_ms INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
 ```
+
+`abandoned` is terminal: used in M2 when a deadline elapses before any
+attempt, or an elapsed attempt's outcome is uncertain (never replayed
+automatically).
 
 Receipts are retained indefinitely in the MVP (no silent pruning).
 

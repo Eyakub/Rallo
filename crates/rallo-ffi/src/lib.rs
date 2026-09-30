@@ -9,7 +9,7 @@ mod types;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use rallo_core::items::ListFilter;
+use rallo_core::items::{ListFilter, ListQuery};
 use rallo_core::shared::signal;
 use rallo_core::storage::{instance_lock, migrations, paths};
 use rallo_core::{Store, StoreOptions};
@@ -94,11 +94,17 @@ impl RalloStore {
     }
 
     pub fn create_note(&self, text: String) -> Result<ItemSnapshot, RalloError> {
-        Ok(self.store().create_note(&text)?.into())
+        Ok(self.store().create_note(&text, None)?.item.into())
     }
 
     pub fn list_open_items(&self, limit: u32) -> Result<Vec<ItemSnapshot>, RalloError> {
-        Ok(self.store().list_items(ListFilter::Open, limit)?.into_iter().map(Into::into).collect())
+        Ok(self
+            .store()
+            .list(ListQuery { filter: ListFilter::Open, limit, cursor: None })?
+            .items
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     pub fn pet_visibility(&self) -> Result<Option<PetVisibility>, RalloError> {

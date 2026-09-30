@@ -42,6 +42,12 @@ pub fn normalize_prefix(input: &str) -> Option<String> {
         .collect()
 }
 
+/// Exclusive upper bound for a `short_key >= prefix AND short_key < upper`
+/// range scan: `~` sorts after every Crockford Base32 character.
+pub fn prefix_upper_bound(prefix: &str) -> String {
+    format!("{prefix}~")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,5 @@
 use rallo_core::CoreError;
-use rallo_core::items::{Item, ItemStatus as CoreItemStatus};
+use rallo_core::items::{ItemStatus as CoreItemStatus, ItemView};
 use rallo_core::preferences;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -10,6 +10,11 @@ pub enum RalloError {
     NotFound { code: String, message: String },
     #[error("{message}")]
     Storage { code: String, message: String },
+    /// Ambiguous selection, a stale revision, a request-id collision, or a
+    /// precondition failure. The structured detail stays on the Rust side for
+    /// now; Swift gets the code and message.
+    #[error("{message}")]
+    Conflict { code: String, message: String },
     #[error("{message}")]
     IncompatibleSchema { found: u32, supported: u32, message: String },
 }
@@ -22,6 +27,7 @@ impl From<CoreError> for RalloError {
             CoreError::InvalidInput { .. } => Self::InvalidInput { code, message },
             CoreError::NotFound { .. } => Self::NotFound { code, message },
             CoreError::Storage { .. } => Self::Storage { code, message },
+            CoreError::Conflict { .. } => Self::Conflict { code, message },
             CoreError::IncompatibleSchema { found, supported } => {
                 Self::IncompatibleSchema { found, supported, message }
             }
@@ -55,11 +61,12 @@ pub struct ItemSnapshot {
     pub revision: i64,
 }
 
-impl From<Item> for ItemSnapshot {
-    fn from(item: Item) -> Self {
+impl From<ItemView> for ItemSnapshot {
+    fn from(view: ItemView) -> Self {
+        let item = view.item;
         Self {
             id: item.id.to_string(),
-            display_id: item.display_id().to_owned(),
+            display_id: view.display_id,
             status: match item.status {
                 CoreItemStatus::Open => ItemStatus::Open,
                 CoreItemStatus::Done => ItemStatus::Done,

@@ -11,6 +11,7 @@ pub enum Exit {
     Success = 0,
     InvalidInput = 2,
     NotFound = 3,
+    Conflict = 4,
     Storage = 5,
     Platform = 6,
     Incompatible = 7,
@@ -41,6 +42,7 @@ impl From<CoreError> for Failure {
         let exit = match &error {
             CoreError::InvalidInput { .. } => Exit::InvalidInput,
             CoreError::NotFound { .. } => Exit::NotFound,
+            CoreError::Conflict { .. } => Exit::Conflict,
             CoreError::Storage { .. } => Exit::Storage,
             CoreError::IncompatibleSchema { .. } => Exit::Incompatible,
         };

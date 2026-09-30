@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use crate::items::model::ItemView;
+
 /// Stable machine-readable error codes. Part of the CLI JSON contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -12,6 +14,15 @@ pub enum ErrorCode {
     StorageUnavailable,
     StorageBusy,
     IncompatibleSchema,
+    InvalidTime,
+    AmbiguousId,
+    AmbiguousItem,
+    RevisionConflict,
+    RequestIdConflict,
+    ItemDeleted,
+    ItemNotOpen,
+    NoReminder,
+    ReminderCapacityReached,
 }
 
 impl ErrorCode {
@@ -25,8 +36,41 @@ impl ErrorCode {
             Self::StorageUnavailable => "STORAGE_UNAVAILABLE",
             Self::StorageBusy => "STORAGE_BUSY",
             Self::IncompatibleSchema => "INCOMPATIBLE_SCHEMA",
+            Self::InvalidTime => "INVALID_TIME",
+            Self::AmbiguousId => "AMBIGUOUS_ID",
+            Self::AmbiguousItem => "AMBIGUOUS_ITEM",
+            Self::RevisionConflict => "REVISION_CONFLICT",
+            Self::RequestIdConflict => "REQUEST_ID_CONFLICT",
+            Self::ItemDeleted => "ITEM_DELETED",
+            Self::ItemNotOpen => "ITEM_NOT_OPEN",
+            Self::NoReminder => "NO_REMINDER",
+            Self::ReminderCapacityReached => "REMINDER_CAPACITY_REACHED",
         }
     }
+}
+
+/// Structured payload for `CoreError::Conflict`, serialized as the error's
+/// flat `detail` object (0003 §11): `{total, candidates}`, `{current}`, or
+/// `{limit, active}`. Never includes note text.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+// `Current { item: ItemView }` is specified verbatim by 0003; boxing it would
+// change the public field type for a size difference that only matters if
+// conflicts are constructed in a hot loop, which they are not.
+#[allow(clippy::large_enum_variant)]
+pub enum ConflictDetail {
+    Candidates {
+        total: u64,
+        candidates: Vec<ItemView>,
+    },
+    Current {
+        #[serde(rename = "current")]
+        item: ItemView,
+    },
+    Capacity {
+        limit: u32,
+        active: u32,
+    },
 }
 
 /// Errors surfaced across the CLI and FFI boundaries.
@@ -40,6 +84,10 @@ pub enum CoreError {
     NotFound { code: ErrorCode, message: String },
     #[error("{message}")]
     Storage { code: ErrorCode, message: String },
+    /// Ambiguous selection, a stale revision, a request-id collision, or a
+    /// precondition failure (deleted/not-open/no-reminder/at-capacity).
+    #[error("{message}")]
+    Conflict { code: ErrorCode, message: String, detail: Option<Box<ConflictDetail>> },
     #[error("database schema version {found} is newer than this build supports ({supported})")]
     IncompatibleSchema { found: u32, supported: u32 },
 }
@@ -47,8 +95,19 @@ pub enum CoreError {
 impl CoreError {
     pub fn code(&self) -> ErrorCode {
         match self {
-            Self::InvalidInput { code, .. } | Self::NotFound { code, .. } | Self::Storage { code, .. } => *code,
+            Self::InvalidInput { code, .. }
+            | Self::NotFound { code, .. }
+            | Self::Storage { code, .. }
+            | Self::Conflict { code, .. } => *code,
             Self::IncompatibleSchema { .. } => ErrorCode::IncompatibleSchema,
+        }
+    }
+
+    /// The structured detail carried by a `Conflict`, if any.
+    pub fn detail(&self) -> Option<&ConflictDetail> {
+        match self {
+            Self::Conflict { detail, .. } => detail.as_deref(),
+            _ => None,
         }
     }
 
@@ -56,8 +115,20 @@ impl CoreError {
         Self::InvalidInput { code, message: message.into() }
     }
 
+    pub(crate) fn not_found(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self::NotFound { code, message: message.into() }
+    }
+
     pub(crate) fn storage(message: impl Into<String>) -> Self {
         Self::Storage { code: ErrorCode::StorageUnavailable, message: message.into() }
+    }
+
+    pub(crate) fn conflict(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self::Conflict { code, message: message.into(), detail: None }
+    }
+
+    pub(crate) fn conflict_detail(code: ErrorCode, message: impl Into<String>, detail: ConflictDetail) -> Self {
+        Self::Conflict { code, message: message.into(), detail: Some(Box::new(detail)) }
     }
 }
 
