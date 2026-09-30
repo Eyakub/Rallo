@@ -875,6 +875,7 @@ impl Store {
             NotificationAction::Done => {
                 items_repository::mark_done(&tx, item.id, now)?;
                 repository::disable_active(&tx, item.id, DisabledReason::ItemCompleted, now)?;
+                crate::pet::increment_completion_seq(&tx)?;
             }
             NotificationAction::Snooze10m => {
                 let deadline_ms = now + 10 * 60 * 1_000;

@@ -242,6 +242,7 @@ impl Store {
             revision: 1,
         };
         repository::insert(&tx, &item, &text::match_key(&note_text))?;
+        crate::pet::increment_save_seq(&tx)?;
         bump_revision(&tx)?;
         let view = repository::build_item_view(&tx, item)?;
         store_receipt(
@@ -317,6 +318,7 @@ impl Store {
             |tx, item, now| {
                 repository::mark_done(tx, item.id, now)?;
                 reminders::repository::disable_active(tx, item.id, DisabledReason::ItemCompleted, now)?;
+                crate::pet::increment_completion_seq(tx)?;
                 bump_revision(tx)?;
                 Ok(())
             },

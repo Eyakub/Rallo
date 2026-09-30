@@ -5,6 +5,7 @@
 //! AppKit or perform network calls.
 
 pub mod items;
+pub mod pet;
 pub mod preferences;
 pub mod reminders;
 pub mod shared;

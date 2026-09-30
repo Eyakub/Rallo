@@ -8,6 +8,7 @@ use crate::storage::database::{Store, bump_revision};
 
 const PET_VISIBILITY: &str = "pet.visibility";
 const PET_PLACEMENT: &str = "pet.placement";
+const PET_ANIMATIONS_PAUSED: &str = "pet.animations_paused";
 const ONBOARDING_COMPLETED: &str = "onboarding.completed";
 const NOTIFICATIONS_PREVIEW_TEXT: &str = "notifications.preview_text";
 
@@ -75,6 +76,16 @@ impl Store {
     /// `None` resets to the default position.
     pub fn set_pet_placement(&mut self, placement: Option<PetPlacement>) -> CoreResult<bool> {
         self.write_preference(PET_PLACEMENT, placement.as_ref())
+    }
+
+    /// Menu-bar "pause animation" (plan §"Interaction rules"). Off by
+    /// default: the pet animates unless explicitly paused.
+    pub fn pet_animations_paused(&self) -> CoreResult<bool> {
+        Ok(self.read_preference(PET_ANIMATIONS_PAUSED)?.unwrap_or(false))
+    }
+
+    pub fn set_pet_animations_paused(&mut self, paused: bool) -> CoreResult<bool> {
+        self.write_preference(PET_ANIMATIONS_PAUSED, Some(&paused))
     }
 
     pub fn onboarding_completed(&self) -> CoreResult<bool> {

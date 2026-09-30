@@ -143,6 +143,7 @@ impl Store {
             resolved.input_offset_seconds,
             now,
         )?;
+        crate::pet::increment_save_seq(&tx)?;
         bump_revision(&tx)?;
 
         let view = items_repository::build_item_view(&tx, item)?;
