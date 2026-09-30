@@ -2,6 +2,7 @@ use rallo_core::CoreError;
 use rallo_core::items::{ItemStatus as CoreItemStatus, ItemView};
 use rallo_core::preferences;
 use rallo_core::reminders;
+use rallo_core::reminders::protocol as core_protocol;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RalloError {
@@ -162,4 +163,249 @@ impl From<PetPlacement> for preferences::PetPlacement {
     fn from(value: PetPlacement) -> Self {
         Self { x: value.x, y: value.y }
     }
+}
+
+// --- 0005 notification protocol -------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum NotificationAuthorization {
+    NotDetermined,
+    Denied,
+    Authorized,
+    Provisional,
+    Ephemeral,
+}
+
+impl From<NotificationAuthorization> for core_protocol::NotificationAuthorization {
+    fn from(value: NotificationAuthorization) -> Self {
+        match value {
+            NotificationAuthorization::NotDetermined => Self::NotDetermined,
+            NotificationAuthorization::Denied => Self::Denied,
+            NotificationAuthorization::Authorized => Self::Authorized,
+            NotificationAuthorization::Provisional => Self::Provisional,
+            NotificationAuthorization::Ephemeral => Self::Ephemeral,
+        }
+    }
+}
+
+impl From<core_protocol::NotificationAuthorization> for NotificationAuthorization {
+    fn from(value: core_protocol::NotificationAuthorization) -> Self {
+        match value {
+            core_protocol::NotificationAuthorization::NotDetermined => Self::NotDetermined,
+            core_protocol::NotificationAuthorization::Denied => Self::Denied,
+            core_protocol::NotificationAuthorization::Authorized => Self::Authorized,
+            core_protocol::NotificationAuthorization::Provisional => Self::Provisional,
+            core_protocol::NotificationAuthorization::Ephemeral => Self::Ephemeral,
+        }
+    }
+}
+
+/// One request Swift observed in `UNUserNotificationCenter`; `reminder_id`
+/// and `generation` come from the request's `userInfo`, `None` if missing or
+/// unparsable. `trigger_ms` is `None` for a delivered request.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NativeRequest {
+    pub identifier: String,
+    pub reminder_id: Option<String>,
+    pub generation: Option<i64>,
+    pub trigger_ms: Option<i64>,
+}
+
+impl From<NativeRequest> for core_protocol::NativeRequest {
+    fn from(value: NativeRequest) -> Self {
+        Self {
+            identifier: value.identifier,
+            reminder_id: value.reminder_id.and_then(|id| uuid::Uuid::parse_str(&id).ok()),
+            generation: value.generation,
+            trigger_ms: value.trigger_ms,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, uniffi::Record)]
+pub struct CleanupPlan {
+    pub remove_pending: Vec<String>,
+    pub remove_delivered: Vec<String>,
+}
+
+impl From<core_protocol::CleanupPlan> for CleanupPlan {
+    fn from(value: core_protocol::CleanupPlan) -> Self {
+        Self { remove_pending: value.remove_pending, remove_delivered: value.remove_delivered }
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum PlatformWork {
+    Schedule {
+        intent_id: i64,
+        reminder_id: String,
+        item_id: String,
+        generation: i64,
+        deadline_ms: i64,
+        identifier: String,
+        title: String,
+        body: String,
+    },
+    Cancel {
+        intent_id: i64,
+        reminder_id: String,
+        generation: i64,
+        identifier: String,
+    },
+}
+
+impl From<core_protocol::PlatformWork> for PlatformWork {
+    fn from(value: core_protocol::PlatformWork) -> Self {
+        match value {
+            core_protocol::PlatformWork::Schedule {
+                intent_id,
+                reminder_id,
+                item_id,
+                generation,
+                deadline_ms,
+                identifier,
+                title,
+                body,
+            } => Self::Schedule {
+                intent_id,
+                reminder_id: reminder_id.to_string(),
+                item_id: item_id.to_string(),
+                generation,
+                deadline_ms,
+                identifier,
+                title,
+                body,
+            },
+            core_protocol::PlatformWork::Cancel { intent_id, reminder_id, generation, identifier } => {
+                Self::Cancel { intent_id, reminder_id: reminder_id.to_string(), generation, identifier }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum NextWork {
+    Work(PlatformWork),
+    Idle { next_wake_at_ms: Option<i64> },
+}
+
+impl From<core_protocol::NextWork> for NextWork {
+    fn from(value: core_protocol::NextWork) -> Self {
+        match value {
+            core_protocol::NextWork::Work(work) => Self::Work(work.into()),
+            core_protocol::NextWork::Idle { next_wake_at_ms } => Self::Idle { next_wake_at_ms },
+        }
+    }
+}
+
+/// Proof that `begin_platform_attempt` marked an intent `attempting`;
+/// round-trips through Swift to `finish_platform_attempt`.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct AttemptToken {
+    pub intent_id: i64,
+    pub generation: i64,
+    pub attempt: i64,
+}
+
+impl From<core_protocol::AttemptToken> for AttemptToken {
+    fn from(value: core_protocol::AttemptToken) -> Self {
+        Self { intent_id: value.intent_id, generation: value.generation, attempt: value.attempt }
+    }
+}
+
+impl From<AttemptToken> for core_protocol::AttemptToken {
+    fn from(value: AttemptToken) -> Self {
+        Self { intent_id: value.intent_id, generation: value.generation, attempt: value.attempt }
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum BeginOutcome {
+    Started(AttemptToken),
+    Superseded,
+}
+
+impl From<core_protocol::BeginOutcome> for BeginOutcome {
+    fn from(value: core_protocol::BeginOutcome) -> Self {
+        match value {
+            core_protocol::BeginOutcome::Started(token) => Self::Started(token.into()),
+            core_protocol::BeginOutcome::Superseded => Self::Superseded,
+        }
+    }
+}
+
+/// What Swift observed after attempting a native effect.
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum NativeOutcome {
+    Accepted { readback_trigger_ms: i64 },
+    Removed,
+    NotConfirmed,
+    TransientFailure { code: String },
+    PermissionDenied,
+}
+
+impl From<NativeOutcome> for core_protocol::NativeOutcome {
+    fn from(value: NativeOutcome) -> Self {
+        match value {
+            NativeOutcome::Accepted { readback_trigger_ms } => Self::Accepted { readback_trigger_ms },
+            NativeOutcome::Removed => Self::Removed,
+            NativeOutcome::NotConfirmed => Self::NotConfirmed,
+            NativeOutcome::TransientFailure { code } => Self::TransientFailure { code },
+            NativeOutcome::PermissionDenied => Self::PermissionDenied,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct Finished {
+    pub applied: bool,
+    pub superseded: bool,
+    pub retry_at_ms: Option<i64>,
+}
+
+impl From<core_protocol::Finished> for Finished {
+    fn from(value: core_protocol::Finished) -> Self {
+        Self { applied: value.applied, superseded: value.superseded, retry_at_ms: value.retry_at_ms }
+    }
+}
+
+/// A tapped notification action's category identifier.
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum NotificationAction {
+    Done,
+    Snooze10m,
+}
+
+impl From<NotificationAction> for core_protocol::NotificationAction {
+    fn from(value: NotificationAction) -> Self {
+        match value {
+            NotificationAction::Done => Self::Done,
+            NotificationAction::Snooze10m => Self::Snooze10m,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum StaleReason {
+    Changed,
+    Deleted,
+    Missing,
+}
+
+impl From<core_protocol::StaleReason> for StaleReason {
+    fn from(value: core_protocol::StaleReason) -> Self {
+        match value {
+            core_protocol::StaleReason::Changed => Self::Changed,
+            core_protocol::StaleReason::Deleted => Self::Deleted,
+            core_protocol::StaleReason::Missing => Self::Missing,
+        }
+    }
+}
+
+/// Result of a tapped notification action; built in `lib.rs` (it needs a
+/// `&Store` to attach scheduling status to the snapshot, like `from_view`).
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum ActionOutcome {
+    Applied(ItemSnapshot),
+    Stale { item: Option<ItemSnapshot>, reason: StaleReason },
 }

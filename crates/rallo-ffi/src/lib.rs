@@ -10,10 +10,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome};
+use rallo_core::reminders::protocol as core_protocol;
 use rallo_core::reminders::{SchedulingStatus, TimeSpec};
 use rallo_core::shared::signal;
 use rallo_core::storage::{instance_lock, migrations, paths};
-use rallo_core::{Store, StoreOptions};
+use rallo_core::{ErrorCode, Store, StoreOptions};
 
 pub use types::*;
 
@@ -196,5 +197,62 @@ impl RalloStore {
 
     pub fn set_onboarding_completed(&self) -> Result<bool, RalloError> {
         Ok(self.store().set_onboarding_completed()?)
+    }
+
+    /// This store's identifier prefix (`rallo.reminder.<scope>.`); Swift
+    /// filters `UNUserNotificationCenter` requests down to it before
+    /// reporting them to `record_native_observations`.
+    pub fn notification_identifier_prefix(&self) -> String {
+        self.store().notification_prefix()
+    }
+
+    pub fn notification_authorization(&self) -> Result<NotificationAuthorization, RalloError> {
+        Ok(self.store().notification_authorization()?.into())
+    }
+
+    pub fn record_native_observations(
+        &self,
+        authorization: NotificationAuthorization,
+        pending: Vec<NativeRequest>,
+        delivered: Vec<NativeRequest>,
+    ) -> Result<CleanupPlan, RalloError> {
+        let pending: Vec<core_protocol::NativeRequest> = pending.into_iter().map(Into::into).collect();
+        let delivered: Vec<core_protocol::NativeRequest> = delivered.into_iter().map(Into::into).collect();
+        Ok(self.store().record_native_observations(authorization.into(), &pending, &delivered)?.into())
+    }
+
+    pub fn next_platform_work(&self) -> Result<NextWork, RalloError> {
+        Ok(self.store().next_platform_work()?.into())
+    }
+
+    pub fn begin_platform_attempt(&self, intent_id: i64, generation: i64) -> Result<BeginOutcome, RalloError> {
+        Ok(self.store().begin_platform_attempt(intent_id, generation)?.into())
+    }
+
+    pub fn finish_platform_attempt(&self, token: AttemptToken, outcome: NativeOutcome) -> Result<Finished, RalloError> {
+        Ok(self.store().finish_platform_attempt(token.into(), outcome.into())?.into())
+    }
+
+    /// A tapped notification action. Applies only if `generation` is still
+    /// current, the reminder enabled, and the item not deleted; otherwise the
+    /// current item (if any) comes back as `ActionOutcome::Stale`.
+    pub fn apply_notification_action(
+        &self,
+        reminder_id: String,
+        generation: i64,
+        action: NotificationAction,
+    ) -> Result<ActionOutcome, RalloError> {
+        let reminder_id = uuid::Uuid::parse_str(&reminder_id).map_err(|_| RalloError::InvalidInput {
+            code: ErrorCode::InvalidId.as_str().to_owned(),
+            message: "reminder id must be a UUID".to_owned(),
+        })?;
+        let mut store = self.store();
+        match store.apply_notification_action(reminder_id, generation, action.into())? {
+            core_protocol::ActionOutcome::Applied(view) => Ok(ActionOutcome::Applied(from_view(&store, view)?)),
+            core_protocol::ActionOutcome::Stale { item, reason } => {
+                let item = item.map(|view| from_view(&store, view)).transpose()?;
+                Ok(ActionOutcome::Stale { item, reason: reason.into() })
+            }
+        }
     }
 }

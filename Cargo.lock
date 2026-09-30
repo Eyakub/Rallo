@@ -588,6 +588,7 @@ dependencies = [
  "rallo-core",
  "thiserror",
  "uniffi",
+ "uuid",
 ]
 
 [[package]]
