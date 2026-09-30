@@ -6,6 +6,7 @@
 
 mod types;
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -13,6 +14,7 @@ use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, Mutati
 use rallo_core::reminders::{SchedulingStatus, TimeSpec};
 use rallo_core::shared::signal;
 use rallo_core::storage::{instance_lock, migrations, paths};
+use rallo_core::transfer::MAX_IMPORT_BYTES;
 use rallo_core::{Store, StoreOptions};
 
 pub use types::*;
@@ -70,6 +72,22 @@ pub struct RalloStore {
     inner: Mutex<Store>,
 }
 
+/// Reads one byte past the cap so the core reports an oversized file with
+/// its documented message instead of silently truncating it.
+fn read_import_file(path: &str) -> Result<Vec<u8>, RalloError> {
+    let unreadable = |error: std::io::Error| RalloError::InvalidInput {
+        code: "INVALID_INPUT".into(),
+        message: format!("could not read {path}: {error}"),
+    };
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .map_err(unreadable)?
+        .take(MAX_IMPORT_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(unreadable)?;
+    Ok(bytes)
+}
+
 fn with_scheduling(mut snapshot: ItemSnapshot, scheduling: Option<SchedulingStatus>) -> ItemSnapshot {
     if let (Some(reminder), Some(status)) = (snapshot.reminder.as_mut(), scheduling) {
         reminder.scheduling_state = Some(status.state.to_owned());
@@ -120,6 +138,32 @@ impl RalloStore {
         let store = self.store();
         let page = store.list(ListQuery { filter: ListFilter::Open, limit, cursor: None })?;
         page.items.into_iter().map(|view| from_view(&store, view)).collect()
+    }
+
+    /// Writes a JSON backup or CSV atomically with mode 0600; refuses to
+    /// replace an existing file unless `overwrite`.
+    pub fn export_to_file(
+        &self,
+        path: String,
+        format: TransferFormat,
+        overwrite: bool,
+    ) -> Result<ExportResult, RalloError> {
+        let summary = self.store().export_to_file(Path::new(&path), format.into(), overwrite)?;
+        Ok(ExportResult { items: summary.items, path: summary.path.display().to_string() })
+    }
+
+    /// Validates and classifies a file without writing anything. Conflicts
+    /// are reported in the summary for review, not thrown.
+    pub fn preview_import_file(&self, path: String) -> Result<ImportSummary, RalloError> {
+        let bytes = read_import_file(&path)?;
+        Ok(self.store().inspect_import(&bytes)?.into())
+    }
+
+    /// Imports atomically after a pre-import snapshot; any conflict aborts
+    /// before anything is written.
+    pub fn apply_import_file(&self, path: String) -> Result<ImportSummary, RalloError> {
+        let bytes = read_import_file(&path)?;
+        Ok(self.store().apply_import(&bytes)?.into())
     }
 
     /// Soft-deletes an item; `restore_item` undoes it (never re-enabling a reminder).

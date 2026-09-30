@@ -54,6 +54,20 @@ final class CoreClient {
         return try await worker.perform { try $0.remindAt(id: item.id, rfc3339: instant, ifRevision: item.revision) }
     }
 
+    // MARK: Export and import (0004)
+
+    func exportToFile(_ path: String, format: TransferFormat, overwrite: Bool) async throws -> ExportResult {
+        try await worker.perform { try $0.exportToFile(path: path, format: format, overwrite: overwrite) }
+    }
+
+    func previewImportFile(_ path: String) async throws -> ImportSummary {
+        try await worker.perform { try $0.previewImportFile(path: path) }
+    }
+
+    func applyImportFile(_ path: String) async throws -> ImportSummary {
+        try await worker.perform { try $0.applyImportFile(path: path) }
+    }
+
     func openItems(limit: UInt32 = 50) async throws -> [ItemSnapshot] {
         try await worker.perform { try $0.listOpenItems(limit: limit) }
     }

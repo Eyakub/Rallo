@@ -56,6 +56,8 @@ pub struct ImportReport {
     pub new: u64,
     pub identical: u64,
     pub conflicts: Vec<ImportConflictRecord>,
+    /// All conflicting records; `conflicts` lists at most 20 of them.
+    pub conflict_total: u64,
     pub warnings: Vec<String>,
     pub applied: bool,
     pub backup_path: Option<PathBuf>,
@@ -449,11 +451,12 @@ fn classify_record(conn: &Connection, record: &NormalizedRecord) -> CoreResult<R
     }
 }
 
-/// Classifies every record. Any conflict aborts with the full bounded list
-/// (0004): nothing is written, whether this runs against a read-only
-/// connection (preview) or inside the write transaction `apply_import` is
-/// about to use.
-fn classify_all(conn: &Connection, records: &[NormalizedRecord]) -> CoreResult<Vec<RecordDecision>> {
+/// Classifies every record, collecting (bounded) conflicts instead of
+/// failing on them.
+fn classify_collect(
+    conn: &Connection,
+    records: &[NormalizedRecord],
+) -> CoreResult<(Vec<RecordDecision>, Vec<ImportConflictRecord>, u64)> {
     let mut decisions = Vec::with_capacity(records.len());
     let mut conflicts = Vec::new();
     for record in records {
@@ -468,9 +471,18 @@ fn classify_all(conn: &Connection, records: &[NormalizedRecord]) -> CoreResult<V
         }
         decisions.push(decision);
     }
-    if !conflicts.is_empty() {
-        let total = conflicts.len() as u64;
-        conflicts.truncate(MAX_REPORTED_CONFLICTS);
+    let total = conflicts.len() as u64;
+    conflicts.truncate(MAX_REPORTED_CONFLICTS);
+    Ok((decisions, conflicts, total))
+}
+
+/// Classifies every record. Any conflict aborts with the full bounded list
+/// (0004): nothing is written, whether this runs against a read-only
+/// connection (preview) or inside the write transaction `apply_import` is
+/// about to use.
+fn classify_all(conn: &Connection, records: &[NormalizedRecord]) -> CoreResult<Vec<RecordDecision>> {
+    let (decisions, conflicts, total) = classify_collect(conn, records)?;
+    if total > 0 {
         return Err(CoreError::conflict_detail(
             ErrorCode::ImportConflict,
             format!("{total} record(s) conflict with an existing item; nothing was imported"),
@@ -494,6 +506,7 @@ fn build_report(
         new,
         identical,
         conflicts: Vec::new(),
+        conflict_total: 0,
         warnings: parsed.warnings.clone(),
         applied,
         backup_path,
@@ -548,6 +561,19 @@ impl Store {
         let parsed = parse_document(bytes)?;
         let decisions = classify_all(self.conn(), &parsed.records)?;
         Ok(build_report(&parsed, &decisions, false, None))
+    }
+
+    /// Like `preview_import`, but reports conflicts in the returned report
+    /// (`conflicts`, `conflict_total`) instead of failing, so an interactive
+    /// review can show them. Writes nothing.
+    pub fn inspect_import(&self, bytes: &[u8]) -> CoreResult<ImportReport> {
+        validate_size(bytes)?;
+        let parsed = parse_document(bytes)?;
+        let (decisions, conflicts, total) = classify_collect(self.conn(), &parsed.records)?;
+        let mut report = build_report(&parsed, &decisions, false, None);
+        report.conflicts = conflicts;
+        report.conflict_total = total;
+        Ok(report)
     }
 
     /// Validates, re-classifies, and applies an import document in one

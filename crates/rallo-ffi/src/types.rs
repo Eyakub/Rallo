@@ -2,6 +2,7 @@ use rallo_core::CoreError;
 use rallo_core::items::{ItemStatus as CoreItemStatus, ItemView};
 use rallo_core::preferences;
 use rallo_core::reminders;
+use rallo_core::transfer::{ExportFormat, ImportConflictRecord, ImportReport};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RalloError {
@@ -161,5 +162,80 @@ impl From<preferences::PetPlacement> for PetPlacement {
 impl From<PetPlacement> for preferences::PetPlacement {
     fn from(value: PetPlacement) -> Self {
         Self { x: value.x, y: value.y }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TransferFormat {
+    Json,
+    Csv,
+}
+
+impl From<TransferFormat> for ExportFormat {
+    fn from(format: TransferFormat) -> Self {
+        match format {
+            TransferFormat::Json => Self::Json,
+            TransferFormat::Csv => Self::Csv,
+        }
+    }
+}
+
+impl From<ExportFormat> for TransferFormat {
+    fn from(format: ExportFormat) -> Self {
+        match format {
+            ExportFormat::Json => Self::Json,
+            ExportFormat::Csv => Self::Csv,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ExportResult {
+    pub items: u64,
+    pub path: String,
+}
+
+/// Where a conflicting record is in the file; never its note text.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ImportConflict {
+    pub id: Option<String>,
+    pub line: Option<u64>,
+    pub index: Option<u64>,
+    pub reason: String,
+}
+
+impl From<ImportConflictRecord> for ImportConflict {
+    fn from(record: ImportConflictRecord) -> Self {
+        Self { id: record.id.map(|id| id.to_string()), line: record.line, index: record.index, reason: record.reason }
+    }
+}
+
+/// A dry run (`applied == false`) or the committed result of an import.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ImportSummary {
+    pub format: TransferFormat,
+    pub total_records: u64,
+    pub new: u64,
+    pub identical: u64,
+    pub conflicts: Vec<ImportConflict>,
+    pub conflict_total: u64,
+    pub warnings: Vec<String>,
+    pub applied: bool,
+    pub backup_path: Option<String>,
+}
+
+impl From<ImportReport> for ImportSummary {
+    fn from(report: ImportReport) -> Self {
+        Self {
+            format: report.format.into(),
+            total_records: report.total_records,
+            new: report.new,
+            identical: report.identical,
+            conflicts: report.conflicts.into_iter().map(Into::into).collect(),
+            conflict_total: report.conflict_total,
+            warnings: report.warnings,
+            applied: report.applied,
+            backup_path: report.backup_path.map(|path| path.display().to_string()),
+        }
     }
 }

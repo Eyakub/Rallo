@@ -166,6 +166,12 @@ against a conflicting document therefore reports the same exit code and
 nothing-changed guarantee a real import would; a dry run is not "always
 exit 0", it is "always writes nothing".
 
+The app's review screen uses `inspect_import` instead: the same validation
+and classification, but conflicts come back in the report
+(`conflicts`, `conflict_total`) rather than as an error, so they can be shown
+next to the new/identical counts. It writes nothing either, and the app only
+offers "Import" when there are no conflicts.
+
 **Applying** (`apply_import` only): classification runs twice — once against
 the connection's plain (non-transactional) committed state, so a document
 that cannot apply never causes a backup snapshot to be taken; and again
@@ -243,6 +249,7 @@ impl Store {
     pub fn export_bytes(&self, format: ExportFormat) -> CoreResult<Vec<u8>>;
     pub fn export_to_file(&self, path: &Path, format: ExportFormat, overwrite: bool) -> CoreResult<ExportSummary>;
     pub fn preview_import(&self, bytes: &[u8]) -> CoreResult<ImportReport>;
+    pub fn inspect_import(&self, bytes: &[u8]) -> CoreResult<ImportReport>; // conflicts as data
     pub fn apply_import(&mut self, bytes: &[u8]) -> CoreResult<ImportReport>;
 }
 ```

@@ -7,6 +7,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         var togglePet: () -> Void
         var openNotes: () -> Void
         var enableNotifications: () -> Void
+        var exportBackup: () -> Void
+        var exportSpreadsheet: () -> Void
+        var importNotes: () -> Void
         var quit: () -> Void
     }
 
@@ -49,6 +52,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(item(petVisible() ? "Hide Pet" : "Show Pet", #selector(togglePet)))
         menu.addItem(item("Open Notes…", #selector(openNotes), key: "n"))
         menu.addItem(.separator())
+        menu.addItem(item("Export Backup (JSON)…", #selector(exportBackup)))
+        menu.addItem(item("Export Spreadsheet (CSV)…", #selector(exportSpreadsheet)))
+        menu.addItem(item("Import Notes…", #selector(importNotes)))
+        menu.addItem(.separator())
         let status = NSMenuItem(title: notificationSummary(), action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
@@ -69,5 +76,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func togglePet() { actions.togglePet() }
     @objc private func openNotes() { actions.openNotes() }
     @objc private func enableNotifications() { actions.enableNotifications() }
+    @objc private func exportBackup() { actions.exportBackup() }
+    @objc private func exportSpreadsheet() { actions.exportSpreadsheet() }
+    @objc private func importNotes() { actions.importNotes() }
     @objc private func quit() { actions.quit() }
 }

@@ -14,6 +14,7 @@ final class AppCoordinator {
     private let notesModel: NotesViewModel
     private let notes: NotesPanelController
     private let observer: ChangeObserver
+    private let transfer: TransferController
     private var statusMenu: StatusMenuController?
 
     private var storageReady = false
@@ -32,6 +33,7 @@ final class AppCoordinator {
         notesModel = NotesViewModel(core: core)
         notes = NotesPanelController(model: notesModel)
         observer = ChangeObserver(dataDir: dataDir)
+        transfer = TransferController(core: core, log: log)
     }
 
     func start() async {
@@ -41,6 +43,9 @@ final class AppCoordinator {
                 togglePet: { [weak self] in Task { await self?.togglePet() } },
                 openNotes: { [weak self] in self?.openNotes(highlighting: nil) },
                 enableNotifications: { [weak self] in Task { await self?.enableNotifications() } },
+                exportBackup: { [weak self] in self?.transfer.export(.json) },
+                exportSpreadsheet: { [weak self] in self?.transfer.export(.csv) },
+                importNotes: { [weak self] in self?.transfer.importFile() },
                 quit: { NSApp.terminate(nil) }
             ),
             petVisible: { [weak self] in self?.pet.isVisible ?? false },
@@ -50,6 +55,7 @@ final class AppCoordinator {
         statusMenu = menu
 
         pet.onClick = { [weak self] in self?.openNotes(highlighting: nil) }
+        transfer.onShowNotes = { [weak self] in self?.openNotes(highlighting: nil) }
         pet.onMoved = { [weak self] origin in Task { await self?.petMoved(to: origin) } }
         pet.contextMenu = { [weak self] in self?.statusMenu?.makeMenu() }
         notifications.onOpenItem = { [weak self] itemID in self?.openNotes(highlighting: itemID) }

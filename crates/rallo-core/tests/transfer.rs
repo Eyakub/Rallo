@@ -152,6 +152,12 @@ fn conflict_same_id_edited_text_aborts_with_nothing_written() {
     // A dry run reports the identical conflict without writing either.
     let preview_error = b.preview_import(&edited_bytes).unwrap_err();
     assert_eq!(preview_error.code(), ErrorCode::ImportConflict);
+
+    // The app's review reports the same conflict as data, still writing nothing.
+    let report = b.inspect_import(&edited_bytes).unwrap();
+    assert_eq!((report.conflict_total, report.new, report.identical, report.applied), (1, 0, 0, false));
+    assert_eq!(report.conflicts[0].id, Some(item.id));
+    assert_eq!(b.change_revision().unwrap(), revision_before);
 }
 
 #[test]
