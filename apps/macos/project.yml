@@ -50,6 +50,8 @@ targets:
       - path: Rallo/Core/CoreWorker.swift
       - path: Rallo/Setup/TerminalCommand.swift
       - path: Rallo/Pet/Stroke.swift
+      - path: Rallo/Pet/PetWatermarks.swift
+      - path: Rallo/Notes/AgentSessionFormatting.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo.tests
