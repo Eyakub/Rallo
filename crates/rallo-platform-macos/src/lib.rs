@@ -4,3 +4,4 @@
 pub mod change_signal;
 pub mod launch;
 pub mod terminal_command;
+pub mod update;
