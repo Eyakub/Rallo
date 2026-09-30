@@ -1,5 +1,6 @@
+use std::env;
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome, Page, SearchQuery};
 use rallo_core::preferences::PetVisibility;
@@ -9,7 +10,7 @@ use rallo_core::storage::instance_lock::InstanceLock;
 use rallo_core::storage::migrations::SCHEMA_VERSION;
 use rallo_core::transfer::{ExportFormat, ImportReport, MAX_IMPORT_BYTES};
 use rallo_core::{ErrorCode, Store};
-use rallo_platform_macos::{change_signal, launch};
+use rallo_platform_macos::{change_signal, launch, terminal_command};
 use serde_json::{Value, json};
 
 use crate::args::ExportFormatArg;
@@ -28,6 +29,100 @@ pub fn version(out: &Output) -> CommandResult {
         }),
         &[],
         || format!("rallo {} (core {}, schema {SCHEMA_VERSION})", env!("CARGO_PKG_VERSION"), rallo_core::CORE_VERSION),
+    );
+    Ok(())
+}
+
+/// `setup terminal`: links the CLI inside this installed app onto PATH as
+/// `rallo` (spec §10). Reads `$HOME`/`$PATH` directly -- run from an actual
+/// terminal, it already sees the same PATH a shell would, so there is no
+/// need to ask a login shell the way the GUI's "Enable Terminal Command…"
+/// does. Never touches a data directory and never starts the app.
+pub fn setup_terminal(out: &Output) -> CommandResult {
+    let home = terminal_command::home_dir()
+        .ok_or_else(|| Failure::new(Exit::InvalidInput, "INVALID_INPUT", "$HOME is not set"))?;
+    let app = terminal_command::locate_running_app().map_err(|_| {
+        Failure::new(
+            Exit::InvalidInput,
+            "NOT_INSTALLED",
+            "could not resolve this CLI's location inside an installed Rallo.app",
+        )
+    })?;
+    let path_dirs: Vec<PathBuf> =
+        env::var_os("PATH").map(|value| env::split_paths(&value).collect()).unwrap_or_default();
+    let target = terminal_command::cli_path(&app);
+
+    match terminal_command::inspect(&app, &home, &path_dirs) {
+        terminal_command::State::NotInstalled => Err(Failure::new(
+            Exit::InvalidInput,
+            "NOT_INSTALLED",
+            format!(
+                "Rallo is running from {}, not an installed copy. Move it to /Applications or ~/Applications, \
+                 then run this again. Full path: {}",
+                app.display(),
+                target.display()
+            ),
+        )),
+        terminal_command::State::Conflict { existing } => Err(Failure::new(
+            Exit::Conflict,
+            "TERMINAL_COMMAND_CONFLICT",
+            format!(
+                "{} isn't Rallo's, so Rallo won't replace it. Run Rallo's CLI directly instead: {}",
+                existing.display(),
+                target.display()
+            ),
+        )),
+        terminal_command::State::Enabled { link, on_path } => {
+            setup_terminal_success(out, "already_enabled", &link, &target, on_path)
+        }
+        state @ (terminal_command::State::Available { .. } | terminal_command::State::Repairable { .. }) => {
+            let repairing = matches!(state, terminal_command::State::Repairable { .. });
+            let on_path = match &state {
+                terminal_command::State::Available { on_path, .. } => *on_path,
+                terminal_command::State::Repairable { on_path, .. } => *on_path,
+                _ => unreachable!(),
+            };
+            let link = terminal_command::enable(&state, &app).map_err(|error| {
+                Failure::new(Exit::InvalidInput, "TERMINAL_COMMAND_SETUP_FAILED", error.to_string())
+            })?;
+            setup_terminal_success(out, if repairing { "repaired" } else { "enabled" }, &link, &target, on_path)
+        }
+    }
+}
+
+fn setup_terminal_success(out: &Output, status: &str, link: &Path, target: &Path, on_path: bool) -> CommandResult {
+    const PATH_EXPORT: &str = r#"export PATH="$HOME/.local/bin:$PATH""#;
+    let mut warnings = Vec::new();
+    if !on_path {
+        warnings.push(format!("{} is not on your PATH.", link.parent().unwrap_or(link).display()));
+    }
+    out.success(
+        json!({
+            "terminal": {
+                "status": status,
+                "link": link,
+                "target": target,
+                "on_path": on_path,
+                "path_export": if on_path { None } else { Some(PATH_EXPORT) },
+            }
+        }),
+        &warnings,
+        || {
+            let headline = match status {
+                "already_enabled" => format!("`rallo` is already set up at {} → {}.", link.display(), target.display()),
+                "repaired" => format!("Repaired `rallo` at {} to point at {}.", link.display(), target.display()),
+                _ => format!("Added `rallo` at {}, linked to {}.", link.display(), target.display()),
+            };
+            if on_path {
+                format!("{headline}\nTry it: rallo note \"Call the dentist\"")
+            } else {
+                format!(
+                    "{headline}\n{} isn't on your PATH. Add this line to your shell's startup file, then open a new terminal:\n  {PATH_EXPORT}\nFull path: {}",
+                    link.parent().unwrap_or(link).display(),
+                    target.display()
+                )
+            }
+        },
     );
     Ok(())
 }

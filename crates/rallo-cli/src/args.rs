@@ -217,6 +217,20 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Setup and repair helpers (not notes commands); never starts the app.
+    Setup {
+        #[command(subcommand)]
+        command: SetupCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SetupCommand {
+    /// Link the CLI inside this installed app onto PATH as `rallo` (spec
+    /// §10); repairs a link left by a moved app and reports an existing,
+    /// correct link idempotently. Never replaces a `rallo` that isn't
+    /// Rallo's own link, and never starts the app.
+    Terminal,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]

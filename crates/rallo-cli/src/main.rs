@@ -11,7 +11,7 @@ use rallo_core::reminders::TimeSpec;
 use rallo_core::storage::paths;
 use rallo_core::{Store, StoreOptions};
 
-use args::{Cli, Command};
+use args::{Cli, Command, SetupCommand};
 use output::Output;
 
 fn main() -> ExitCode {
@@ -47,6 +47,12 @@ fn run(cli: Cli, out: &Output) -> commands::CommandResult {
         eprintln!("{}", Cli::command().render_help());
         return Err(output::Failure::new(output::Exit::InvalidInput, "INVALID_INPUT", "a command is required"));
     };
+    // No data directory: this manages a PATH symlink, not the notes store.
+    if let Command::Setup { command: setup_command } = command {
+        return match setup_command {
+            SetupCommand::Terminal => commands::setup_terminal(out),
+        };
+    }
     let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
     let mut store = Store::open(StoreOptions::new(data_dir))?;
     match command {
@@ -93,5 +99,6 @@ fn run(cli: Cli, out: &Output) -> commands::CommandResult {
         Command::Status { id } => commands::status(out, &store, id),
         Command::Export { output, format, force } => commands::export(out, &store, &output, format, force),
         Command::Import { file, dry_run } => commands::import(out, &mut store, &file, dry_run),
+        Command::Setup { .. } => unreachable!("handled before the store was opened"),
     }
 }

@@ -617,6 +617,7 @@ dependencies = [
 name = "rallo-platform-macos"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
  "thiserror",
 ]
 
