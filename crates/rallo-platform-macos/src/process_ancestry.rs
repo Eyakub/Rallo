@@ -11,12 +11,16 @@ use std::path::{Component, Path, PathBuf};
 /// deeper; a real terminal/editor ancestor is always much closer than this.
 const MAX_STEPS: u32 = 32;
 
+/// The short form, not `PROC_PIDTBSDINFO`: the full one is refused for
+/// another user's process, and Terminal and cmux start shells through the
+/// root-owned `/usr/bin/login`, so the walk would stop there.
 fn parent_pid(pid: libc::pid_t) -> Option<libc::pid_t> {
-    let mut info: libc::proc_bsdinfo = unsafe { mem::zeroed() };
-    let size = mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-    let written =
-        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size) };
-    if written == size { Some(info.pbi_ppid as libc::pid_t) } else { None }
+    let mut info: libc::proc_bsdshortinfo = unsafe { mem::zeroed() };
+    let size = mem::size_of::<libc::proc_bsdshortinfo>() as libc::c_int;
+    let written = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDT_SHORTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size)
+    };
+    if written == size { Some(info.pbsi_ppid as libc::pid_t) } else { None }
 }
 
 fn process_path(pid: libc::pid_t) -> Option<PathBuf> {
