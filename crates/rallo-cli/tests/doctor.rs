@@ -93,7 +93,7 @@ fn healthy_store_has_no_problems() {
     assert_eq!(doc["problem_count"], 0);
     let data_directory = Cli::check(&doc, "data_directory");
     assert_eq!(data_directory["status"], "ok");
-    assert!(data_directory["summary"].as_str().unwrap().contains("bytes"));
+    assert!(data_directory["summary"].as_str().unwrap().contains("on disk"), "{data_directory}");
 }
 
 #[test]

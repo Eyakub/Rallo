@@ -288,6 +288,14 @@ pub(crate) fn noninteractive_fix(link: &Path, home: &Path) -> Option<String> {
     Some(format!(r#"echo 'export PATH="{shown}:$PATH"' >> {}"#, terminal_command::login_profile(&shell)))
 }
 
+fn human_size(bytes: u64) -> String {
+    match bytes {
+        0..1024 => format!("{bytes} bytes"),
+        1024..1_048_576 => format!("{:.1} KiB", bytes as f64 / 1024.0),
+        _ => format!("{:.1} MiB", bytes as f64 / 1_048_576.0),
+    }
+}
+
 /// `data_directory`: the path, directory/file permissions, schema version
 /// versus what this build supports, `PRAGMA quick_check`, and database size.
 fn check_data_directory(data_dir: &Path, inspection: Option<&StoreInspection>) -> Check {
@@ -332,7 +340,10 @@ fn check_data_directory(data_dir: &Path, inspection: Option<&StoreInspection>) -
         fixes.push(format!("Restore from a backup in {}.", data_dir.join("backups").display()));
     }
 
-    notes.push(format!("{} bytes", inspection.db_stat.size_bytes));
+    // In WAL mode recent writes live in -wal until a checkpoint, so the
+    // main file alone can look empty.
+    let wal_bytes = inspection.wal_stat.as_ref().map_or(0, |wal| wal.size_bytes);
+    notes.push(format!("{} on disk", human_size(inspection.db_stat.size_bytes + wal_bytes)));
 
     let summary = format!("{} — {}", data_dir.display(), notes.join("; "));
     let fix = (!fixes.is_empty()).then(|| fixes.join("; "));
