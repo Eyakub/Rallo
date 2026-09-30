@@ -10,6 +10,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         var exportBackup: () -> Void
         var exportSpreadsheet: () -> Void
         var importNotes: () -> Void
+        var terminalCommand: () -> Void
         var quit: () -> Void
     }
 
@@ -17,11 +18,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let actions: Actions
     private let petVisible: () -> Bool
     private let notificationSummary: () -> String
+    private let terminalCommandTitle: () -> String
 
-    init(actions: Actions, petVisible: @escaping () -> Bool, notificationSummary: @escaping () -> String) {
+    init(
+        actions: Actions,
+        petVisible: @escaping () -> Bool,
+        notificationSummary: @escaping () -> String,
+        terminalCommandTitle: @escaping () -> String
+    ) {
         self.actions = actions
         self.petVisible = petVisible
         self.notificationSummary = notificationSummary
+        self.terminalCommandTitle = terminalCommandTitle
     }
 
     func install() {
@@ -56,6 +64,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(item("Export Spreadsheet (CSV)…", #selector(exportSpreadsheet)))
         menu.addItem(item("Import Notes…", #selector(importNotes)))
         menu.addItem(.separator())
+        menu.addItem(item(terminalCommandTitle(), #selector(terminalCommand)))
         let status = NSMenuItem(title: notificationSummary(), action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
@@ -79,5 +88,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func exportBackup() { actions.exportBackup() }
     @objc private func exportSpreadsheet() { actions.exportSpreadsheet() }
     @objc private func importNotes() { actions.importNotes() }
+    @objc private func terminalCommand() { actions.terminalCommand() }
     @objc private func quit() { actions.quit() }
 }

@@ -16,6 +16,7 @@ final class AppCoordinator {
     private let observer: ChangeObserver
     private let drainer: NotificationDrainer
     private let transfer: TransferController
+    private let terminalSetup: TerminalSetupController
     private var statusMenu: StatusMenuController?
     private var systemObservers: [NSObjectProtocol] = []
 
@@ -35,6 +36,7 @@ final class AppCoordinator {
         let fault = FaultInjection(argument: options.faultInjection, explicitDataDir: options.dataDir, log: log)
         drainer = NotificationDrainer(core: core, adapter: notifications.adapter, log: log, fault: fault)
         transfer = TransferController(core: core, log: log)
+        terminalSetup = TerminalSetupController(log: log)
         notesModel = NotesViewModel(core: core)
         notes = NotesPanelController(model: notesModel)
         observer = ChangeObserver(dataDir: dataDir)
@@ -50,10 +52,12 @@ final class AppCoordinator {
                 exportBackup: { [weak self] in self?.transfer.export(.json) },
                 exportSpreadsheet: { [weak self] in self?.transfer.export(.csv) },
                 importNotes: { [weak self] in self?.transfer.importFile() },
+                terminalCommand: { [weak self] in self?.terminalSetup.open() },
                 quit: { NSApp.terminate(nil) }
             ),
             petVisible: { [weak self] in self?.pet.isVisible ?? false },
-            notificationSummary: { [weak self] in self?.notificationSummary ?? "" }
+            notificationSummary: { [weak self] in self?.notificationSummary ?? "" },
+            terminalCommandTitle: { [weak self] in self?.terminalSetup.menuTitle ?? "Enable Terminal Command…" }
         )
         menu.install()
         statusMenu = menu
