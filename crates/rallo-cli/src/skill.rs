@@ -126,6 +126,9 @@ pub fn rules_content(home: &Path) -> String {
          # live in ~/Library). Delete this file to undo.\n"
     );
     for subject in subjects {
+        // A Starlark string literal: an unescaped quote in a home path would
+        // make Codex reject the whole file.
+        let subject = subject.replace('\\', "\\\\").replace('"', "\\\"");
         text.push_str(&format!(
             "prefix_rule(pattern=[\"{subject}\", [{commands}]], decision=\"allow\")\n\
              prefix_rule(pattern=[\"{subject}\", \"--json\", [{commands}]], decision=\"allow\")\n\
