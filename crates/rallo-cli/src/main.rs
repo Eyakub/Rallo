@@ -3,6 +3,7 @@ mod commands;
 mod doctor;
 mod local_time;
 mod output;
+mod update;
 
 use std::process::ExitCode;
 
@@ -59,6 +60,11 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
     if let Command::Doctor = command {
         return doctor::run(out, cli.data_dir.as_deref());
     }
+    // Manages its own conditional store open (skipped with no data yet) and
+    // resolves the data directory itself, like `Doctor` above.
+    if let Command::Update { check } = command {
+        return update::run(out, cli.data_dir.as_deref(), check).map(|()| ExitCode::SUCCESS);
+    }
     let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
     let mut store = Store::open(StoreOptions::new(data_dir))?;
     let result: commands::CommandResult = match command {
@@ -106,7 +112,9 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
         Command::Export { output, format, force } => commands::export(out, &store, &output, format, force),
         Command::Import { file, dry_run } => commands::import(out, &mut store, &file, dry_run),
         Command::Backup { output, force } => commands::backup(out, &store, output.as_deref(), force),
-        Command::Setup { .. } | Command::Doctor => unreachable!("handled before the store was opened"),
+        Command::Setup { .. } | Command::Doctor | Command::Update { .. } => {
+            unreachable!("handled before the store was opened")
+        }
     };
     result.map(|()| ExitCode::SUCCESS)
 }

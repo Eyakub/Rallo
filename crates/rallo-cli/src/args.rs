@@ -236,6 +236,14 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Check for and install the latest release from GitHub Releases. The
+    /// only command that uses the network, and only when run directly --
+    /// never automatically, never in the background.
+    Update {
+        /// Report whether an update is available without downloading or installing it.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
