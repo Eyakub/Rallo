@@ -1,4 +1,5 @@
 use rallo_core::CoreError;
+use rallo_core::agents as core_agents;
 use rallo_core::items::{ItemStatus as CoreItemStatus, ItemView};
 use rallo_core::pet as core_pet;
 use rallo_core::preferences;
@@ -487,6 +488,38 @@ impl From<ImportReport> for ImportSummary {
     }
 }
 
+// --- Agent attention (0007) -------------------------------------------------
+
+/// One Claude Code/Codex session the pet is tracking, for the panel's
+/// "Agents" section. `working` sessions are never returned by
+/// `RalloStore::agent_sessions`.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AgentSessionSnapshot {
+    pub agent: String,
+    pub session_id: String,
+    pub state: String,
+    pub cwd: Option<String>,
+    pub detail: Option<String>,
+    pub app_path: Option<String>,
+    pub app_pid: Option<i64>,
+    pub updated_at_ms: i64,
+}
+
+impl From<core_agents::AgentSession> for AgentSessionSnapshot {
+    fn from(value: core_agents::AgentSession) -> Self {
+        Self {
+            agent: value.agent.as_str().to_owned(),
+            session_id: value.session_id,
+            state: value.state.as_str().to_owned(),
+            cwd: value.cwd,
+            detail: value.detail,
+            app_path: value.app_path,
+            app_pid: value.app_pid,
+            updated_at_ms: value.updated_at_ms,
+        }
+    }
+}
+
 // --- Pet reducer (plan §2; 0006) ------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
@@ -496,6 +529,10 @@ pub struct PetSnapshot {
     pub next_due_at_ms: Option<i64>,
     pub completion_seq: i64,
     pub save_seq: i64,
+    /// Fresh (≤24h) `waiting` agent sessions (0007).
+    pub agents_waiting: u32,
+    pub agent_waiting_seq: i64,
+    pub agent_done_seq: i64,
 }
 
 impl From<core_pet::PetSnapshot> for PetSnapshot {
@@ -506,6 +543,9 @@ impl From<core_pet::PetSnapshot> for PetSnapshot {
             next_due_at_ms: value.next_due_at_ms,
             completion_seq: value.completion_seq,
             save_seq: value.save_seq,
+            agents_waiting: value.agents_waiting,
+            agent_waiting_seq: value.agent_waiting_seq,
+            agent_done_seq: value.agent_done_seq,
         }
     }
 }
@@ -518,6 +558,9 @@ impl From<PetSnapshot> for core_pet::PetSnapshot {
             next_due_at_ms: value.next_due_at_ms,
             completion_seq: value.completion_seq,
             save_seq: value.save_seq,
+            agents_waiting: value.agents_waiting,
+            agent_waiting_seq: value.agent_waiting_seq,
+            agent_done_seq: value.agent_done_seq,
         }
     }
 }
@@ -532,6 +575,10 @@ pub struct PetInputs {
     pub snapshot: PetSnapshot,
     pub seen_completion_seq: i64,
     pub seen_save_seq: i64,
+    /// `agent_waiting_seq` last acknowledged by a played `Attention` (0007).
+    pub seen_agent_waiting_seq: i64,
+    /// `agent_done_seq` last acknowledged by a played `Acknowledge` (0007).
+    pub seen_agent_done_seq: i64,
     pub was_due: bool,
 }
 
@@ -544,6 +591,8 @@ impl From<PetInputs> for core_pet::PetInputs {
             snapshot: value.snapshot.into(),
             seen_completion_seq: value.seen_completion_seq,
             seen_save_seq: value.seen_save_seq,
+            seen_agent_waiting_seq: value.seen_agent_waiting_seq,
+            seen_agent_done_seq: value.seen_agent_done_seq,
             was_due: value.was_due,
         }
     }

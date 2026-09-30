@@ -251,6 +251,24 @@ impl RalloStore {
         Ok(self.store().pet_snapshot()?.into())
     }
 
+    /// Fresh (≤24h) `waiting`/`done` agent sessions, waiting first then most
+    /// recent first, for the panel's "Agents" section (0007). `working`
+    /// sessions are never returned.
+    pub fn agent_sessions(&self) -> Result<Vec<AgentSessionSnapshot>, RalloError> {
+        let store = self.store();
+        let now_ms = store.now_ms();
+        Ok(store.agent_sessions(now_ms)?.into_iter().map(Into::into).collect())
+    }
+
+    /// Removes one tracked session (the panel's ✕). `true` if it existed.
+    pub fn dismiss_agent_session(&self, agent: String, session_id: String) -> Result<bool, RalloError> {
+        let agent = rallo_core::agents::AgentKind::parse(&agent).ok_or_else(|| RalloError::InvalidInput {
+            code: ErrorCode::InvalidInput.as_str().to_owned(),
+            message: format!("unknown agent \"{agent}\""),
+        })?;
+        Ok(self.store().clear_agent_sessions(Some(agent), Some(&session_id))? > 0)
+    }
+
     pub fn pet_animations_paused(&self) -> Result<bool, RalloError> {
         Ok(self.store().pet_animations_paused()?)
     }
