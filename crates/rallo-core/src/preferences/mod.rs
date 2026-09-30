@@ -11,6 +11,7 @@ const PET_PLACEMENT: &str = "pet.placement";
 const PET_ANIMATIONS_PAUSED: &str = "pet.animations_paused";
 const ONBOARDING_COMPLETED: &str = "onboarding.completed";
 const NOTIFICATIONS_PREVIEW_TEXT: &str = "notifications.preview_text";
+const AGENTS_NOTIFY_LONG_WAIT: &str = "agents.notify_long_wait";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -105,5 +106,15 @@ impl Store {
 
     pub fn set_preview_text_enabled(&mut self, enabled: bool) -> CoreResult<bool> {
         self.write_preference(NOTIFICATIONS_PREVIEW_TEXT, Some(&enabled))
+    }
+
+    /// Menu-bar "Notify When an Agent Waits 5 Minutes" (0008). Off by
+    /// default: the long-wait notification is opt-in.
+    pub fn agents_notify_long_wait(&self) -> CoreResult<bool> {
+        Ok(self.read_preference(AGENTS_NOTIFY_LONG_WAIT)?.unwrap_or(false))
+    }
+
+    pub fn set_agents_notify_long_wait(&mut self, enabled: bool) -> CoreResult<bool> {
+        self.write_preference(AGENTS_NOTIFY_LONG_WAIT, Some(&enabled))
     }
 }

@@ -529,4 +529,22 @@ mod tests {
         assert_eq!(store.clear_agent_sessions(None, None).unwrap(), 1);
         assert!(store.agent_sessions(1_000_000).unwrap().is_empty());
     }
+
+    #[test]
+    fn notify_long_wait_preference_defaults_to_false_and_only_bumps_revision_on_change() {
+        let (_dir, mut store) = open_store();
+        assert!(!store.agents_notify_long_wait().unwrap());
+        assert_eq!(store.change_revision().unwrap(), 0);
+
+        assert!(store.set_agents_notify_long_wait(true).unwrap(), "value changed");
+        assert!(store.agents_notify_long_wait().unwrap());
+        assert_eq!(store.change_revision().unwrap(), 1);
+
+        assert!(!store.set_agents_notify_long_wait(true).unwrap(), "already true: no-op");
+        assert_eq!(store.change_revision().unwrap(), 1);
+
+        assert!(store.set_agents_notify_long_wait(false).unwrap());
+        assert!(!store.agents_notify_long_wait().unwrap());
+        assert_eq!(store.change_revision().unwrap(), 2);
+    }
 }

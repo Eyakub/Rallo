@@ -277,6 +277,15 @@ impl RalloStore {
         Ok(self.store().set_pet_animations_paused(paused)?)
     }
 
+    /// Menu-bar "Notify When an Agent Waits 5 Minutes" (0008).
+    pub fn agents_notify_long_wait(&self) -> Result<bool, RalloError> {
+        Ok(self.store().agents_notify_long_wait()?)
+    }
+
+    pub fn set_agents_notify_long_wait(&self, enabled: bool) -> Result<bool, RalloError> {
+        Ok(self.store().set_agents_notify_long_wait(enabled)?)
+    }
+
     pub fn pet_visibility(&self) -> Result<Option<PetVisibility>, RalloError> {
         Ok(self.store().pet_visibility()?.map(Into::into))
     }
