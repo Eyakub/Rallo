@@ -49,6 +49,7 @@ targets:
       - path: Rallo/Generated/rallo_ffi.swift
       - path: Rallo/Core/CoreWorker.swift
       - path: Rallo/Setup/TerminalCommand.swift
+      - path: Rallo/Pet/Stroke.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo.tests
