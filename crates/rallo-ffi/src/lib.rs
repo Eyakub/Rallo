@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome};
+use rallo_core::pet;
 use rallo_core::reminders::protocol as core_protocol;
 use rallo_core::reminders::{SchedulingStatus, TimeSpec};
 use rallo_core::shared::signal;
@@ -29,6 +30,13 @@ pub fn core_info() -> CoreInfo {
         schema_version: migrations::SCHEMA_VERSION,
         json_contract_version: rallo_core::JSON_CONTRACT_VERSION,
     }
+}
+
+/// Pure priority-table reducer (plan §2; 0006). No store access: callers pass
+/// a `PetSnapshot` from `RalloStore::petSnapshot`.
+#[uniffi::export]
+pub fn decide_pet(inputs: PetInputs) -> PetDecision {
+    pet::decide(&inputs.into()).into()
 }
 
 /// Explicit path > `RALLO_DATA_DIR` > the default Application Support path.
@@ -217,6 +225,38 @@ impl RalloStore {
     pub fn reopen_item(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
         let opts = MutationOptions { request_id: None, if_revision };
         Ok(from_outcome(self.store().reopen(&id, &opts)?))
+    }
+
+    /// Requires a reminder. An active reminder is disabled `acknowledged`
+    /// with a cancel intent; an already-inactive one is a no-op.
+    pub fn acknowledge_reminder(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(from_outcome(self.store().acknowledge(&id, &opts)?))
+    }
+
+    /// `--in` syntax only; requires an existing reminder on an open,
+    /// nondeleted item.
+    pub fn snooze_reminder(
+        &self,
+        id: String,
+        duration: String,
+        if_revision: Option<i64>,
+    ) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(from_outcome(self.store().snooze(&id, &duration, &opts)?))
+    }
+
+    /// Cheap, read-only projection for `decide_pet`'s `PetInputs.snapshot`.
+    pub fn pet_snapshot(&self) -> Result<PetSnapshot, RalloError> {
+        Ok(self.store().pet_snapshot()?.into())
+    }
+
+    pub fn pet_animations_paused(&self) -> Result<bool, RalloError> {
+        Ok(self.store().pet_animations_paused()?)
+    }
+
+    pub fn set_pet_animations_paused(&self, paused: bool) -> Result<bool, RalloError> {
+        Ok(self.store().set_pet_animations_paused(paused)?)
     }
 
     pub fn pet_visibility(&self) -> Result<Option<PetVisibility>, RalloError> {

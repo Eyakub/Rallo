@@ -1,5 +1,6 @@
 use rallo_core::CoreError;
 use rallo_core::items::{ItemStatus as CoreItemStatus, ItemView};
+use rallo_core::pet as core_pet;
 use rallo_core::preferences;
 use rallo_core::reminders;
 use rallo_core::reminders::protocol as core_protocol;
@@ -482,6 +483,128 @@ impl From<ImportReport> for ImportSummary {
             warnings: report.warnings,
             applied: report.applied,
             backup_path: report.backup_path.map(|path| path.display().to_string()),
+        }
+    }
+}
+
+// --- Pet reducer (plan §2; 0006) ------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct PetSnapshot {
+    pub open_count: u32,
+    pub due_count: u32,
+    pub next_due_at_ms: Option<i64>,
+    pub completion_seq: i64,
+    pub save_seq: i64,
+}
+
+impl From<core_pet::PetSnapshot> for PetSnapshot {
+    fn from(value: core_pet::PetSnapshot) -> Self {
+        Self {
+            open_count: value.open_count,
+            due_count: value.due_count,
+            next_due_at_ms: value.next_due_at_ms,
+            completion_seq: value.completion_seq,
+            save_seq: value.save_seq,
+        }
+    }
+}
+
+impl From<PetSnapshot> for core_pet::PetSnapshot {
+    fn from(value: PetSnapshot) -> Self {
+        Self {
+            open_count: value.open_count,
+            due_count: value.due_count,
+            next_due_at_ms: value.next_due_at_ms,
+            completion_seq: value.completion_seq,
+            save_seq: value.save_seq,
+        }
+    }
+}
+
+/// Everything the reducer needs besides the domain snapshot: visibility,
+/// accessibility settings, and what Swift has already shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct PetInputs {
+    pub visible: bool,
+    pub reduced_motion: bool,
+    pub animations_paused: bool,
+    pub snapshot: PetSnapshot,
+    pub seen_completion_seq: i64,
+    pub seen_save_seq: i64,
+    pub was_due: bool,
+}
+
+impl From<PetInputs> for core_pet::PetInputs {
+    fn from(value: PetInputs) -> Self {
+        Self {
+            visible: value.visible,
+            reduced_motion: value.reduced_motion,
+            animations_paused: value.animations_paused,
+            snapshot: value.snapshot.into(),
+            seen_completion_seq: value.seen_completion_seq,
+            seen_save_seq: value.seen_save_seq,
+            was_due: value.was_due,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PetPose {
+    Hidden,
+    Sleeping,
+    Idle,
+    Due,
+}
+
+impl From<core_pet::PetPose> for PetPose {
+    fn from(value: core_pet::PetPose) -> Self {
+        match value {
+            core_pet::PetPose::Hidden => Self::Hidden,
+            core_pet::PetPose::Sleeping => Self::Sleeping,
+            core_pet::PetPose::Idle => Self::Idle,
+            core_pet::PetPose::Due => Self::Due,
+        }
+    }
+}
+
+/// A one-shot transition Swift plays once, then recomputes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PetEvent {
+    None,
+    Attention,
+    Celebrate,
+    Acknowledge,
+}
+
+impl From<core_pet::PetEvent> for PetEvent {
+    fn from(value: core_pet::PetEvent) -> Self {
+        match value {
+            core_pet::PetEvent::None => Self::None,
+            core_pet::PetEvent::Attention => Self::Attention,
+            core_pet::PetEvent::Celebrate => Self::Celebrate,
+            core_pet::PetEvent::Acknowledge => Self::Acknowledge,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct PetDecision {
+    pub pose: PetPose,
+    pub event: PetEvent,
+    pub animate: bool,
+    pub ambient: bool,
+    pub accessibility_label: String,
+}
+
+impl From<core_pet::PetDecision> for PetDecision {
+    fn from(value: core_pet::PetDecision) -> Self {
+        Self {
+            pose: value.pose.into(),
+            event: value.event.into(),
+            animate: value.animate,
+            ambient: value.ambient,
+            accessibility_label: value.accessibility_label,
         }
     }
 }
