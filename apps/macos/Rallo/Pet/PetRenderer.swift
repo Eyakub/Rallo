@@ -53,6 +53,9 @@ final class PetView: NSView {
     /// (the two never show together: a due pet doesn't acknowledge).
     private let savedMark = CAShapeLayer()
     private let badgeText = CATextLayer()
+    /// Top-left mirror of `badge`, for agents waiting on the user (0007).
+    private let agentBadge = CAShapeLayer()
+    private let agentBadgeText = CATextLayer()
     private var dragStart: (mouse: NSPoint, origin: NSPoint)?
     private var dragging = false
     private var ambientTimer: Timer?
@@ -149,6 +152,24 @@ final class PetView: NSView {
         check.lineJoin = .round
         savedMark.addSublayer(check)
         layer?.addSublayer(savedMark)
+
+        agentBadge.path = badge.path
+        agentBadge.fillColor = NSColor(hex: 0x2F6FB0).cgColor
+        agentBadge.strokeColor = NSColor.white.cgColor
+        agentBadge.lineWidth = 1.5
+        agentBadge.frame = CGRect(x: 22, y: bounds.height - diameter - 10, width: diameter, height: diameter)
+        agentBadge.isHidden = true
+        agentBadge.actions = ["hidden": NSNull()]
+        agentBadgeText.frame = CGRect(x: 0, y: 3, width: diameter, height: 14)
+        agentBadgeText.alignmentMode = .center
+        agentBadgeText.fontSize = 11
+        agentBadgeText.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        agentBadgeText.foregroundColor = NSColor.white.cgColor
+        // Same fix as badgeText: without this the count cross-fades, so a
+        // badge appearing shows the stale "0" it kept while hidden.
+        agentBadgeText.actions = ["contents": NSNull()]
+        agentBadge.addSublayer(agentBadgeText)
+        layer?.addSublayer(agentBadge)
     }
 
     @available(*, unavailable)
@@ -166,14 +187,15 @@ final class PetView: NSView {
     /// Shows `pose` (after `moment`, if any) and calls `done` once the moment
     /// has finished, so the caller can recompute. With `animate` false the
     /// moment is shown as a still pose for the same beat, never as motion.
-    func apply(pose: Pose, moment: Moment, animate: Bool, ambient: Bool, dueCount: Int, label: String,
-               done: @escaping () -> Void) {
+    func apply(pose: Pose, moment: Moment, animate: Bool, ambient: Bool, dueCount: Int, agentsWaiting: Int,
+               label: String, done: @escaping () -> Void) {
         momentWork?.cancel()
         endPlay()
         sprite.removeAllAnimations()
         self.label = label
         toolTip = label
         setBadge(dueCount)
+        setAgentBadge(agentsWaiting)
         steadyPose = pose
         ambientPose = ambient ? pose : nil
         motionAllowed = animate
@@ -228,6 +250,12 @@ final class PetView: NSView {
         badge.isHidden = count == 0
         badgeText.string = count > 9 ? "9+" : "\(count)"
         badgeText.contentsScale = window?.backingScaleFactor ?? 2
+    }
+
+    private func setAgentBadge(_ count: Int) {
+        agentBadge.isHidden = count == 0
+        agentBadgeText.string = count > 9 ? "9+" : "\(count)"
+        agentBadgeText.contentsScale = window?.backingScaleFactor ?? 2
     }
 
     // MARK: Motion
@@ -327,6 +355,8 @@ final class PetView: NSView {
         badge.contentsScale = scale
         savedMark.contentsScale = scale
         badgeText.contentsScale = scale
+        agentBadge.contentsScale = scale
+        agentBadgeText.contentsScale = scale
     }
 
     // MARK: Mouse

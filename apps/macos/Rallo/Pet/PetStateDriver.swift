@@ -9,8 +9,7 @@ final class PetStateDriver {
     private let core: CoreClient
     private let pet: PetController
     private let log: DiagnosticsLog
-    private var seenCompletion: Int64?
-    private var seenSave: Int64?
+    private var watermarks = PetWatermarks()
     private var wasDue = false
     private var playing = false
     private var refreshAfterMoment = false
@@ -43,36 +42,33 @@ final class PetStateDriver {
         do {
             let snapshot = try await core.petSnapshot()
             let paused = try await core.petAnimationsPaused()
-            // At startup, old completions and saves are history, not events.
-            if seenCompletion == nil {
-                seenCompletion = snapshot.completionSeq
-                seenSave = snapshot.saveSeq
-            }
+            let seen = watermarks.seenValues(for: snapshot)
             let decision = decidePet(inputs: PetInputs(
                 visible: pet.isVisible,
                 reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                 animationsPaused: paused,
                 snapshot: snapshot,
-                seenCompletionSeq: seenCompletion ?? snapshot.completionSeq,
-                seenSaveSeq: seenSave ?? snapshot.saveSeq,
+                seenCompletionSeq: seen.completion,
+                seenSaveSeq: seen.save,
+                seenAgentWaitingSeq: seen.agentWaiting,
+                seenAgentDoneSeq: seen.agentDone,
                 wasDue: wasDue
             ))
             // Every event up to now is consumed by this decision, played or
             // not: a burst of saves becomes one acknowledgement, and work
             // finished while something is due is never celebrated later.
-            seenCompletion = snapshot.completionSeq
-            seenSave = snapshot.saveSeq
+            watermarks.consume(snapshot)
             let becameDue = decision.pose == .due && !wasDue
             wasDue = decision.pose == .due
             armDueTimer(snapshot.nextDueAtMs)
             if becameDue { onDueBoundary() }
-            render(decision, dueCount: Int(snapshot.dueCount))
+            render(decision, dueCount: Int(snapshot.dueCount), agentsWaiting: Int(snapshot.agentsWaiting))
         } catch {
             log.record("pet_state_failed", ["error": "\(error)"])
         }
     }
 
-    private func render(_ decision: PetDecision, dueCount: Int) {
+    private func render(_ decision: PetDecision, dueCount: Int, agentsWaiting: Int) {
         guard decision.pose != .hidden else { return }
         let pose: PetView.Pose = switch decision.pose {
         case .due: .nudge
@@ -87,7 +83,7 @@ final class PetStateDriver {
         }
         playing = moment != .none
         pet.apply(pose: pose, moment: moment, animate: decision.animate, ambient: decision.ambient,
-                  dueCount: dueCount, label: decision.accessibilityLabel) { [weak self] in
+                  dueCount: dueCount, agentsWaiting: agentsWaiting, label: decision.accessibilityLabel) { [weak self] in
             guard let self else { return }
             self.playing = false
             if self.refreshAfterMoment {

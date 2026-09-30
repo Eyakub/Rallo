@@ -82,9 +82,9 @@ final class PetController {
     }
 
     func apply(pose: PetView.Pose, moment: PetView.Moment, animate: Bool, ambient: Bool, dueCount: Int,
-               label: String, done: @escaping () -> Void) {
+               agentsWaiting: Int, label: String, done: @escaping () -> Void) {
         petView.apply(pose: pose, moment: moment, animate: animate, ambient: ambient, dueCount: dueCount,
-                      label: label, done: done)
+                      agentsWaiting: agentsWaiting, label: label, done: done)
     }
 
     private func updateCanAnimate() {
