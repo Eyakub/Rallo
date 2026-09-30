@@ -3,9 +3,19 @@
 Capture small thoughts and one-time reminders from a fast command; an optional
 floating animal keeps them quietly visible. macOS first.
 
-**Status:** pre-release engineering (milestone M0). Not signed for
-distribution, not notarized, Apple Silicon only. See
+**Status:** pre-release (milestones M0–M4 built; M5 release candidate next).
+Ad-hoc signed, not notarized, Apple Silicon, macOS 14+. See
 `docs/platform-support.md`.
+
+## Install
+
+From GitHub Releases, no developer tools needed (`docs/distribution.md`):
+
+```sh
+gh api repos/Eyakub/Rallo/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | bash
+rallo note "Try Rallo"
+rallo update        # later: install the newest release
+```
 
 ## Build
 
@@ -33,5 +43,7 @@ cargo test --workspace
 - `docs/architecture.md` — what is built and its interfaces
 - `docs/cli-contract.md`, `docs/reminder-semantics.md`, `docs/platform-support.md`
 - `docs/backup-and-restore.md` — backup kinds and exact restore steps
+- `docs/distribution.md` — install, update, uninstall, and making a release
+- `skills/rallo/SKILL.md` — how agents should use `rallo`
 - `docs/decisions/` — decision records with real observations
 - `docs/progress.md` — progress log
