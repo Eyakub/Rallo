@@ -101,9 +101,9 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   "problem_count", "warning_count"}`. `ok` is `true` only when
   `problem_count` is `0` (independent of `warning_count`, which never affects
   the exit code). `status` is `"ok"`, `"warning"`, or `"problem"`; `fix` is
-  `null` unless there is a concrete next step. The seven checks, always
+  `null` unless there is a concrete next step. The eight checks, always
   present and always in this order: `app_install`, `terminal_command`,
-  `data_directory`, `app_running`, `notifications`, `reminders`, `backups`
+  `agent_skill`, `data_directory`, `app_running`, `notifications`, `reminders`, `backups`
   (`docs/backup-and-restore.md`). This is the one command whose top-level
   `ok`/exit code can be non-`true`/nonzero without `"ok": false` in the usual
   error-envelope sense — `doctor` always uses the success envelope, since it
