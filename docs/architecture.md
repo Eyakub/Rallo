@@ -67,15 +67,18 @@ shell / agent ──► rallo (CLI, Rust) ────────────�
   note text and are hints only; a single 1 s timer in the app (tolerance
   0.25 s) re-reads `change_revision`, so a missed signal is reconciled within
   a second.
-- **Launch:** `open -g -a <Rallo.app> --args --background|--show --data-dir <dir>`
-  with stdio detached. The CLI waits for `open` to hand the request to
+- **Launch:** `open -g -n -a <Rallo.app> --args --background|--show --data-dir <dir>`
+  with stdio detached. `-n` is required: LaunchServices otherwise keeps one
+  instance per bundle and turns the request into a reopen of an instance
+  that may serve another data directory; the instance lock makes surplus
+  processes exit. The CLI waits for `open` to hand the request to
   LaunchServices, not for the app to finish starting. The app bundle is the
   one containing the running CLI (`Rallo.app/Contents/Helpers/rallo`, after
   resolving the PATH symlink) or `RALLO_APP_PATH` in development — never a
   shell command.
-- **Reopen events:** concurrent `open` requests during startup arrive as
-  reopen events after `open` has exited. The app treats a reopen as a user
-  request only when the sender resolves to a running GUI application.
+- **Reopen events:** a reopen counts as a user request (open the notes panel)
+  only when its sender resolves to a running GUI application such as
+  Finder; anything else is ignored so it can never override a hide.
 
 ## Threading (app)
 

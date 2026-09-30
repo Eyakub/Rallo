@@ -33,9 +33,12 @@ app identity (`com.razlio.rallo`, ad-hoc signed).
 | Already-elapsed instant | Accepted, `nextTriggerDate == nil`, and **delivered immediately** (≈10–20 ms). | Submitting an elapsed deadline creates an immediate alert. Reconciliation must never (re)submit an elapsed deadline; overdue handling follows the recovery matrix. |
 | Before authorization | With status `not_determined`, `add()` succeeds, requests read back as pending, and elapsed ones appear in the delivered list. | "Accepted" and even "delivered" do not imply the user saw anything. Scheduling status must combine acceptance with authorization state. |
 
-Delivery while authorized, app-exited delivery, restart persistence, and
-notification clicks are recorded in `docs/decisions/0001-macos-feasibility.md`
-once measured.
+| App exited | A request accepted earlier fired at its deadline with no Rallo process alive. | OS scheduling is independent of the app for accepted requests. |
+| App quit and relaunched | The pending request survived, read back as pending, and fired on time. | Restart reconciliation can rely on pending readback as evidence. |
+| Cancel | `removePending` before the deadline: neither pending nor delivered afterwards. | |
+
+Presentation with authorization granted and notification clicks are
+recorded in `docs/decisions/0001-macos-feasibility.md` once verified.
 
 ## Time contract (v1)
 
