@@ -46,8 +46,8 @@ final class NotesViewModel: ObservableObject {
 extension RalloError {
     var displayMessage: String {
         switch self {
-        case let .InvalidInput(_, message), let .NotFound(_, message), let .Storage(_, message),
-             let .IncompatibleSchema(_, _, message):
+        case let .InvalidInput(_, message), let .NotFound(_, message), let .Conflict(_, message),
+             let .Storage(_, message), let .IncompatibleSchema(_, _, message):
             return message
         }
     }
@@ -61,7 +61,6 @@ struct NotesView: View {
         VStack(spacing: 0) {
             header
             composer
-            Divider().opacity(0.4)
             if model.items.isEmpty {
                 EmptyNotesView()
             } else {
@@ -70,73 +69,80 @@ struct NotesView: View {
             if let message = model.errorMessage {
                 Text(message)
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Theme.error)
                     .padding(10)
                     .accessibilityLabel("Error: \(message)")
             }
         }
+        .foregroundStyle(Theme.textPrimary)
         .frame(minWidth: 320, minHeight: 360)
-        .background(
-            LinearGradient(colors: [Color(red: 1.0, green: 0.96, blue: 0.91), Color(red: 0.99, green: 0.90, blue: 0.82)],
-                           startPoint: .top, endPoint: .bottom)
-        )
+        .background(Theme.background)
         .onChange(of: model.focusToken) { _, _ in composerFocused = true }
         .onAppear { composerFocused = true }
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Image(nsImage: Bundle.main.image(forResource: "pet-idle") ?? NSImage())
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 38, height: 34)
+                .frame(width: 56, height: 47)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Rallo").font(.headline)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Rallo").font(.title3.weight(.semibold))
                 Text(model.items.isEmpty ? "All clear" : "\(model.items.count) open")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.callout)
+                    .foregroundStyle(Theme.textSecondary)
             }
             Spacer()
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 18)
         .padding(.top, 30)
-        .padding(.bottom, 10)
+        .padding(.bottom, 12)
     }
 
     private var composer: some View {
-        HStack(spacing: 8) {
-            TextField("Jot something down…", text: $model.draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...4)
-                .focused($composerFocused)
-                .onSubmit { Task { await model.save() } }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.85)))
-                .accessibilityLabel("New note")
+        HStack(spacing: 10) {
+            TextField(text: $model.draft, prompt: Text("Jot something down…").foregroundStyle(Theme.textSecondary), axis: .vertical) {
+                Text("New note")
+            }
+            .textFieldStyle(.plain)
+            .lineLimit(1...4)
+            .focused($composerFocused)
+            .onSubmit { Task { await model.save() } }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.fieldBorder, lineWidth: 1))
+            .accessibilityLabel("New note")
             Button {
                 Task { await model.save() }
             } label: {
-                Image(systemName: "plus.circle.fill").font(.title2)
+                Image(systemName: "plus.circle.fill").font(.system(size: 24))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color(red: 0.84, green: 0.45, blue: 0.22))
+            .foregroundStyle(Theme.accent)
+            .opacity(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
             .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .keyboardShortcut(.return, modifiers: .command)
             .accessibilityLabel("Save note")
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 14)
     }
 
     private var list: some View {
         ScrollViewReader { proxy in
-            List(model.items, id: \.id) { item in
-                NoteRow(item: item, highlighted: item.id == model.highlightedItemID)
-                    .id(item.id)
-                    .listRowBackground(Color.clear)
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(model.items, id: \.id) { item in
+                        NoteRow(item: item, highlighted: item.id == model.highlightedItemID)
+                            .id(item.id)
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 18)
             }
-            .scrollContentBackground(.hidden)
             .onChange(of: model.highlightedItemID) { _, id in
                 if let id { withAnimation { proxy.scrollTo(id, anchor: .center) } }
             }
@@ -148,22 +154,25 @@ private struct NoteRow: View {
     let item: ItemSnapshot
     let highlighted: Bool
 
+    private var created: Date { Date(timeIntervalSince1970: TimeInterval(item.createdAtMs) / 1000) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(item.text)
-                .lineLimit(3)
+                .lineLimit(4)
                 .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {
                 Text(item.displayId).font(.caption.monospaced())
                 Text("·")
-                Text(Date(timeIntervalSince1970: TimeInterval(item.createdAtMs) / 1000), style: .relative)
-                    .font(.caption)
+                Text(created, format: .relative(presentation: .named, unitsStyle: .abbreviated))
             }
-            .foregroundStyle(.secondary)
+            .font(.caption)
+            .foregroundStyle(Theme.textSecondary)
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 6)
-        .background(RoundedRectangle(cornerRadius: 6).fill(highlighted ? Color.orange.opacity(0.18) : .clear))
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(highlighted ? Theme.rowHighlight : Theme.row))
         .accessibilityElement(children: .combine)
     }
 }
@@ -176,12 +185,12 @@ private struct EmptyNotesView: View {
             Image(nsImage: Bundle.main.image(forResource: "pet-idle") ?? NSImage())
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 110)
+                .frame(width: 120)
                 .accessibilityHidden(true)
             Text("Nothing on your mind").font(.title3.weight(.semibold))
             Text("Type a note above, or run `rallo note \"…\"` in a terminal.")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
             Spacer()
