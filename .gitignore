@@ -10,3 +10,5 @@ xcuserdata/
 DerivedData/
 # Claude Code agent worktrees.
 /.claude/worktrees/
+# Python bytecode from the art scripts.
+__pycache__/
