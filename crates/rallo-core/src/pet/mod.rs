@@ -1,11 +1,13 @@
-//! Pet reducer (plan §2 "Pet state, in priority order"; 0006).
+//! Pet reducer (plan §2 "Pet state, in priority order"; 0006, extended by
+//! 0007 for agent attention).
 //!
 //! `Store::pet_snapshot` is the only I/O: a cheap, read-only projection of
 //! domain state. `decide` is a pure function with no clock or storage access,
 //! so the priority table is unit-testable without a database. Swift owns
 //! animation timing/rendering and decides when a played transient advances
-//! `seen_completion_seq`/`seen_save_seq` (coalescing any further jumps into
-//! the next decision); the core only computes what to show right now.
+//! `seen_completion_seq`/`seen_save_seq`/`seen_agent_waiting_seq`/
+//! `seen_agent_done_seq` (coalescing any further jumps into the next
+//! decision); the core only computes what to show right now.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
@@ -42,9 +44,10 @@ pub(crate) fn increment_save_seq(tx: &Transaction<'_>) -> CoreResult<()> {
 }
 
 /// Cheap, read-only projection of domain state the reducer needs (plan §2
-/// rows 3-7). Counts exclude deleted items throughout; `due_count` and
-/// `next_due_at_ms` additionally require the item open and the reminder
-/// enabled (which already implies unacknowledged).
+/// rows 3-7, extended by 0007 for agent attention). Counts exclude deleted
+/// items throughout; `due_count` and `next_due_at_ms` additionally require
+/// the item open and the reminder enabled (which already implies
+/// unacknowledged).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PetSnapshot {
     pub open_count: u32,
@@ -54,12 +57,19 @@ pub struct PetSnapshot {
     pub next_due_at_ms: Option<i64>,
     pub completion_seq: i64,
     pub save_seq: i64,
+    /// Fresh (≤24h) `waiting` agent sessions (0007).
+    pub agents_waiting: u32,
+    /// Max `state_seq` among fresh `waiting` rows, 0 if none.
+    pub agent_waiting_seq: i64,
+    /// Max `state_seq` among fresh `done` rows, 0 if none.
+    pub agent_done_seq: i64,
 }
 
 impl Store {
     /// Read-only; reuses `items_open_by_created` (open_count) and
     /// `reminders_enabled_deadline` (due_count/next_due_at_ms) — both already
-    /// indexed for `list`/`list --due`, so no migration is needed here.
+    /// indexed for `list`/`list --due`, so no migration is needed here. The
+    /// agent fields (0007) scan `agent_sessions`, which schema v3 adds.
     pub fn pet_snapshot(&self) -> CoreResult<PetSnapshot> {
         let now = self.now_ms();
         let conn = self.conn();
@@ -77,7 +87,30 @@ impl Store {
         )?;
         let completion_seq = read_metadata_i64(conn, COMPLETION_SEQ_KEY)?.unwrap_or(0);
         let save_seq = read_metadata_i64(conn, SAVE_SEQ_KEY)?.unwrap_or(0);
-        Ok(PetSnapshot { open_count, due_count, next_due_at_ms, completion_seq, save_seq })
+
+        let since = now - crate::agents::FRESH_WINDOW_MS;
+        let (agents_waiting, agent_waiting_seq): (u32, i64) = conn.query_row(
+            "SELECT COUNT(*), COALESCE(MAX(state_seq), 0) FROM agent_sessions
+             WHERE state = 'waiting' AND updated_at_ms >= ?1",
+            [since],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let agent_done_seq: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(state_seq), 0) FROM agent_sessions WHERE state = 'done' AND updated_at_ms >= ?1",
+            [since],
+            |row| row.get(0),
+        )?;
+
+        Ok(PetSnapshot {
+            open_count,
+            due_count,
+            next_due_at_ms,
+            completion_seq,
+            save_seq,
+            agents_waiting,
+            agent_waiting_seq,
+            agent_done_seq,
+        })
     }
 }
 
@@ -97,6 +130,12 @@ pub struct PetInputs {
     /// `save_seq` last acknowledged by a played acknowledgement, same
     /// startup rule.
     pub seen_save_seq: i64,
+    /// `agent_waiting_seq` last acknowledged by a played `Attention` (0007),
+    /// same startup rule.
+    pub seen_agent_waiting_seq: i64,
+    /// `agent_done_seq` last acknowledged by a played `Acknowledge` (0007),
+    /// same startup rule.
+    pub seen_agent_done_seq: i64,
     /// Whether the previous decision's pose was already `Due`: a completion
     /// or save made while due never celebrates, only the falling edge does.
     pub was_due: bool,
@@ -134,17 +173,38 @@ pub struct PetDecision {
 }
 
 fn accessibility_label(snapshot: &PetSnapshot) -> String {
-    if snapshot.due_count > 0 {
+    let mut label = if snapshot.due_count > 0 {
         format!("Rallo, {} reminder{} due", snapshot.due_count, if snapshot.due_count == 1 { "" } else { "s" })
     } else if snapshot.open_count > 0 {
         format!("Rallo, {} open note{}", snapshot.open_count, if snapshot.open_count == 1 { "" } else { "s" })
     } else {
         "Rallo, no open notes".to_owned()
+    };
+    if snapshot.agents_waiting > 0 {
+        label.push_str(&format!(
+            ", {} agent{} waiting",
+            snapshot.agents_waiting,
+            if snapshot.agents_waiting == 1 { "" } else { "s" }
+        ));
     }
+    label
 }
 
-/// Pure priority-table reducer (plan §2). No clock or storage access, so
-/// every row is a plain unit test.
+/// Pure priority-table reducer (plan §2, extended by 0007). No clock or
+/// storage access, so every row is a plain unit test.
+///
+/// Due order (0007): `due_count` and `agents_waiting` share one `Due` pose
+/// and one `was_due` watermark, so a reminder becoming due while an agent is
+/// already waited on (or vice versa) does not re-fire `Attention` on its
+/// own — only the pose's own rising edge (`!was_due`) does, exactly as
+/// before 0007. A new waiting agent is still never missed: it fires
+/// `Attention` independently, on `agent_waiting_seq` crossing its watermark,
+/// even while already `Due` for another reason. Steady-state order (0006's
+/// rows 3-4, with 0007 inserted between them): `Celebrate` (a completion)
+/// outranks both `Acknowledge` sources (a finished agent, or a save) —
+/// those two share the same event, so which one crossed its watermark
+/// makes no observable difference; Swift plays exactly one transient
+/// either way.
 pub fn decide(inputs: &PetInputs) -> PetDecision {
     let accessibility_label = accessibility_label(&inputs.snapshot);
     if !inputs.visible {
@@ -158,14 +218,16 @@ pub fn decide(inputs: &PetInputs) -> PetDecision {
     }
 
     let snapshot = &inputs.snapshot;
-    let (pose, event) = if snapshot.due_count > 0 {
-        let event = if inputs.was_due { PetEvent::None } else { PetEvent::Attention };
+    let (pose, event) = if snapshot.due_count > 0 || snapshot.agents_waiting > 0 {
+        let reminder_rising_edge = snapshot.due_count > 0 && !inputs.was_due;
+        let new_agent_waiting = snapshot.agent_waiting_seq > inputs.seen_agent_waiting_seq;
+        let event = if reminder_rising_edge || new_agent_waiting { PetEvent::Attention } else { PetEvent::None };
         (PetPose::Due, event)
     } else {
         let pose = if snapshot.open_count > 0 { PetPose::Idle } else { PetPose::Sleeping };
         let event = if snapshot.completion_seq > inputs.seen_completion_seq {
             PetEvent::Celebrate
-        } else if snapshot.save_seq > inputs.seen_save_seq {
+        } else if snapshot.agent_done_seq > inputs.seen_agent_done_seq || snapshot.save_seq > inputs.seen_save_seq {
             PetEvent::Acknowledge
         } else {
             PetEvent::None

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use rallo_core::items::model::MutationOptions;
 use rallo_core::pet::{PetEvent, PetInputs, PetPose, PetSnapshot, decide};
 use rallo_core::reminders::{ActionOutcome, NotificationAction, TimeSpec};
-use rallo_core::shared::clock::ManualClock;
+use rallo_core::shared::clock::{Clock, ManualClock};
 use rallo_core::transfer::ExportFormat;
 use rallo_core::{Store, StoreOptions};
 
@@ -24,7 +24,16 @@ fn snap(
     completion_seq: i64,
     save_seq: i64,
 ) -> PetSnapshot {
-    PetSnapshot { open_count, due_count, next_due_at_ms, completion_seq, save_seq }
+    PetSnapshot {
+        open_count,
+        due_count,
+        next_due_at_ms,
+        completion_seq,
+        save_seq,
+        agents_waiting: 0,
+        agent_waiting_seq: 0,
+        agent_done_seq: 0,
+    }
 }
 
 /// Visible, full-motion, nothing previously seen or due — override the
@@ -37,6 +46,8 @@ fn inputs(snapshot: PetSnapshot) -> PetInputs {
         snapshot,
         seen_completion_seq: 0,
         seen_save_seq: 0,
+        seen_agent_waiting_seq: 0,
+        seen_agent_done_seq: 0,
         was_due: false,
     }
 }
@@ -144,6 +155,68 @@ fn startup_seeds_seen_counters_so_old_events_never_replay() {
     assert_eq!(decision.event, PetEvent::None);
 }
 
+// --- agent attention (0007) --------------------------------------------------
+
+#[test]
+fn an_agent_waiting_alone_shows_due_with_attention() {
+    let snapshot = PetSnapshot { agents_waiting: 1, agent_waiting_seq: 1, ..snap(1, 0, None, 0, 0) };
+    let decision = decide(&inputs(snapshot));
+    assert_eq!(decision.pose, PetPose::Due);
+    assert_eq!(decision.event, PetEvent::Attention);
+}
+
+#[test]
+fn a_new_waiting_agent_fires_attention_even_while_already_due_for_a_reminder() {
+    let snapshot = PetSnapshot { agents_waiting: 1, agent_waiting_seq: 5, ..snap(1, 1, None, 0, 0) };
+    // was_due: true and seen_agent_waiting_seq stale -- the reminder's own
+    // rising edge already passed, but a brand new waiting agent still fires.
+    let decision = decide(&PetInputs { was_due: true, seen_agent_waiting_seq: 4, ..inputs(snapshot) });
+    assert_eq!(decision.pose, PetPose::Due);
+    assert_eq!(decision.event, PetEvent::Attention);
+}
+
+#[test]
+fn an_already_seen_waiting_agent_is_silent_once_due_is_steady() {
+    let snapshot = PetSnapshot { agents_waiting: 1, agent_waiting_seq: 5, ..snap(1, 0, None, 0, 0) };
+    let decision = decide(&PetInputs { was_due: true, seen_agent_waiting_seq: 5, ..inputs(snapshot) });
+    assert_eq!(decision.pose, PetPose::Due);
+    assert_eq!(decision.event, PetEvent::None);
+}
+
+#[test]
+fn a_finished_agent_acknowledges_when_not_due() {
+    let snapshot = PetSnapshot { agent_done_seq: 3, ..snap(1, 0, None, 0, 0) };
+    let decision = decide(&inputs(snapshot));
+    assert_eq!(decision.pose, PetPose::Idle);
+    assert_eq!(decision.event, PetEvent::Acknowledge);
+}
+
+#[test]
+fn a_finished_agent_never_acknowledges_while_due() {
+    let snapshot = PetSnapshot { agent_done_seq: 3, ..snap(1, 1, None, 0, 0) };
+    let decision = decide(&PetInputs { was_due: true, ..inputs(snapshot) });
+    assert_eq!(decision.pose, PetPose::Due);
+    assert_eq!(decision.event, PetEvent::None);
+}
+
+#[test]
+fn celebrate_outranks_a_finished_agent_which_outranks_a_pending_save() {
+    let both = PetSnapshot { agent_done_seq: 1, ..snap(1, 0, None, 1, 1) };
+    assert_eq!(decide(&inputs(both)).event, PetEvent::Celebrate);
+
+    let agent_and_save = PetSnapshot { agent_done_seq: 1, ..snap(1, 0, None, 0, 1) };
+    assert_eq!(decide(&inputs(agent_and_save)).event, PetEvent::Acknowledge);
+}
+
+#[test]
+fn accessibility_label_appends_waiting_agents() {
+    let with_one = PetSnapshot { agents_waiting: 1, ..snap(0, 0, None, 0, 0) };
+    assert_eq!(decide(&inputs(with_one)).accessibility_label, "Rallo, no open notes, 1 agent waiting");
+
+    let with_two = PetSnapshot { agents_waiting: 2, ..snap(0, 1, None, 0, 0) };
+    assert_eq!(decide(&inputs(with_two)).accessibility_label, "Rallo, 1 reminder due, 2 agents waiting");
+}
+
 #[test]
 fn accessibility_label_pluralizes_due_reminders_and_open_notes() {
     assert_eq!(decide(&inputs(snap(0, 1, None, 0, 0))).accessibility_label, "Rallo, 1 reminder due");
@@ -195,6 +268,43 @@ fn pet_snapshot_reports_zero_counters_before_any_completion_or_save() {
     let snapshot = store.pet_snapshot().unwrap();
     assert_eq!((snapshot.open_count, snapshot.due_count, snapshot.next_due_at_ms), (0, 0, None));
     assert_eq!((snapshot.completion_seq, snapshot.save_seq), (0, 0));
+    assert_eq!((snapshot.agents_waiting, snapshot.agent_waiting_seq, snapshot.agent_done_seq), (0, 0, 0));
+}
+
+#[test]
+fn pet_snapshot_counts_fresh_waiting_agents_and_max_seqs_excluding_stale_and_working() {
+    use rallo_core::agents::{AgentEvent, AgentKind, AgentState};
+
+    let temp = tempfile::tempdir().unwrap();
+    let clock = Arc::new(ManualClock::new(1_000_000));
+    let mut store = open_with_clock(temp.path(), clock.clone());
+
+    let set_state = |agent, session_id: &str, state| AgentEvent::SetState {
+        agent,
+        session_id: session_id.to_owned(),
+        state,
+        cwd: None,
+        detail: None,
+        app_path: None,
+        app_pid: None,
+    };
+
+    store.record_agent_event(set_state(AgentKind::Claude, "s1", AgentState::Waiting), 1_000_000).unwrap();
+    store.record_agent_event(set_state(AgentKind::Codex, "s2", AgentState::Waiting), 1_000_100).unwrap();
+    store.record_agent_event(set_state(AgentKind::Claude, "s3", AgentState::Done), 1_000_200).unwrap();
+    // Working rows never count toward agents_waiting.
+    store.record_agent_event(set_state(AgentKind::Codex, "s4", AgentState::Working), 1_000_300).unwrap();
+
+    let snapshot = store.pet_snapshot().unwrap();
+    assert_eq!(snapshot.agents_waiting, 2);
+    assert!(snapshot.agent_waiting_seq > 0);
+    assert!(snapshot.agent_done_seq > 0);
+
+    // A stale (>24h) waiting row is excluded from both the count and the max.
+    clock.set(1_000_000 + 25 * 60 * 60 * 1000);
+    store.record_agent_event(set_state(AgentKind::Codex, "s5", AgentState::Waiting), clock.now_ms()).unwrap();
+    let fresh_only = store.pet_snapshot().unwrap();
+    assert_eq!(fresh_only.agents_waiting, 1, "the 24h-stale rows were pruned by the write above");
 }
 
 // --- event counters -----------------------------------------------------------

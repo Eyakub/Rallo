@@ -99,3 +99,28 @@ celebration on launch.
 preferences pattern (`preferences::mod`): getter, and a setter that bumps
 `change_revision` only when the value actually changes. It feeds `decide`'s
 `animations_paused` input; it does not gate `pet_snapshot` or the counters.
+
+## Extended by 0007
+
+0007 ("Agent attention") adds `agents_waiting`/`agent_waiting_seq`/
+`agent_done_seq` to `PetSnapshot` and `seen_agent_waiting_seq`/
+`seen_agent_done_seq` to `PetInputs`, and folds them into this priority
+table without renumbering it:
+
+- Row 2 (`Due`) becomes `due_count > 0 || agents_waiting > 0`, still one
+  pose and one `was_due` watermark. The rising-edge rule for `Attention`
+  (`!was_due`) is unchanged; a new waiting agent additionally fires
+  `Attention` on `agent_waiting_seq` crossing its own watermark, even while
+  already `Due` for an unrelated reminder — the two sources are attention
+  events for genuinely different reasons, so neither's edge should be
+  swallowed by the other already holding the pose.
+- Rows 3-4 (`Celebrate`/`Acknowledge`) gain a second `Acknowledge` source: a
+  finished agent (`agent_done_seq` past its watermark), checked alongside
+  the existing save watermark. `Celebrate` still outranks both; the two
+  `Acknowledge` sources share the same event, so their relative order
+  never changes what Swift plays.
+- The accessibility label appends `, N agent(s) waiting` when
+  `agents_waiting > 0`, independent of pose, same as the rest of the label.
+
+See 0007 for where `agents_waiting`/the two agent seqs come from
+(`agent_sessions`, schema v3).
