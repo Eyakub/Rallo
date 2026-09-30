@@ -33,8 +33,22 @@ final class TerminalSetupController {
             let state = TerminalCommand.inspect(appURL: appURL, home: home, pathDirectories: path ?? [])
             await MainActor.run { [weak self] in
                 self?.model.stage = .state(state, pathKnown: path != nil)
+                self?.log.record("terminal_setup_opened", ["state": Self.stateName(state)])
                 self?.fit()
             }
+        }
+    }
+
+    /// Identifies which branch of `TerminalCommand.State` was shown, without
+    /// logging any path: a report otherwise can't tell "never opened" apart
+    /// from "opened but never clicked Enable".
+    private static func stateName(_ state: TerminalCommand.State) -> String {
+        switch state {
+        case .enabled: "enabled"
+        case .available: "available"
+        case .repairable: "repairable"
+        case .conflict: "conflict"
+        case .notInstalled: "not_installed"
         }
     }
 
@@ -205,7 +219,9 @@ struct TerminalSetupView: View {
                 secondary("Cancel") { model.onClose() }
                 primary("Repair") { model.onEnable() }
             case .state(.enabled, _):
-                secondary(copied == Self.example ? "Copied" : "Copy Example") { copy(Self.example) }
+                // Not a dismiss action: Escape here should not silently
+                // trigger a clipboard copy instead of closing the panel.
+                secondary(copied == Self.example ? "Copied" : "Copy Example", isDismissive: false) { copy(Self.example) }
                 primary("Done") { model.onClose() }
             default:
                 primary("Done") { model.onClose() }
@@ -271,8 +287,11 @@ struct TerminalSetupView: View {
         .keyboardShortcut(.defaultAction)
     }
 
-    private func secondary(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    /// `isDismissive` binds Escape (`.cancelAction`): only true for a button
+    /// that actually closes the panel without side effects, e.g. "Cancel".
+    @ViewBuilder
+    private func secondary(_ title: String, isDismissive: Bool = true, action: @escaping () -> Void) -> some View {
+        let button = Button(action: action) {
             Text(title)
                 .font(Theme.rounded(13, .semibold))
                 .foregroundStyle(Theme.ink)
@@ -282,7 +301,11 @@ struct TerminalSetupView: View {
                 .overlay(Capsule().strokeBorder(Theme.fieldStroke))
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(.cancelAction)
+        if isDismissive {
+            button.keyboardShortcut(.cancelAction)
+        } else {
+            button
+        }
     }
 
     private func copy(_ text: String) {

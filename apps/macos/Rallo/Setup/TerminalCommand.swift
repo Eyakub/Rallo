@@ -92,6 +92,13 @@ enum TerminalCommand {
     /// The user's PATH as their interactive login shell sets it (a GUI app
     /// inherits only launchd's minimal PATH). `nil` if the shell does not
     /// answer within the timeout.
+    ///
+    /// Drains the pipe with a `readabilityHandler` while the shell runs,
+    /// rather than waiting for it to exit first: an interactive login shell
+    /// can print far more than the pipe's kernel buffer holds (theme/prompt
+    /// banners, `nvm`/`pyenv`/`direnv` hooks, etc.), and reading only after
+    /// termination risks the classic `Process`/`Pipe` deadlock where the
+    /// child blocks forever writing to a pipe nobody is emptying.
     static func loginShellPath(timeout: TimeInterval = 3) -> [String]? {
         let shell = String(cString: getpwuid(getuid()).pointee.pw_shell)
         let marker = "__RALLO_PATH__"
@@ -102,6 +109,17 @@ enum TerminalCommand {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
+
+        let lock = NSLock()
+        var collected = Data()
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            lock.lock()
+            collected.append(chunk)
+            lock.unlock()
+        }
+        defer { output.fileHandleForReading.readabilityHandler = nil }
+
         let done = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in done.signal() }
         do { try process.run() } catch { return nil }
@@ -109,7 +127,9 @@ enum TerminalCommand {
             process.terminate()
             return nil
         }
-        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        lock.lock()
+        let text = String(decoding: collected, as: UTF8.self)
+        lock.unlock()
         guard let line = text.split(separator: "\n").last(where: { $0.hasPrefix(marker) }) else { return nil }
         return line.dropFirst(marker.count).split(separator: ":").map(String.init)
     }
