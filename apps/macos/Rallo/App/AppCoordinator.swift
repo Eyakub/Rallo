@@ -18,6 +18,8 @@ final class AppCoordinator {
     private let transfer: TransferController
     private let terminalSetup: TerminalSetupController
     private let petState: PetStateDriver
+    private let agentWaitNotifier: AgentWaitNotifier
+    private let globalShortcuts = GlobalShortcuts()
     private var animationsPaused = false
     private var statusMenu: StatusMenuController?
     private var systemObservers: [NSObjectProtocol] = []
@@ -28,6 +30,10 @@ final class AppCoordinator {
     private var visibility: PetVisibility?
     private var placement: PetPlacement?
     private var notificationSummary = "Notifications: checking…"
+    private var notificationsAuthorized = false
+    private var agentSessions: [AgentSessionSnapshot] = []
+    private var notifyLongWaitEnabled = false
+    private var agentJumpState = AgentJumpState()
 
     init(dataDir: String, launchMode: LaunchOptions.Mode, options: LaunchOptions) {
         self.dataDir = dataDir
@@ -40,6 +46,9 @@ final class AppCoordinator {
         transfer = TransferController(core: core, log: log)
         terminalSetup = TerminalSetupController(log: log)
         petState = PetStateDriver(core: core, pet: pet, log: log)
+        // The wait-threshold testing override (0008) only ever applies to a
+        // scratch instance started with an explicit --data-dir.
+        agentWaitNotifier = AgentWaitNotifier(adapter: notifications.adapter, log: log, allowThresholdOverride: options.dataDir != nil)
         notesModel = NotesViewModel(core: core)
         notes = NotesPanelController(model: notesModel)
         observer = ChangeObserver(dataDir: dataDir)
@@ -52,7 +61,10 @@ final class AppCoordinator {
                 togglePet: { [weak self] in Task { await self?.togglePet() } },
                 toggleAnimations: { [weak self] in Task { await self?.toggleAnimations() } },
                 openNotes: { [weak self] in self?.openNotes(highlighting: nil) },
+                jumpToWaitingAgent: { [weak self] in self?.jumpToWaitingAgent() },
+                selectAgentSession: { [weak self] session in self?.activateAgent(session) },
                 enableNotifications: { [weak self] in Task { await self?.enableNotifications() } },
+                toggleNotifyLongWait: { [weak self] in Task { await self?.toggleNotifyLongWait() } },
                 exportBackup: { [weak self] in self?.transfer.export(.json) },
                 exportSpreadsheet: { [weak self] in self?.transfer.export(.csv) },
                 importNotes: { [weak self] in self?.transfer.importFile() },
@@ -69,6 +81,11 @@ final class AppCoordinator {
         )
         menu.animationsPaused = { [weak self] in self?.animationsPaused ?? false }
         menu.loginItemState = { LoginItem.state }
+        menu.agentSessions = { [weak self] in self?.agentSessions ?? [] }
+        menu.notifyLongWaitEnabled = { [weak self] in self?.notifyLongWaitEnabled ?? false }
+        menu.notificationsAuthorized = { [weak self] in self?.notificationsAuthorized ?? false }
+        menu.jumpShortcutAvailable = { [weak self] in self?.globalShortcuts.jumpRegistered ?? true }
+        menu.notesShortcutAvailable = { [weak self] in self?.globalShortcuts.toggleNotesRegistered ?? true }
         menu.install()
         statusMenu = menu
 
@@ -88,7 +105,18 @@ final class AppCoordinator {
         notifications.onAction = { [weak self] reminderID, generation, action, itemID in
             Task { await self?.handleNotificationAction(reminderID, generation, action, itemID) }
         }
+        notifications.onActivateAgent = { [weak self] agent, sessionId in
+            Task { await self?.activateAgentFromNotification(agent: agent, sessionId: sessionId) }
+        }
         NotificationDrainer.registerCategories(on: UNUserNotificationCenter.current())
+        agentWaitNotifier.isEnabled = { [weak self] in self?.notifyLongWaitEnabled ?? false }
+        agentWaitNotifier.isAuthorized = { [weak self] in self?.notificationsAuthorized ?? false }
+        globalShortcuts.onJump = { [weak self] in self?.jumpToWaitingAgent() }
+        globalShortcuts.onToggleNotes = { [weak self] in
+            guard let self else { return }
+            if notes.isOpen { notes.close() } else { openNotes(highlighting: nil) }
+        }
+        globalShortcuts.register()
         observer.onPossibleChange = { [weak self] in Task { await self?.checkForChanges() } }
         observer.onShowRequest = { [weak self] in Task { await self?.handleShowRequest() } }
         observer.onDiagnosticsRequest = { [weak self] in self?.writeWindowReport() }
@@ -106,6 +134,11 @@ final class AppCoordinator {
         await refreshNotificationSummary()
         observeSystemEvents()
         drainer.requestDrain("launch")
+    }
+
+    /// Unregisters the global shortcuts; called once, at quit.
+    func stop() {
+        globalShortcuts.unregister()
     }
 
     /// Sleep and clock changes can elapse deadlines or strand attempts.
@@ -196,6 +229,12 @@ final class AppCoordinator {
             await notesModel.reload()
         }
         animationsPaused = (try? await core.petAnimationsPaused()) ?? false
+        agentSessions = (try? await core.agentSessions()) ?? []
+        notifyLongWaitEnabled = (try? await core.agentsNotifyLongWait()) ?? false
+        statusMenu?.refreshAgents(agentSessions)
+        if let reminderPrefix = try? await core.notificationIdentifierPrefix() {
+            agentWaitNotifier.reload(sessions: agentSessions, reminderPrefix: reminderPrefix)
+        }
         petState.refresh()
     }
 
@@ -246,6 +285,45 @@ final class AppCoordinator {
             try await reloadFromCore()
         } catch {
             log.record("save_placement_failed", ["error": "\(error)"])
+        }
+    }
+
+    // MARK: Agent attention reach (0008)
+
+    /// Brings a session's terminal forward from the menu's "Agents" section;
+    /// a no-op if Rallo couldn't identify one (the row is disabled instead).
+    private func activateAgent(_ session: AgentSessionSnapshot) {
+        guard let appPath = session.appPath else { return }
+        AgentSessionActivation.activate(appPath: appPath)
+    }
+
+    /// ⌃⌥⌘J and the menu's "Jump to Waiting Agent": longest-waiting first,
+    /// then most-recently-finished; a press within 5 s advances the cycle.
+    private func jumpToWaitingAgent() {
+        let (session, state) = AgentJumpPlanner.next(sessions: agentSessions, previous: agentJumpState)
+        agentJumpState = state
+        guard let session else { return }
+        activateAgent(session)
+    }
+
+    /// A clicked long-wait notification: the session may have finished or
+    /// been dismissed since it was posted, in which case this is a no-op.
+    private func activateAgentFromNotification(agent: String, sessionId: String) async {
+        do {
+            let sessions = try await core.agentSessions()
+            guard let session = sessions.first(where: { $0.agent == agent && $0.sessionId == sessionId }) else { return }
+            activateAgent(session)
+        } catch {
+            log.record("agent_notification_activate_failed", ["error": "\(error)"])
+        }
+    }
+
+    private func toggleNotifyLongWait() async {
+        do {
+            try await core.setAgentsNotifyLongWait(!notifyLongWaitEnabled)
+            try await reloadFromCore()
+        } catch {
+            log.record("toggle_notify_long_wait_failed", ["error": "\(error)"])
         }
     }
 
@@ -310,12 +388,16 @@ final class AppCoordinator {
         switch settings.authorizationStatus {
         case .authorized, .provisional, .ephemeral:
             notificationSummary = "Notifications: allowed"
+            notificationsAuthorized = true
         case .denied:
             notificationSummary = "Notifications: off in System Settings"
+            notificationsAuthorized = false
         case .notDetermined:
             notificationSummary = "Notifications: not set up yet"
+            notificationsAuthorized = false
         @unknown default:
             notificationSummary = "Notifications: unknown"
+            notificationsAuthorized = false
         }
     }
 

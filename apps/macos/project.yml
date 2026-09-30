@@ -52,6 +52,10 @@ targets:
       - path: Rallo/Pet/Stroke.swift
       - path: Rallo/Pet/PetWatermarks.swift
       - path: Rallo/Notes/AgentSessionFormatting.swift
+      - path: Rallo/Notifications/NotificationAdapter.swift
+      - path: Rallo/Notifications/AgentNotificationIdentifier.swift
+      - path: Rallo/Notifications/AgentWaitPlanner.swift
+      - path: Rallo/App/AgentJumpPlanner.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo.tests

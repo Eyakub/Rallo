@@ -53,6 +53,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        coordinator?.stop()
+    }
+
     /// Who sent the reopen event. The CLI's `open -g` requests can queue up
     /// while the app is starting and arrive as reopen events after `open` has
     /// exited, so only a sender that resolves to a running GUI application
