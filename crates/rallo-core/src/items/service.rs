@@ -46,7 +46,10 @@ struct DeleteByTextInputs<'a> {
 
 /// Outcome of the request-id check that opens every mutation (0003 §7),
 /// performed before resolving any selector or checking any revision.
-enum ReceiptLookup {
+///
+/// `pub(crate)`: reminder mutations (`reminders::service`) reuse this same
+/// pipeline rather than duplicating it.
+pub(crate) enum ReceiptLookup {
     /// No request id was supplied.
     None,
     /// First time seeing this request id; store a receipt with this
@@ -56,7 +59,11 @@ enum ReceiptLookup {
     Replay(Box<MutationOutcome>),
 }
 
-fn check_receipt(tx: &Transaction<'_>, request_id: Option<&str>, inputs: &impl Serialize) -> CoreResult<ReceiptLookup> {
+pub(crate) fn check_receipt(
+    tx: &Transaction<'_>,
+    request_id: Option<&str>,
+    inputs: &impl Serialize,
+) -> CoreResult<ReceiptLookup> {
     let Some(request_id) = request_id else { return Ok(ReceiptLookup::None) };
     idempotency::validate_request_id(request_id)?;
     let fingerprint = idempotency::fingerprint(inputs);
@@ -77,7 +84,7 @@ fn check_receipt(tx: &Transaction<'_>, request_id: Option<&str>, inputs: &impl S
 }
 
 #[allow(clippy::too_many_arguments)]
-fn store_receipt(
+pub(crate) fn store_receipt(
     tx: &Transaction<'_>,
     request_id: Option<&str>,
     fingerprint: Option<&str>,
@@ -92,7 +99,12 @@ fn store_receipt(
     idempotency::insert(tx, request_id, fingerprint, command_kind, Some(item_id), &result, now_ms)
 }
 
-fn outcome(conn: &rusqlite::Connection, item: ItemView, changed: bool, replayed: bool) -> CoreResult<MutationOutcome> {
+pub(crate) fn outcome(
+    conn: &rusqlite::Connection,
+    item: ItemView,
+    changed: bool,
+    replayed: bool,
+) -> CoreResult<MutationOutcome> {
     let scheduling = reminders::repository::scheduling_status(conn, item.reminder.as_ref())?;
     let cancellation = reminders::repository::cancellation_status(conn, item.reminder.as_ref())?;
     Ok(MutationOutcome { item, changed, replayed, scheduling, cancellation })
@@ -105,16 +117,21 @@ enum Guard {
 
 /// Resolve → precondition → already-in-target no-op → revision guard (0003
 /// §9), shared by every ID-based mutation.
+///
+/// `precondition` and `already_in_target` take the transaction as well as
+/// the item: reminder mutations (`reminders::service`) need it to check
+/// whether the item's reminder exists or is active, which `Item` alone
+/// cannot answer.
 fn guard(
     tx: &Transaction<'_>,
     selector: &str,
     if_revision: Option<i64>,
-    precondition: impl FnOnce(&Item) -> CoreResult<()>,
-    already_in_target: impl FnOnce(&Item) -> bool,
+    precondition: impl FnOnce(&Transaction<'_>, &Item) -> CoreResult<()>,
+    already_in_target: impl FnOnce(&Transaction<'_>, &Item) -> CoreResult<bool>,
 ) -> CoreResult<Guard> {
     let item = repository::resolve(tx, selector)?;
-    precondition(&item)?;
-    if already_in_target(&item) {
+    precondition(tx, &item)?;
+    if already_in_target(tx, &item)? {
         return Ok(Guard::NoOp(item));
     }
     if let Some(expected) = if_revision
@@ -130,7 +147,7 @@ fn guard(
     Ok(Guard::Proceed(item))
 }
 
-fn deleted_precondition(item: &Item) -> CoreResult<()> {
+pub(crate) fn deleted_precondition(_tx: &Transaction<'_>, item: &Item) -> CoreResult<()> {
     if item.deleted_at_ms.is_some() {
         Err(CoreError::conflict(ErrorCode::ItemDeleted, "item is deleted"))
     } else {
@@ -138,21 +155,23 @@ fn deleted_precondition(item: &Item) -> CoreResult<()> {
     }
 }
 
-fn no_precondition(_item: &Item) -> CoreResult<()> {
+fn no_precondition(_tx: &Transaction<'_>, _item: &Item) -> CoreResult<()> {
     Ok(())
 }
 
 /// Shared receipt → guard → apply → receipt-store → outcome pipeline for the
-/// ID-based mutations (`complete`, `reopen`, `delete`, `restore`, `edit_text`).
+/// ID-based mutations (`complete`, `reopen`, `delete`, `restore`, `edit_text`,
+/// and — via `reminders::service` — `reschedule`, `snooze`, `acknowledge`,
+/// `cancel_reminder`).
 #[allow(clippy::too_many_arguments)]
-fn mutate_by_selector(
+pub(crate) fn mutate_by_selector(
     store: &mut Store,
     command_kind: &'static str,
     selector: &str,
     opts: &MutationOptions,
     inputs: &impl Serialize,
-    precondition: impl FnOnce(&Item) -> CoreResult<()>,
-    already_in_target: impl FnOnce(&Item) -> bool,
+    precondition: impl FnOnce(&Transaction<'_>, &Item) -> CoreResult<()>,
+    already_in_target: impl FnOnce(&Transaction<'_>, &Item) -> CoreResult<bool>,
     apply: impl FnOnce(&Transaction<'_>, &Item, i64) -> CoreResult<()>,
 ) -> CoreResult<MutationOutcome> {
     let now = store.now_ms();
@@ -270,7 +289,7 @@ impl Store {
             opts,
             &inputs,
             deleted_precondition,
-            |item| item.text == new_text,
+            |_tx, item| Ok(item.text == new_text),
             |tx, item, now| {
                 let match_key = text::match_key(&new_text);
                 repository::update_text(tx, item.id, &new_text, &match_key, now)?;
@@ -294,7 +313,7 @@ impl Store {
             opts,
             &inputs,
             deleted_precondition,
-            |item| item.status == ItemStatus::Done,
+            |_tx, item| Ok(item.status == ItemStatus::Done),
             |tx, item, now| {
                 repository::mark_done(tx, item.id, now)?;
                 reminders::repository::disable_active(tx, item.id, DisabledReason::ItemCompleted, now)?;
@@ -315,7 +334,7 @@ impl Store {
             opts,
             &inputs,
             deleted_precondition,
-            |item| item.status == ItemStatus::Open,
+            |_tx, item| Ok(item.status == ItemStatus::Open),
             |tx, item, now| {
                 repository::mark_open(tx, item.id, now)?;
                 bump_revision(tx)?;
@@ -336,7 +355,7 @@ impl Store {
             opts,
             &inputs,
             no_precondition,
-            |item| item.deleted_at_ms.is_some(),
+            |_tx, item| Ok(item.deleted_at_ms.is_some()),
             |tx, item, now| {
                 repository::mark_deleted(tx, item.id, now)?;
                 reminders::repository::disable_active(tx, item.id, DisabledReason::ItemDeleted, now)?;
@@ -357,7 +376,7 @@ impl Store {
             opts,
             &inputs,
             no_precondition,
-            |item| item.deleted_at_ms.is_none(),
+            |_tx, item| Ok(item.deleted_at_ms.is_none()),
             |tx, item, now| {
                 repository::mark_restored(tx, item.id, now)?;
                 bump_revision(tx)?;

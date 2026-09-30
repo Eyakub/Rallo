@@ -391,3 +391,16 @@ pub(crate) fn mark_restored(tx: &Transaction<'_>, item_id: Uuid, now_ms: i64) ->
     )?;
     Ok(())
 }
+
+/// Bumps `revision`/`updated_at_ms` without touching any other column: used
+/// by reminder-only mutations (`reschedule`, `snooze`, `acknowledge`,
+/// `cancel-reminder`) whose state change lives entirely in the `reminders`
+/// table but which must still bump the item's revision exactly once (0003
+/// §3).
+pub(crate) fn touch(tx: &Transaction<'_>, item_id: Uuid, now_ms: i64) -> CoreResult<()> {
+    tx.execute(
+        "UPDATE items SET updated_at_ms = ?2, revision = revision + 1 WHERE id = ?1",
+        params![item_id.to_string(), now_ms],
+    )?;
+    Ok(())
+}
