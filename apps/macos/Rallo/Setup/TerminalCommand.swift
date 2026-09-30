@@ -109,6 +109,12 @@ enum TerminalCommand {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
+        // What a freshly launched shell sees, not whatever PATH this process
+        // inherited.
+        let inherited = ProcessInfo.processInfo.environment
+        var environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        for key in ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR"] { environment[key] = inherited[key] }
+        process.environment = environment
 
         let lock = NSLock()
         var collected = Data()

@@ -86,12 +86,21 @@ pub fn login_profile(shell: &Path) -> &'static str {
     }
 }
 
-/// PATH as `shell -lc` sets it: what tools that run commands without an
+/// PATH as `shell -lc` sets it from a fresh environment: what tools that run commands without an
 /// interactive terminal see (some agents, IDE tasks). An interactive
 /// terminal also reads `~/.zshrc`, so a directory added only there works in
 /// Terminal but not for them. `None` if the shell doesn't answer in time.
 pub fn noninteractive_login_path(shell: &Path, timeout: Duration) -> Option<Vec<PathBuf>> {
-    let mut child = Command::new(shell)
+    // Start from what launchd gives a freshly launched app, not this
+    // process's PATH, which a terminal has usually already extended.
+    let mut command = Command::new(shell);
+    command.env_clear().env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+    for key in ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR"] {
+        if let Some(value) = env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let mut child = command
         .args(["-lc", r#"printf '%s' "$PATH""#])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
