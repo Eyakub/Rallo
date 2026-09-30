@@ -11,3 +11,11 @@
 - Pet window level/collection behaviour is fixed by
   `docs/decisions/0002-pet-window-configuration.md`.
 - Commits: conventional, author `eyakubsorkar@gmail.com`, no AI attribution.
+- UI changes: render and click through them, and screenshot both Dark and
+  Light Mode before calling them done.
+- Releases: `scripts/release.sh X.Y.Z` (dry run) then `--publish`, only when
+  the user says so. Distribution without a Developer ID: `docs/distribution.md`.
+- Build products registered with LaunchServices can receive notification
+  clicks meant for the installed app: `lsregister -u` scratch builds.
+- A terminal can't toggle Reduce Motion (`com.apple.universalaccess` is
+  TCC-protected), and `sfltool dumpbtm` blocks on an admin prompt.
