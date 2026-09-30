@@ -141,37 +141,126 @@ fn setup_terminal_success(out: &Output, status: &str, link: &Path, target: &Path
     Ok(())
 }
 
-/// `setup skill`: installs the embedded agent skill for Claude Code and
-/// Cursor (`skill.rs`). Never touches a data directory and never starts the
-/// app.
-pub fn setup_skill(out: &Output, print: bool) -> CommandResult {
+/// `setup skill`: installs the embedded agent skill (`skill.rs`) for every
+/// detected agent (Claude Code, Cursor, Codex), or the ones named by
+/// `--agent`; Codex also gets a `rallo.rules` execpolicy file. Inspects every
+/// chosen target before writing anything, so a foreign file at any of them
+/// fails the whole command with nothing written. Never touches a data
+/// directory and never starts the app.
+pub fn setup_skill(out: &Output, print: bool, agents: Vec<skill::Agent>) -> CommandResult {
     if print {
         out.success(json!({ "skill": { "content": skill::SKILL } }), &[], || skill::SKILL.trim_end().to_owned());
         return Ok(());
     }
     let home = terminal_command::home_dir()
         .ok_or_else(|| Failure::new(Exit::InvalidInput, "INVALID_INPUT", "$HOME is not set"))?;
-    let status = match skill::inspect(&home) {
-        skill::State::Current => "already_installed",
-        skill::State::Missing => "installed",
-        skill::State::Outdated => "updated",
-        skill::State::Foreign => {
-            return Err(Failure::new(
-                Exit::Conflict,
-                "SKILL_CONFLICT",
-                format!(
-                    "{} isn't Rallo's skill, so Rallo won't replace it. `rallo setup skill --print` shows Rallo's.",
-                    skill::path(&home).display()
-                ),
-            ));
-        }
-    };
-    let path = if status == "already_installed" {
-        skill::path(&home)
+
+    let targets: Vec<skill::Agent> = if agents.is_empty() {
+        let detected: Vec<skill::Agent> =
+            skill::Agent::ALL.into_iter().filter(|&agent| skill::detected(agent, &home)).collect();
+        if detected.is_empty() { vec![skill::Agent::Claude] } else { detected }
     } else {
-        skill::install(&home)
-            .map_err(|error| Failure::new(Exit::InvalidInput, "SKILL_SETUP_FAILED", error.to_string()))?
+        agents
     };
+
+    struct Target {
+        agent: skill::Agent,
+        skill_path: PathBuf,
+        skill_state: skill::State,
+        rules: Option<(PathBuf, String, skill::State)>,
+    }
+
+    let plan: Vec<Target> = targets
+        .into_iter()
+        .map(|agent| {
+            let skill_path = skill::skill_path(agent, &home);
+            let skill_state = skill::inspect_skill(&skill_path);
+            let rules = (agent == skill::Agent::Codex).then(|| {
+                let rules_path = skill::rules_path(&home);
+                let content = skill::rules_content(&home);
+                let state = skill::inspect_rules(&rules_path, &content);
+                (rules_path, content, state)
+            });
+            Target { agent, skill_path, skill_state, rules }
+        })
+        .collect();
+
+    let mut foreign_paths = Vec::new();
+    for target in &plan {
+        if matches!(target.skill_state, skill::State::Foreign) {
+            foreign_paths.push(target.skill_path.clone());
+        }
+        if let Some((rules_path, _, state)) = &target.rules
+            && matches!(state, skill::State::Foreign)
+        {
+            foreign_paths.push(rules_path.clone());
+        }
+    }
+    if !foreign_paths.is_empty() {
+        let listed = foreign_paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ");
+        return Err(Failure::new(
+            Exit::Conflict,
+            "SKILL_CONFLICT",
+            format!("{listed} isn't Rallo's, so Rallo won't replace it. `rallo setup skill --print` shows Rallo's."),
+        ));
+    }
+
+    let mut installs = Vec::new();
+    let mut lines = Vec::new();
+    let mut has_claude = false;
+    let mut has_codex = false;
+    for target in plan {
+        match target.agent {
+            skill::Agent::Claude => has_claude = true,
+            skill::Agent::Codex => has_codex = true,
+        }
+        let status = match target.skill_state {
+            skill::State::Current => "already_installed",
+            skill::State::Missing => "installed",
+            skill::State::Outdated => "updated",
+            skill::State::Foreign => unreachable!("foreign targets were already rejected above"),
+        };
+        if status != "already_installed" {
+            skill::install_skill(&target.skill_path)
+                .map_err(|error| Failure::new(Exit::InvalidInput, "SKILL_SETUP_FAILED", error.to_string()))?;
+        }
+
+        let rules_json = if let Some((rules_path, content, state)) = target.rules {
+            let rules_status = match state {
+                skill::State::Current => "already_installed",
+                skill::State::Missing => "installed",
+                skill::State::Outdated => "updated",
+                skill::State::Foreign => unreachable!("foreign targets were already rejected above"),
+            };
+            if rules_status != "already_installed" {
+                skill::install_rules(&rules_path, &content)
+                    .map_err(|error| Failure::new(Exit::InvalidInput, "SKILL_SETUP_FAILED", error.to_string()))?;
+            }
+            Some(json!({ "status": rules_status, "path": rules_path }))
+        } else {
+            None
+        };
+
+        let headline = match status {
+            "already_installed" => format!("The Rallo skill for {} is already installed", target.agent.label()),
+            "updated" => format!("Updated the Rallo skill for {}", target.agent.label()),
+            _ => format!("Installed the Rallo skill for {}", target.agent.label()),
+        };
+        let rules_note = if target.agent == skill::Agent::Codex {
+            " (and rallo.rules, so Codex runs Rallo's note commands without asking)"
+        } else {
+            ""
+        };
+        lines.push(format!("{headline} at {}{rules_note}.", target.skill_path.display()));
+
+        installs.push(json!({
+            "agent": target.agent.json_name(),
+            "status": status,
+            "path": target.skill_path,
+            "rules": rules_json,
+        }));
+    }
+
     let on_path = env::var_os("PATH")
         .is_some_and(|value| env::split_paths(&value).any(|dir| dir.join(terminal_command::NAME).is_file()));
     let warnings: Vec<String> = if on_path {
@@ -179,16 +268,20 @@ pub fn setup_skill(out: &Output, print: bool) -> CommandResult {
     } else {
         vec!["Agents run `rallo` from PATH, and it isn't there yet: run `rallo setup terminal`.".into()]
     };
-    out.success(json!({ "skill": { "status": status, "path": path } }), &warnings, || {
-        let headline = match status {
-            "already_installed" => "The Rallo skill is already installed",
-            "updated" => "Updated the Rallo skill",
-            _ => "Installed the Rallo skill",
+
+    out.success(json!({ "skill": { "installs": installs } }), &warnings, || {
+        let hint = match (has_claude, has_codex) {
+            (true, true) => {
+                "Claude Code, Cursor, and Codex pick it up from there; ask one to \"note that …\" or \"remind me …\"."
+            }
+            (true, false) => {
+                "Claude Code and Cursor pick it up from there; ask one to \"note that …\" or \"remind me …\"."
+            }
+            (false, true) => "Codex picks it up from there; ask it to \"note that …\" or \"remind me …\".",
+            (false, false) => unreachable!("at least one agent is always targeted"),
         };
-        format!(
-            "{headline} at {}.\nClaude Code and Cursor pick it up from there; ask one to \"note that …\" or \"remind me …\".",
-            path.display()
-        )
+        lines.push(hint.to_owned());
+        lines.join("\n")
     });
     Ok(())
 }

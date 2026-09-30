@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use rallo_core::items::service::DEFAULT_PAGE_SIZE;
 
+use crate::skill::Agent;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "rallo",
@@ -253,14 +255,20 @@ pub enum SetupCommand {
     /// correct link idempotently. Never replaces a `rallo` that isn't
     /// Rallo's own link, and never starts the app.
     Terminal,
-    /// Install the agent skill for this version as
-    /// `~/.claude/skills/rallo/SKILL.md`, where Claude Code and Cursor find
-    /// it; updates an older copy. Never replaces a skill that isn't Rallo's.
+    /// Install the agent skill for this version for every detected agent
+    /// (Claude Code, Cursor, and Codex; Codex also gets a `rallo.rules`
+    /// execpolicy file); updates an older copy. Never replaces a skill, or
+    /// rules file, that isn't Rallo's.
     Skill {
         /// Write the skill to stdout instead, for agents that take
-        /// instructions another way.
+        /// instructions another way. Ignores `--agent`; installs nothing.
         #[arg(long)]
         print: bool,
+        /// Install only for these agents (repeatable). Creates the agent's
+        /// directories even if it wasn't detected. Default: every detected
+        /// agent, or Claude Code/Cursor if none is detected.
+        #[arg(long = "agent", value_enum)]
+        agents: Vec<Agent>,
     },
 }
 

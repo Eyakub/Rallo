@@ -282,34 +282,109 @@ fn check_terminal_command(app: Option<&Path>, home: Option<&Path>) -> Check {
     }
 }
 
+/// Evaluates every detected agent's skill (and, for Codex, its
+/// `rallo.rules`) and folds them into the one `agent_skill` check: any
+/// outdated file outranks everything else, then Codex's skill being current
+/// without rules, then "nothing detected has anything installed", then "every
+/// detected agent is fully current"; anything else (a mix of installed,
+/// missing, and foreign) is reported per agent without raising the status --
+/// a foreign file is always left alone, never a `warning`/`problem`.
 fn check_agent_skill(home: Option<&Path>) -> Check {
     let Some(home) = home else {
         return Check::new("agent_skill", CheckStatus::Ok, "Not checked: $HOME is not set.", None);
     };
-    let path = skill::path(home);
-    match skill::inspect(home) {
-        skill::State::Missing => Check::new(
-            "agent_skill",
-            CheckStatus::Ok,
-            "Not installed (optional): `rallo setup skill` teaches Claude Code and Cursor to use Rallo.",
-            None,
-        ),
-        skill::State::Current => {
-            Check::new("agent_skill", CheckStatus::Ok, format!("Installed at {}.", path.display()), None)
-        }
-        skill::State::Outdated => Check::new(
+
+    struct Entry {
+        agent: skill::Agent,
+        state: skill::State,
+        path: PathBuf,
+        rules: Option<(skill::State, PathBuf)>,
+    }
+
+    let entries: Vec<Entry> = skill::Agent::ALL
+        .into_iter()
+        .filter(|&agent| skill::detected(agent, home))
+        .map(|agent| {
+            let path = skill::skill_path(agent, home);
+            let state = skill::inspect_skill(&path);
+            let rules = (agent == skill::Agent::Codex).then(|| {
+                let rules_path = skill::rules_path(home);
+                let content = skill::rules_content(home);
+                (skill::inspect_rules(&rules_path, &content), rules_path)
+            });
+            Entry { agent, state, path, rules }
+        })
+        .collect();
+
+    if entries.is_empty() {
+        return not_installed_check();
+    }
+
+    let outdated = entries.iter().any(|entry| {
+        matches!(entry.state, skill::State::Outdated)
+            || entry.rules.as_ref().is_some_and(|(r, _)| matches!(r, skill::State::Outdated))
+    });
+    if outdated {
+        return Check::new(
             "agent_skill",
             CheckStatus::Warning,
-            format!("{} is from another Rallo version.", path.display()),
+            "An installed agent skill or Codex's rallo.rules is from another Rallo version.",
             Some("rallo setup skill".into()),
-        ),
-        skill::State::Foreign => Check::new(
-            "agent_skill",
-            CheckStatus::Ok,
-            format!("{} isn't Rallo's skill; left alone.", path.display()),
-            None,
-        ),
+        );
     }
+
+    let codex_rules_missing = entries.iter().any(|entry| {
+        entry.agent == skill::Agent::Codex
+            && matches!(entry.state, skill::State::Current)
+            && entry.rules.as_ref().is_some_and(|(r, _)| matches!(r, skill::State::Missing))
+    });
+    if codex_rules_missing {
+        return Check::new(
+            "agent_skill",
+            CheckStatus::Warning,
+            "Codex's skill is installed, but rallo.rules is missing, so Codex will ask before running Rallo's \
+             commands.",
+            Some("rallo setup skill --agent codex".into()),
+        );
+    }
+
+    let all_missing = entries.iter().all(|entry| {
+        matches!(entry.state, skill::State::Missing)
+            && entry.rules.as_ref().is_none_or(|(r, _)| matches!(r, skill::State::Missing))
+    });
+    if all_missing {
+        return not_installed_check();
+    }
+
+    let all_current = entries.iter().all(|entry| {
+        matches!(entry.state, skill::State::Current)
+            && entry.rules.as_ref().is_none_or(|(r, _)| matches!(r, skill::State::Current))
+    });
+    if all_current {
+        let installed: Vec<String> =
+            entries.iter().map(|entry| format!("{} ({})", entry.agent.label(), entry.path.display())).collect();
+        return Check::new("agent_skill", CheckStatus::Ok, format!("Installed for {}.", installed.join(" and ")), None);
+    }
+
+    let parts: Vec<String> = entries
+        .iter()
+        .map(|entry| match entry.state {
+            skill::State::Current => format!("installed for {} ({})", entry.agent.label(), entry.path.display()),
+            skill::State::Missing => format!("not installed for {}", entry.agent.label()),
+            skill::State::Foreign => format!("{} isn't Rallo's skill; left alone", entry.path.display()),
+            skill::State::Outdated => unreachable!("handled above"),
+        })
+        .collect();
+    Check::new("agent_skill", CheckStatus::Ok, format!("{}.", parts.join("; ")), None)
+}
+
+fn not_installed_check() -> Check {
+    Check::new(
+        "agent_skill",
+        CheckStatus::Ok,
+        "Not installed (optional): `rallo setup skill` teaches Claude Code, Cursor, and Codex to use Rallo.",
+        None,
+    )
 }
 
 /// The line to add when `link`'s directory is missing from a non-interactive

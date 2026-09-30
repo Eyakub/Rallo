@@ -24,6 +24,11 @@ Enable Terminal Command…). Never pretend a note was saved.
 This works only in a local shell on the user's Mac. A remote machine, SSH
 session, or container cannot reach Rallo's data; say so instead of trying.
 
+If a command fails with a storage permission error, an agent sandbox is
+blocking it: Rallo's store lives outside the sandbox (in `~/Library`). Ask the
+user to let `rallo` run outside the sandbox (in Codex, `rallo setup skill`
+adds rules for this). Never retry with a different data directory.
+
 ## 2. When to act
 
 - Save or change items **only when the user asks** ("note that…",

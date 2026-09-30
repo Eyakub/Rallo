@@ -54,7 +54,7 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
     if let Command::Setup { command: setup_command } = command {
         return match setup_command {
             SetupCommand::Terminal => commands::setup_terminal(out),
-            SetupCommand::Skill { print } => commands::setup_skill(out, print),
+            SetupCommand::Skill { print, agents } => commands::setup_skill(out, print, agents),
         }
         .map(|()| ExitCode::SUCCESS);
     }
