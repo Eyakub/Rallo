@@ -8,7 +8,8 @@ import QuartzCore
 /// user prefers reduced motion.
 final class PetView: NSView {
     enum Pose: String {
-        case idle = "pet-idle"
+        /// Drawn without its eyes; `eyes` adds them so they can move.
+        case idle = "pet-idle-base"
         case sleep = "pet-sleep"
         case nudge = "pet-nudge"
         case celebrate = "pet-celebrate"
@@ -27,7 +28,18 @@ final class PetView: NSView {
 
     private static let dragThreshold: CGFloat = 3
     private static let frameRate = CAFrameRateRange(minimum: 8, maximum: 12, preferred: 12)
+    /// Furthest lean toward the cursor, in radians (about 5.7°).
+    private static let maxLean: CGFloat = 0.1
+    /// Between the idle pose's eyes, in view points (from the art).
+    private static let eyesCenter = CGPoint(x: 55, y: 68)
+    /// Furthest the eyes move toward the cursor, in points.
+    private static let maxLook = CGSize(width: 2, height: 1.5)
+    /// Holds the hover lean, so it composes with the sprite's own motion.
+    private let leanLayer = CALayer()
     private let sprite = CALayer()
+    /// The idle pose's eyes (scripts/split-pet-eyes.py), inside the sprite
+    /// so they breathe, tilt, and lean with it.
+    private let eyes = CALayer()
     private let badge = CAShapeLayer()
     private let badgeText = CATextLayer()
     private var dragStart: (mouse: NSPoint, origin: NSPoint)?
@@ -36,6 +48,9 @@ final class PetView: NSView {
     private var momentWork: DispatchWorkItem?
     private var steadyPose: Pose = .idle
     private var ambientPose: Pose?
+    private var motionAllowed = false
+    private var leanAngle: CGFloat = 0
+    private var lookOffset = CGSize.zero
     private var label = "Rallo"
 
     var onClick: () -> Void = {}
@@ -45,7 +60,11 @@ final class PetView: NSView {
     /// Whether ambient motion may run at all (visible, not occluded, display
     /// awake); set by the controller.
     var canAnimate = false {
-        didSet { if canAnimate != oldValue { rescheduleAmbient() } }
+        didSet {
+            guard canAnimate != oldValue else { return }
+            rescheduleAmbient()
+            if !canAnimate { resetLean() }
+        }
     }
 
     override init(frame frameRect: NSRect) {
@@ -53,12 +72,25 @@ final class PetView: NSView {
         wantsLayer = true
         layer?.backgroundColor = .clear
         // Rotations and hops pivot on the feet, not the middle of the art.
+        leanLayer.anchorPoint = CGPoint(x: 0.5, y: 0.08)
+        leanLayer.frame = bounds
+        leanLayer.actions = ["transform": NSNull()]
+        layer?.addSublayer(leanLayer)
         sprite.anchorPoint = CGPoint(x: 0.5, y: 0.08)
-        sprite.frame = bounds
+        sprite.frame = leanLayer.bounds
         sprite.contentsGravity = .resizeAspect
         sprite.contents = Self.image(for: steadyPose)
         sprite.actions = ["contents": NSNull(), "transform": NSNull()]
-        layer?.addSublayer(sprite)
+        leanLayer.addSublayer(sprite)
+        eyes.frame = sprite.bounds
+        eyes.contentsGravity = .resizeAspect
+        eyes.contents = Bundle.main.image(forResource: "pet-idle-eyes")
+        eyes.actions = ["transform": NSNull(), "hidden": NSNull()]
+        sprite.addSublayer(eyes)
+        // Local to this view: the pet notices the cursor only while it's
+        // over the pet. No global mouse monitoring (spec §2).
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways,
+                                                              .inVisibleRect], owner: self))
 
         let diameter: CGFloat = 20
         badge.path = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: diameter, height: diameter), transform: nil)
@@ -102,6 +134,8 @@ final class PetView: NSView {
         setBadge(dueCount)
         steadyPose = pose
         ambientPose = ambient ? pose : nil
+        motionAllowed = animate
+        if !animate || pose == .sleep { resetLean() }
 
         let (momentPose, duration): (Pose, TimeInterval) = switch moment {
         case .none: (pose, 0)
@@ -131,9 +165,11 @@ final class PetView: NSView {
         ambientTimer?.invalidate()
         ambientTimer = nil
         sprite.removeAllAnimations()
+        resetLean()
     }
 
     private func show(_ pose: Pose, fade: Bool) {
+        eyes.isHidden = pose != .idle
         guard sprite.contents as AnyObject? !== Self.image(for: pose) else { return }
         if fade {
             let transition = CATransition()
@@ -174,22 +210,25 @@ final class PetView: NSView {
         sprite.add(animation, forKey: keyPath)
     }
 
-    /// "Occasional small movement": one short, subtle motion every 25–45 s,
-    /// only while idle or asleep and allowed to animate.
+    /// "Occasional small movement": one short motion every 12–25 s, only
+    /// while idle or asleep and allowed to animate. Asleep, two slow breaths;
+    /// awake, a breath or a look around.
     private func rescheduleAmbient() {
         ambientTimer?.invalidate()
         ambientTimer = nil
         guard canAnimate, ambientPose != nil else { return }
-        let timer = Timer(timeInterval: .random(in: 25...45), repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: .random(in: 12...25), repeats: false) { [weak self] _ in
             guard let self, self.canAnimate, let pose = self.ambientPose else { return }
             if pose == .sleep {
-                self.add(keyframes: "transform.scale.y", values: [1, 1.018, 1], duration: 2.4)
+                self.add(keyframes: "transform.scale.y", values: [1, 1.045, 1, 1.045, 1], duration: 5)
+            } else if Bool.random() {
+                self.add(keyframes: "transform.scale.y", values: [1, 1.04, 1], duration: 2.4)
             } else {
-                self.add(keyframes: "transform.rotation.z", values: [0, 0.025, -0.015, 0], duration: 1.4)
+                self.add(keyframes: "transform.rotation.z", values: [0, 0.07, -0.045, 0], duration: 1.8)
             }
             self.rescheduleAmbient()
         }
-        timer.tolerance = 5
+        timer.tolerance = 3
         RunLoop.main.add(timer, forMode: .common)
         ambientTimer = timer
     }
@@ -198,6 +237,7 @@ final class PetView: NSView {
         super.viewDidChangeBackingProperties()
         let scale = window?.backingScaleFactor ?? 2
         sprite.contentsScale = scale
+        eyes.contentsScale = scale
         badge.contentsScale = scale
         badgeText.contentsScale = scale
     }
@@ -231,6 +271,57 @@ final class PetView: NSView {
             // A double-click is one request, not open-then-close.
             onClick()
         }
+    }
+
+    override func mouseEntered(with event: NSEvent) { leanToward(event) }
+    override func mouseMoved(with event: NSEvent) { leanToward(event) }
+    override func mouseExited(with event: NSEvent) {
+        lean(to: 0)
+        look(toward: .zero)
+    }
+
+    /// Leans toward the cursor's side of the pet, pivoting on its feet, and
+    /// turns the eyes toward it.
+    private func leanToward(_ event: NSEvent) {
+        guard canAnimate, motionAllowed, steadyPose != .sleep else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let clamp = { (value: CGFloat) in max(-1, min(1, value)) }
+        lean(to: -clamp((point.x - bounds.midX) / (bounds.width / 2)) * Self.maxLean)
+        look(toward: CGSize(width: clamp((point.x - Self.eyesCenter.x) / 40) * Self.maxLook.width,
+                            height: clamp((point.y - Self.eyesCenter.y) / 40) * Self.maxLook.height))
+    }
+
+    private func lean(to angle: CGFloat) {
+        guard abs(angle - leanAngle) > 0.004 else { return }
+        leanAngle = angle
+        ease(leanLayer, "transform.rotation.z", to: angle)
+    }
+
+    private func look(toward offset: CGSize) {
+        guard hypot(offset.width - lookOffset.width, offset.height - lookOffset.height) > 0.1 else { return }
+        lookOffset = offset
+        ease(eyes, "transform.translation", to: NSValue(size: offset))
+    }
+
+    private func ease(_ layer: CALayer, _ keyPath: String, to value: Any) {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = (layer.presentation() ?? layer).value(forKeyPath: keyPath)
+        animation.toValue = value
+        animation.duration = 0.3
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        animation.preferredFrameRateRange = Self.frameRate
+        layer.setValue(value, forKeyPath: keyPath)
+        layer.add(animation, forKey: keyPath)
+    }
+
+    /// Straight up, eyes ahead, at once: used when motion stops being allowed.
+    private func resetLean() {
+        leanLayer.removeAllAnimations()
+        eyes.removeAllAnimations()
+        leanAngle = 0
+        lookOffset = .zero
+        leanLayer.setValue(0, forKeyPath: "transform.rotation.z")
+        eyes.setValue(NSValue(size: .zero), forKeyPath: "transform.translation")
     }
 
     override func rightMouseDown(with event: NSEvent) {
