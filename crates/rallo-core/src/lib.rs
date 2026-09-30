@@ -9,6 +9,7 @@ pub mod preferences;
 pub mod reminders;
 pub mod shared;
 pub mod storage;
+pub mod transfer;
 
 pub use shared::errors::{CoreError, ErrorCode};
 pub use storage::database::{Store, StoreOptions};

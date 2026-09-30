@@ -195,4 +195,32 @@ pub enum Command {
         /// Full ID or unique prefix. Omit for the app/storage overview.
         id: Option<String>,
     },
+    /// Export notes and reminders. JSON is a lossless backup; CSV is
+    /// spreadsheet-friendly but excludes deleted items and some reminder detail.
+    Export {
+        /// Destination path, or "-" for stdout.
+        #[arg(long, value_name = "PATH")]
+        output: String,
+        /// Defaults from the output extension: ".csv" is CSV, anything else is JSON.
+        #[arg(long, value_enum)]
+        format: Option<ExportFormatArg>,
+        /// Overwrite an existing file at --output.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Import notes and reminders from a previous export.
+    Import {
+        /// Source path, or "-" for stdin.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+        /// Validate and report without writing anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum ExportFormatArg {
+    Json,
+    Csv,
 }

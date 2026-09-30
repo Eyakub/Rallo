@@ -91,5 +91,7 @@ fn run(cli: Cli, out: &Output) -> commands::CommandResult {
         Command::Show { reset_position } => commands::show(out, &mut store, reset_position),
         Command::Hide => commands::hide(out, &mut store),
         Command::Status { id } => commands::status(out, &store, id),
+        Command::Export { output, format, force } => commands::export(out, &store, &output, format, force),
+        Command::Import { file, dry_run } => commands::import(out, &mut store, &file, dry_run),
     }
 }

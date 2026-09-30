@@ -18,6 +18,7 @@ rallo-core = { path = "crates/rallo-core" }
 rallo-platform-macos = { path = "crates/rallo-platform-macos" }
 caseless = "0.2.2"
 clap = { version = "4.6.7", features = ["derive", "env"] }
+csv = "1.4.0"
 libc = "0.2.189"
 rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
 serde = { version = "1.0.229", features = ["derive"] }

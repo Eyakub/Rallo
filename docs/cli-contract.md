@@ -35,6 +35,8 @@ mutation also accepts `--if-revision N` (0003 §9).
 | `delete ID` / `delete --text TEXT` | Soft-deletes, keeping open/done status; disables an active reminder. Exactly one selector (clap rejects both/neither, exit 2); `--if-revision` only with an ID selector (clap rejects it alongside `--text`, exit 2). `--text` matches the entire stored text after trim/NFC/case-fold (0003 §6, §8) among nondeleted items (open and done); zero matches is exit 3, more than one is exit 4 with candidates. Already-deleted (by ID) is an idempotent no-op. |
 | `show [--reset-position]` | Persists "visible", then signals a running app or launches it (`open -g`, no activation). Intentionally launches/shows the app. |
 | `hide` | Persists "hidden" and signals a running app. Never launches it. |
+| `export --output PATH\|- [--format json\|csv] [--force]` | Writes a versioned export (0004): JSON is a lossless backup (items, reminders, timestamps, deleted state); CSV is spreadsheet-friendly but excludes deleted items and reminder detail beyond a resolved deadline/state. `--format` defaults from the `--output` extension (`.csv` → csv, otherwise json). `--output -` writes the export bytes directly to stdout (no envelope, `--json` ignored). Refuses to overwrite an existing file unless `--force`. Never starts the app: exporting only reads the store. |
+| `import --file PATH\|- [--dry-run]` | Validates an entire export document (JSON or CSV, detected by content) before any write, classifies every record as new/identical/conflict, and applies it in one transaction behind a pre-import backup (0004). `--file -` reads from stdin. Any conflict aborts the whole import with nothing written, dry run or not. Imported reminders are always disabled and must be explicitly rescheduled. Never starts the app; a successful (non-dry-run) import signals one that is already running. |
 | `--version [--json]` | CLI, core, database schema, and JSON contract versions. |
 
 Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
@@ -55,7 +57,16 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
 - Errors: `{"ok": false, "error": {"code", "message", "detail"?}}`. `detail`
   is `ConflictDetail` (0003 §11, `shared/errors.rs`): `{total, candidates}`
   for an ambiguous ID/text selector, `{current}` for a stale
-  `--if-revision`, or `{limit, active}` at reminder capacity.
+  `--if-revision`, `{limit, active}` at reminder capacity, or
+  `{total, conflicts}` (0004) for `IMPORT_CONFLICT` — a bounded list of
+  `{id, line, index, reason}`, never note text.
+- `export`/`import` JSON (0004): `export` success is
+  `{"export": {"items", "path", "format"}}` (omitted when `--output -`, which
+  writes the export bytes directly to stdout instead of the usual envelope).
+  `import` success is `{"format", "total_records", "new", "identical",
+  "conflicts": [], "warnings", "applied", "backup_path"}`; `conflicts` is
+  always empty on success — a real conflict is the `IMPORT_CONFLICT` error
+  above, not a partial success.
 - Human output goes to stdout; diagnostics/warnings/candidates go to stderr.
   Stored text is shown with control characters and bidi overrides replaced by
   U+FFFD and line breaks flattened; JSON output is always lossless.
@@ -76,6 +87,14 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
     changed."
   - No-op (`changed: false`): stated plainly, e.g. `Already done: "text"
     (DISPLAYID)`.
+  - `export`: `Exported N notes to PATH (json|csv).` (omitted for
+    `--output -`, which writes only the raw export bytes).
+  - `import`: `Would import N notes (M already here, skipped).` for
+    `--dry-run`, `Imported N notes (M already here, skipped).` otherwise;
+    both append `Imported reminders stay off until you reschedule them.`
+    when `N > 0`, and a real import appends `Backup saved to PATH.`.
+    `IMPORT_CONFLICT` lists each conflicting id/line on stderr, then `Nothing
+    was imported.`; exit 4, nothing changed.
 - `SIGPIPE` has its default behaviour (`rallo list | head` ends quietly).
 
 ## Input rules
@@ -99,18 +118,22 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   visibility, since native work is now pending.
 - A launch failure becomes a `warnings` entry; the exit code stays 0.
 - Read commands (`list`, `get`, `search`, `status`) never start the app.
+  `export` is a read command in this sense: it never signals or launches.
+- `import` (non-dry-run): signals a running app (the same helper `hide`
+  uses) but never launches one — imported reminders are always disabled, so
+  there is no pending native work to hand off. `--dry-run` never signals.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Success / committed |
-| 2 | Invalid arguments or input (nothing committed) |
+| 2 | Invalid arguments or input (nothing committed), including `INVALID_IMPORT` |
 | 3 | Not found |
-| 4 | Conflict / ambiguous: `AMBIGUOUS_ID`, `AMBIGUOUS_ITEM`, `REVISION_CONFLICT`, `REQUEST_ID_CONFLICT`, `ITEM_DELETED`, `ITEM_NOT_OPEN`, `NO_REMINDER`, `REMINDER_CAPACITY_REACHED` |
+| 4 | Conflict / ambiguous: `AMBIGUOUS_ID`, `AMBIGUOUS_ITEM`, `REVISION_CONFLICT`, `REQUEST_ID_CONFLICT`, `ITEM_DELETED`, `ITEM_NOT_OPEN`, `NO_REMINDER`, `REMINDER_CAPACITY_REACHED`, `IMPORT_CONFLICT`, `FILE_EXISTS` |
 | 5 | Storage failure or lock timeout |
 | 6 | Installation/platform failure for platform-only commands (e.g. `show` when the app cannot be found) |
-| 7 | Incompatible schema |
+| 7 | Incompatible schema, including an export document newer than this build supports |
 
 A saved note or reminder whose app nudge failed still exits 0 and reports the
 problem in `warnings`. Failure before commit is nonzero and mutates nothing.

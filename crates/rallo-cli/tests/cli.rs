@@ -435,3 +435,135 @@ fn pagination_walks_every_item_via_next_cursor_with_a_stable_total_count() {
     assert_eq!(seen.len(), 5);
     assert_eq!(total_count, Some(5));
 }
+
+// --- export/import (0004) -------------------------------------------------
+
+#[test]
+fn export_to_file_then_import_into_a_fresh_data_dir_round_trips() {
+    let source = Cli::new();
+    let (_, note) = source.json(&["note", "exported note", "--json"]);
+    let id = note["item"]["id"].as_str().unwrap().to_owned();
+
+    let out_dir = tempfile::tempdir().unwrap();
+    let export_path = out_dir.path().join("backup.json");
+    let (code, doc) = source.json(&["export", "--output", export_path.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 0);
+    assert_eq!(doc["export"]["items"], 1);
+    assert_eq!(doc["export"]["format"], "json");
+    assert!(export_path.exists());
+
+    let target = Cli::new();
+    let (code, doc) = target.json(&["import", "--file", export_path.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 0);
+    assert_eq!(doc["new"], 1);
+    assert_eq!(doc["applied"], true);
+    assert!(doc["backup_path"].is_string());
+
+    let (_, got) = target.json(&["get", &id, "--json"]);
+    assert_eq!(got["item"]["text"], "exported note");
+}
+
+#[test]
+fn export_output_dash_writes_raw_bytes_to_stdout() {
+    let cli = Cli::new();
+    cli.run(&["note", "to stdout"]);
+    let output = cli.run(&["export", "--output", "-"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(document["format"], "rallo.export");
+    assert_eq!(document["items"][0]["text"], "to stdout");
+}
+
+#[test]
+fn export_refuses_to_overwrite_without_force_but_force_replaces() {
+    let cli = Cli::new();
+    cli.run(&["note", "first"]);
+    let out_dir = tempfile::tempdir().unwrap();
+    let path = out_dir.path().join("export.json");
+    assert!(cli.run(&["export", "--output", path.to_str().unwrap()]).status.success());
+
+    let (code, doc) = cli.json(&["export", "--output", path.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 4, "FILE_EXISTS is a conflict, not a usage error");
+    assert_eq!(doc["error"]["code"], "FILE_EXISTS");
+
+    cli.run(&["note", "second"]);
+    let (code, doc) = cli.json(&["export", "--output", path.to_str().unwrap(), "--force", "--json"]);
+    assert_eq!(code, 0);
+    assert_eq!(doc["export"]["items"], 2);
+}
+
+#[test]
+fn export_format_defaults_from_the_output_extension() {
+    let cli = Cli::new();
+    cli.run(&["note", "csv please"]);
+    let out_dir = tempfile::tempdir().unwrap();
+    let path = out_dir.path().join("export.csv");
+    let (code, doc) = cli.json(&["export", "--output", path.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 0);
+    assert_eq!(doc["export"]["format"], "csv");
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(&bytes[..3], [0xEF, 0xBB, 0xBF]);
+}
+
+#[test]
+fn import_dry_run_reports_without_writing_anything() {
+    let source = Cli::new();
+    source.run(&["note", "dry run me"]);
+    let out_dir = tempfile::tempdir().unwrap();
+    let path = out_dir.path().join("export.json");
+    source.run(&["export", "--output", path.to_str().unwrap()]);
+
+    let target = Cli::new();
+    let (code, doc) = target.json(&["import", "--file", path.to_str().unwrap(), "--dry-run", "--json"]);
+    assert_eq!(code, 0);
+    assert_eq!(doc["new"], 1);
+    assert_eq!(doc["applied"], false);
+    assert!(doc["backup_path"].is_null());
+
+    let (_, list) = target.json(&["list", "--json"]);
+    assert_eq!(list["items"], serde_json::json!([]), "dry run wrote nothing");
+}
+
+#[test]
+fn import_conflict_exits_4_with_nothing_changed_and_stderr_detail() {
+    let source = Cli::new();
+    let (_, note) = source.json(&["note", "shared text", "--json"]);
+    let out_dir = tempfile::tempdir().unwrap();
+    let path = out_dir.path().join("export.json");
+    source.run(&["export", "--output", path.to_str().unwrap()]);
+
+    let target = Cli::new();
+    assert!(target.run(&["import", "--file", path.to_str().unwrap()]).status.success());
+    let (_, before) = target.json(&["get", note["item"]["id"].as_str().unwrap(), "--json"]);
+    assert_eq!(before["item"]["revision"], 1);
+
+    // Edit the source note so a re-export/re-import of the same id conflicts.
+    source.run(&["edit", note["item"]["id"].as_str().unwrap(), "--text", "edited elsewhere"]);
+    source.run(&["export", "--output", path.to_str().unwrap(), "--force"]);
+
+    let output = target.run(&["import", "--file", path.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(4));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("Nothing was imported"), "{stderr:?}");
+
+    let (_, after) = target.json(&["get", note["item"]["id"].as_str().unwrap(), "--json"]);
+    assert_eq!(after["item"]["text"], "shared text", "nothing changed on conflict");
+}
+
+#[test]
+fn import_accepts_stdin_with_dash() {
+    let source = Cli::new();
+    source.run(&["note", "via stdin"]);
+    let export = source.run(&["export", "--output", "-"]);
+    assert!(export.status.success());
+
+    let target = Cli::new();
+    let output = target.run_stdin(&["import", "--file", "-", "--json"], &export.stdout);
+    assert!(output.status.success());
+    let doc = parse(&output);
+    assert_eq!(doc["new"], 1);
+
+    let (_, list) = target.json(&["list", "--json"]);
+    assert_eq!(list["items"][0]["text"], "via stdin");
+}

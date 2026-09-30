@@ -1,4 +1,4 @@
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome, Page, SearchQuery};
@@ -7,10 +7,12 @@ use rallo_core::reminders::{CancellationStatus, ReminderState, SchedulingStatus,
 use rallo_core::shared::{signal, text};
 use rallo_core::storage::instance_lock::InstanceLock;
 use rallo_core::storage::migrations::SCHEMA_VERSION;
+use rallo_core::transfer::{ExportFormat, ImportReport, MAX_IMPORT_BYTES};
 use rallo_core::{ErrorCode, Store};
 use rallo_platform_macos::{change_signal, launch};
 use serde_json::{Value, json};
 
+use crate::args::ExportFormatArg;
 use crate::local_time::format_local;
 use crate::output::{Exit, Failure, Output, preview};
 
@@ -465,6 +467,119 @@ fn status_overview(out: &Output, store: &Store) -> CommandResult {
             store.data_dir().display()
         )
     });
+    Ok(())
+}
+
+fn export_format_name(format: ExportFormat) -> &'static str {
+    match format {
+        ExportFormat::Json => "json",
+        ExportFormat::Csv => "csv",
+    }
+}
+
+/// Format defaults from the `--output` extension (build plan §5, 0004):
+/// `.csv` is CSV, anything else (including "-" for stdout) is JSON.
+fn infer_export_format(output: &str, explicit: Option<ExportFormatArg>) -> ExportFormat {
+    match explicit {
+        Some(ExportFormatArg::Json) => ExportFormat::Json,
+        Some(ExportFormatArg::Csv) => ExportFormat::Csv,
+        None if output.to_ascii_lowercase().ends_with(".csv") => ExportFormat::Csv,
+        None => ExportFormat::Json,
+    }
+}
+
+/// `rallo export --output PATH [--format json|csv] [--force]` (0004). Never
+/// nudges the app: exporting reads the store, it never changes it.
+/// `--output -` writes the export bytes directly to stdout and skips the
+/// usual envelope, since the payload itself is what "-" asks for.
+pub fn export(
+    out: &Output,
+    store: &Store,
+    output: &str,
+    format: Option<ExportFormatArg>,
+    force: bool,
+) -> CommandResult {
+    let format = infer_export_format(output, format);
+    if output == "-" {
+        let bytes = store.export_bytes(format)?;
+        io::stdout().lock().write_all(&bytes)?;
+        return Ok(());
+    }
+    let summary = store.export_to_file(Path::new(output), format, force)?;
+    out.success(json!({ "export": { "items": summary.items, "path": summary.path, "format": format } }), &[], || {
+        format!(
+            "Exported {} note{} to {} ({}).",
+            summary.items,
+            if summary.items == 1 { "" } else { "s" },
+            summary.path.display(),
+            export_format_name(format)
+        )
+    });
+    Ok(())
+}
+
+fn read_import_bytes(file: &str) -> Result<Vec<u8>, Failure> {
+    // Read one byte past the cap so the core's own size check still fires
+    // with its documented message, rather than a bounded read silently
+    // truncating an oversized document.
+    let bound = MAX_IMPORT_BYTES as u64;
+    let mut bytes = Vec::new();
+    if file == "-" {
+        io::stdin().lock().take(bound + 1).read_to_end(&mut bytes)?;
+    } else {
+        let handle = std::fs::File::open(file).map_err(|error| {
+            Failure::new(
+                Exit::InvalidInput,
+                ErrorCode::InvalidInput.as_str(),
+                format!("could not open {file}: {error}"),
+            )
+        })?;
+        handle.take(bound + 1).read_to_end(&mut bytes)?;
+    }
+    Ok(bytes)
+}
+
+fn import_fields(report: &ImportReport) -> Value {
+    json!({
+        "format": report.format,
+        "total_records": report.total_records,
+        "new": report.new,
+        "identical": report.identical,
+        "conflicts": report.conflicts,
+        "applied": report.applied,
+        "backup_path": report.backup_path,
+    })
+}
+
+fn import_human(report: &ImportReport, dry_run: bool) -> String {
+    let verb = if dry_run { "Would import" } else { "Imported" };
+    let mut line = format!(
+        "{verb} {} note{} ({} already here, skipped).",
+        report.new,
+        if report.new == 1 { "" } else { "s" },
+        report.identical
+    );
+    if report.new > 0 {
+        line.push_str(" Imported reminders stay off until you reschedule them.");
+    }
+    if let Some(path) = &report.backup_path {
+        line.push_str(&format!(" Backup saved to {}.", path.display()));
+    }
+    line
+}
+
+/// `rallo import --file PATH [--dry-run]` (0004). Any conflict fails the
+/// whole call (exit 4) with nothing changed, dry run or not. Never launches
+/// the app; a successful, non-dry-run import signals one that is already
+/// running (the same helper `hide` uses).
+pub fn import(out: &Output, store: &mut Store, file: &str, dry_run: bool) -> CommandResult {
+    let bytes = read_import_bytes(file)?;
+    let report = if dry_run { store.preview_import(&bytes)? } else { store.apply_import(&bytes)? };
+    if !dry_run {
+        signal_if_running(store.data_dir());
+    }
+    let warnings = report.warnings.clone();
+    out.success(import_fields(&report), &warnings, || import_human(&report, dry_run));
     Ok(())
 }
 

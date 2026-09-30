@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use crate::items::model::ItemView;
+use crate::transfer::import::ImportConflictRecord;
 
 /// Stable machine-readable error codes. Part of the CLI JSON contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -23,6 +24,9 @@ pub enum ErrorCode {
     ItemNotOpen,
     NoReminder,
     ReminderCapacityReached,
+    InvalidImport,
+    ImportConflict,
+    FileExists,
 }
 
 impl ErrorCode {
@@ -45,6 +49,9 @@ impl ErrorCode {
             Self::ItemNotOpen => "ITEM_NOT_OPEN",
             Self::NoReminder => "NO_REMINDER",
             Self::ReminderCapacityReached => "REMINDER_CAPACITY_REACHED",
+            Self::InvalidImport => "INVALID_IMPORT",
+            Self::ImportConflict => "IMPORT_CONFLICT",
+            Self::FileExists => "FILE_EXISTS",
         }
     }
 }
@@ -70,6 +77,13 @@ pub enum ConflictDetail {
     Capacity {
         limit: u32,
         active: u32,
+    },
+    /// `IMPORT_CONFLICT` (0004): a bounded list of records whose id matches an
+    /// existing item with different content. `total` may exceed
+    /// `conflicts.len()`; never includes note text.
+    ImportConflicts {
+        total: u64,
+        conflicts: Vec<ImportConflictRecord>,
     },
 }
 
@@ -149,6 +163,16 @@ impl From<rusqlite::Error> for CoreError {
 impl From<std::io::Error> for CoreError {
     fn from(error: std::io::Error) -> Self {
         Self::storage(format!("storage I/O error: {error}"))
+    }
+}
+
+/// CSV syntax errors while reading an import document (0004). Structural
+/// storage errors (`csv::ErrorKind::Io`) are exceedingly unlikely for an
+/// in-memory `&[u8]` reader; both kinds are reported as `INVALID_IMPORT`
+/// since either way the document could not be read.
+impl From<csv::Error> for CoreError {
+    fn from(error: csv::Error) -> Self {
+        Self::invalid(ErrorCode::InvalidImport, format!("CSV syntax error: {error}"))
     }
 }
 
