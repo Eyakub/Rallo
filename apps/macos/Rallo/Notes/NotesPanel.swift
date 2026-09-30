@@ -48,7 +48,12 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.delegate = self
         panel.onEscape = { [weak model] in model?.handleEscape() ?? false }
-        panel.contentView = NSHostingView(rootView: NotesView(model: model))
+        let hosting = NSHostingView(rootView: NotesView(model: model))
+        panel.contentView = hosting
+        // The hosting view adds the title bar's height only when it first
+        // lays out; size the panel now so the first open is placed from its
+        // real height instead of overlapping the pet.
+        panel.setContentSize(hosting.fittingSize)
         // A compact panel only closes; minimise/zoom would be dead controls.
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
