@@ -63,12 +63,30 @@ doctor` says when it isn't), and instructions on how to use it:
 - **Claude Code and Cursor:** `rallo setup skill` installs the skill as
   `~/.claude/skills/rallo/SKILL.md`. Claude Code picks it up in running
   sessions too (`/skills` lists it); Cursor reads that folder as well.
+- **Codex CLI and the Codex tab of the ChatGPT desktop app** (they share
+  `~/.codex`, or `$CODEX_HOME`): `rallo setup skill` installs the skill as
+  `~/.codex/skills/rallo/SKILL.md` (or `$CODEX_HOME/skills/rallo/SKILL.md`)
+  and also writes `rallo.rules`, an execpolicy file that pre-approves
+  Rallo's everyday note/reminder commands (`note`, `remind`, `list`, `get`,
+  `search`, `done`, `reopen`, `snooze`, `reschedule`, `acknowledge`,
+  `cancel-reminder`, `edit`, `delete`, `restore`, `show`, `hide` -- never
+  `update`, `setup`, `backup`, `import`, `export`, or `doctor`) so Codex's
+  default sandbox doesn't block Rallo's store in `~/Library` with a storage
+  permission error. Delete `rallo.rules` to undo it. Plain ChatGPT chat
+  (without the Codex tab) can't run local commands, so it can't use Rallo.
 - **Anything else:** `rallo setup skill --print` prints the same
   instructions; put them wherever the agent takes standing instructions.
 
+With no `--agent` flag, `rallo setup skill` installs for every agent
+detected on this Mac (falling back to Claude Code/Cursor if none is);
+`--agent claude`/`--agent codex` (repeatable) installs only those.
+
 The skill ships inside the CLI, so each release carries its own. After an
-update, `rallo doctor` warns if the installed copy is older; run `rallo
-setup skill` again. Both agents were tested with it (`agent-evaluation.md`).
+update, `rallo doctor` warns if an installed copy (skill or Codex's
+`rallo.rules`) is older; run `rallo setup skill` again. Claude Code and
+Cursor were tested with it (`agent-evaluation.md`); `scripts/agent-eval`
+supports Codex too (`RALLO_EVAL_AGENT=codex`) once its skill and rules are
+installed.
 
 ## Uninstall
 
