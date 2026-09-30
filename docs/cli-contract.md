@@ -38,7 +38,8 @@ mutation also accepts `--if-revision N` (0003 §9).
 | `export --output PATH\|- [--format json\|csv] [--force]` | Writes a versioned export (0004): JSON is a lossless backup (items, reminders, timestamps, deleted state); CSV is spreadsheet-friendly but excludes deleted items and reminder detail beyond a resolved deadline/state. `--format` defaults from the `--output` extension (`.csv` → csv, otherwise json). `--output -` writes the export bytes directly to stdout (no envelope, `--json` ignored). Refuses to overwrite an existing file unless `--force`. Never starts the app: exporting only reads the store. |
 | `import --file PATH\|- [--dry-run]` | Validates an entire export document (JSON or CSV, detected by content) before any write, classifies every record as new/identical/conflict, and applies it in one transaction behind a pre-import backup (0004). `--file -` reads from stdin. Any conflict aborts the whole import with nothing written, dry run or not. Imported reminders are always disabled and must be explicitly rescheduled. Never starts the app; a successful (non-dry-run) import signals one that is already running. |
 | `setup terminal` | Links the CLI inside this running, installed app onto PATH as `rallo` (spec §10; same rules as the menu's "Enable Terminal Command…"): prefers `~/.local/bin`, falls back to `~/bin`; repairs a link left by a moved/reinstalled copy of the app; reports an already-correct link idempotently (`changed`-free success); never replaces a `rallo` that isn't a symlink to some installed `Rallo.app/Contents/Helpers/rallo`, on PATH or at the target directory. Refuses to run unless this executable is inside `/Applications` or `~/Applications`. Never touches a data directory, never starts or signals the app. |
-| `doctor [--json]` | Read-only health report (M4, spec §8/§10): app install/embedding, terminal command, data directory permissions/schema/integrity/size, whether the app is running, last-observed notification authorization, active-reminder/unresolved-intent counts, and `backups/` contents. Never opens the store the normal way (no migration), never writes, never signals or launches the app. Exits `0` if every check is `ok`/`warning`, `1` if any is a `problem` (`DOCTOR_PROBLEMS`; see 0004/backup-and-restore.md for repair steps). |
+| `setup skill [--print]` | Writes the agent skill embedded in this CLI (`skills/rallo/SKILL.md` of the same version) to `~/.claude/skills/rallo/SKILL.md`, Claude Code's personal skills directory, which Cursor also reads. Atomic (temp file + rename). Reports an identical file idempotently, replaces an older Rallo skill (frontmatter `name: rallo`), and never replaces anything else there. Warns when no `rallo` is on PATH. `--print` writes the skill to stdout instead and installs nothing. Works from any copy of the CLI; never touches a data directory, never starts or signals the app. |
+| `doctor [--json]` | Read-only health report (M4, spec §8/§10): app install/embedding, terminal command, agent skill, data directory permissions/schema/integrity/size, whether the app is running, last-observed notification authorization, active-reminder/unresolved-intent counts, and `backups/` contents. Never opens the store the normal way (no migration), never writes, never signals or launches the app. Exits `0` if every check is `ok`/`warning`, `1` if any is a `problem` (`DOCTOR_PROBLEMS`; see 0004/backup-and-restore.md for repair steps). |
 | `backup [--output PATH] [--force] [--json]` | Writes a consistent snapshot of the database via SQLite's online backup API (`docs/backup-and-restore.md`): default `<data dir>/backups/manual-<now_ms>.sqlite3`, mode `0600`, atomic (temp file + `fsync` + rename). Refuses to overwrite an existing file without `--force` (`FILE_EXISTS`, exit 4, like `export`). Works while the app is running. Never starts or signals the app: like `export`, it only reads the store. |
 | `update [--check] [--json]` | Distribution build only (`docs/distribution.md`): checks GitHub Releases for a newer version and, unless `--check`, downloads, verifies, and installs it. **The only Rallo command that uses the network, and only when run directly** — no background checks, no automatic updater. Refuses (`NOT_INSTALLED`, exit 2) unless this CLI is the one embedded in an installed `/Applications` or `~/Applications` copy. `--check` reports and stops. Otherwise: verifies the downloaded zip's SHA-256 against `SHA256SUMS`, the extracted bundle's identifier/version, its code signature, and that its embedded CLI runs and reports the same version — all before touching the installed app; backs up the data directory first, like `rallo backup` (skipped with no data yet); quits a running Rallo (`SIGTERM`, 5 s); swaps the app bundle atomically, restoring the previous one if the swap itself fails; and relaunches in the background exactly as other commands launch the app (pet visibility unchanged). |
 | `--version [--json]` | CLI, core, database schema, and JSON contract versions. |
@@ -86,6 +87,10 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   `/Applications` or `~/Applications`) and `TERMINAL_COMMAND_CONFLICT` (an
   existing `rallo`, on PATH or at the target directory, that is not Rallo's
   own link) are errors, not partial successes.
+- `setup skill` JSON: success is `{"skill": {"status", "path"}}`, `status`
+  `installed`, `updated`, or `already_installed`; with `--print`,
+  `{"skill": {"content"}}`. `SKILL_CONFLICT` (exit 4: the path holds a skill
+  that isn't Rallo's, left untouched) is an error.
 - `doctor` JSON: `{"ok", "checks": [{"id", "status", "summary", "fix"}, ...],
   "problem_count", "warning_count"}`. `ok` is `true` only when
   `problem_count` is `0` (independent of `warning_count`, which never affects
@@ -137,6 +142,8 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   - `setup terminal`: states what happened (added/repaired/already set up)
     and the full CLI path; when the link's directory isn't on PATH, adds the
     exact `export PATH=...` line to add to the shell's startup file.
+  - `setup skill`: states what happened (installed/updated/already
+    installed) and the path; `--print` prints only the skill's Markdown.
   - `doctor`: one line per check, `[ok]`/`[warning]`/`[problem]` followed by
     its id and summary; a `fix`, when present, is an indented line beneath it.
   - `backup`: `Backup saved to PATH (N bytes).`
@@ -172,6 +179,8 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   there is no pending native work to hand off. `--dry-run` never signals.
 - `setup terminal` never signals or launches the app: it only manages the
   PATH symlink, and does not touch a data directory at all.
+- `setup skill` never signals or launches the app, and does not touch a
+  data directory.
 - `doctor` and `backup` never signal or launch the app: `doctor` never opens
   the store the normal way at all (no migration under its read-only
   inspection), and `backup` only reads the store, like `export`.

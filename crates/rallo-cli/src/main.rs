@@ -3,6 +3,7 @@ mod commands;
 mod doctor;
 mod local_time;
 mod output;
+mod skill;
 mod update;
 
 use std::process::ExitCode;
@@ -49,10 +50,11 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
         eprintln!("{}", Cli::command().render_help());
         return Err(output::Failure::new(output::Exit::InvalidInput, "INVALID_INPUT", "a command is required"));
     };
-    // No data directory: this manages a PATH symlink, not the notes store.
+    // No data directory: these manage files outside the notes store.
     if let Command::Setup { command: setup_command } = command {
         return match setup_command {
             SetupCommand::Terminal => commands::setup_terminal(out),
+            SetupCommand::Skill { print } => commands::setup_skill(out, print),
         }
         .map(|()| ExitCode::SUCCESS);
     }

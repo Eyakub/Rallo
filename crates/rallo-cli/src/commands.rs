@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use crate::args::ExportFormatArg;
 use crate::local_time::format_local;
 use crate::output::{Exit, Failure, Output, preview};
+use crate::skill;
 
 pub type CommandResult = Result<(), Failure>;
 
@@ -137,6 +138,58 @@ fn setup_terminal_success(out: &Output, status: &str, link: &Path, target: &Path
             }
         },
     );
+    Ok(())
+}
+
+/// `setup skill`: installs the embedded agent skill for Claude Code and
+/// Cursor (`skill.rs`). Never touches a data directory and never starts the
+/// app.
+pub fn setup_skill(out: &Output, print: bool) -> CommandResult {
+    if print {
+        out.success(json!({ "skill": { "content": skill::SKILL } }), &[], || skill::SKILL.trim_end().to_owned());
+        return Ok(());
+    }
+    let home = terminal_command::home_dir()
+        .ok_or_else(|| Failure::new(Exit::InvalidInput, "INVALID_INPUT", "$HOME is not set"))?;
+    let status = match skill::inspect(&home) {
+        skill::State::Current => "already_installed",
+        skill::State::Missing => "installed",
+        skill::State::Outdated => "updated",
+        skill::State::Foreign => {
+            return Err(Failure::new(
+                Exit::Conflict,
+                "SKILL_CONFLICT",
+                format!(
+                    "{} isn't Rallo's skill, so Rallo won't replace it. `rallo setup skill --print` shows Rallo's.",
+                    skill::path(&home).display()
+                ),
+            ));
+        }
+    };
+    let path = if status == "already_installed" {
+        skill::path(&home)
+    } else {
+        skill::install(&home)
+            .map_err(|error| Failure::new(Exit::InvalidInput, "SKILL_SETUP_FAILED", error.to_string()))?
+    };
+    let on_path = env::var_os("PATH")
+        .is_some_and(|value| env::split_paths(&value).any(|dir| dir.join(terminal_command::NAME).is_file()));
+    let warnings: Vec<String> = if on_path {
+        Vec::new()
+    } else {
+        vec!["Agents run `rallo` from PATH, and it isn't there yet: run `rallo setup terminal`.".into()]
+    };
+    out.success(json!({ "skill": { "status": status, "path": path } }), &warnings, || {
+        let headline = match status {
+            "already_installed" => "The Rallo skill is already installed",
+            "updated" => "Updated the Rallo skill",
+            _ => "Installed the Rallo skill",
+        };
+        format!(
+            "{headline} at {}.\nClaude Code and Cursor pick it up from there; ask one to \"note that …\" or \"remind me …\".",
+            path.display()
+        )
+    });
     Ok(())
 }
 

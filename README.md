@@ -14,6 +14,7 @@ From GitHub Releases, no developer tools needed (`docs/distribution.md`):
 ```sh
 gh api repos/Eyakub/Rallo/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | bash
 rallo note "Try Rallo"
+rallo setup skill   # teach Claude Code and Cursor to use rallo
 rallo update        # later: install the newest release
 ```
 

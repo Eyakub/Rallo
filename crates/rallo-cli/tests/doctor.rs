@@ -72,7 +72,7 @@ fn fresh_data_dir_is_reported_as_no_data_yet_and_never_created() {
     assert_eq!(code, 0, "{doc}");
     assert_eq!(doc["ok"], true);
     assert_eq!(doc["problem_count"], 0);
-    assert_eq!(doc["checks"].as_array().unwrap().len(), 7);
+    assert_eq!(doc["checks"].as_array().unwrap().len(), 8);
 
     let data_directory = Cli::check(&doc, "data_directory");
     assert_eq!(data_directory["status"], "ok");
@@ -262,14 +262,34 @@ fn terminal_command_not_enabled_yet_is_a_warning_not_a_problem() {
 }
 
 #[test]
+fn outdated_agent_skill_is_a_warning_with_the_setup_fix() {
+    let cli = Cli::new();
+    let home = cli.dir.path().join("home");
+    let skill = home.join(".claude/skills/rallo/SKILL.md");
+    fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    fs::write(&skill, "---\nname: rallo\ndescription: an older version\n---\n").unwrap();
+    let output = cli.command(&["doctor", "--json"]).env("HOME", &home).stdin(Stdio::null()).output().unwrap();
+    let agent_skill = Cli::check(&parse(&output), "agent_skill").clone();
+    assert_eq!(agent_skill["status"], "warning");
+    assert_eq!(agent_skill["fix"], "rallo setup skill");
+}
+
+#[test]
 fn human_output_marks_every_check_and_indents_fixes() {
     let cli = Cli::new();
     let output = cli.run(&["doctor"]);
     assert!(output.status.success() || output.status.code() == Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
-    for id in
-        ["app_install", "terminal_command", "data_directory", "app_running", "notifications", "reminders", "backups"]
-    {
+    for id in [
+        "app_install",
+        "terminal_command",
+        "agent_skill",
+        "data_directory",
+        "app_running",
+        "notifications",
+        "reminders",
+        "backups",
+    ] {
         assert!(stdout.contains(id), "{stdout:?}");
     }
     assert!(stdout.lines().all(|line| line.starts_with('[') || line.trim_start().starts_with("fix:")));

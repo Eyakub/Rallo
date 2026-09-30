@@ -18,6 +18,7 @@ use rallo_platform_macos::{launch, terminal_command};
 use serde_json::{Value, json};
 
 use crate::output::{Exit, Failure, Output};
+use crate::skill;
 
 /// Active reminders at or above this count warn ahead of the hard 32 limit
 /// (0003 §4).
@@ -74,6 +75,7 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>) -> Result<ExitCode, Failur
     let home = terminal_command::home_dir();
     let (app_install, app) = check_app_install(home.as_deref());
     let terminal_command_check = check_terminal_command(app.as_deref(), home.as_deref());
+    let agent_skill = check_agent_skill(home.as_deref());
     let data_directory = check_data_directory(&data_dir, inspection.as_ref());
 
     // Only probe the instance lock if the data directory already exists:
@@ -86,8 +88,16 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>) -> Result<ExitCode, Failur
     let reminders = check_reminders(inspection.as_ref(), running, now_ms);
     let backups_check = check_backups(&backups, now_ms);
 
-    let checks =
-        [app_install, terminal_command_check, data_directory, app_running, notifications, reminders, backups_check];
+    let checks = [
+        app_install,
+        terminal_command_check,
+        agent_skill,
+        data_directory,
+        app_running,
+        notifications,
+        reminders,
+        backups_check,
+    ];
     let problem_count = checks.iter().filter(|c| c.status == CheckStatus::Problem).count();
     let warning_count = checks.iter().filter(|c| c.status == CheckStatus::Warning).count();
     let ok = problem_count == 0;
@@ -267,6 +277,36 @@ fn check_terminal_command(app: Option<&Path>, home: Option<&Path>) -> Check {
             "terminal_command",
             CheckStatus::Warning,
             format!("{} is not Rallo's own link; `rallo setup terminal` will not replace it.", existing.display()),
+            None,
+        ),
+    }
+}
+
+fn check_agent_skill(home: Option<&Path>) -> Check {
+    let Some(home) = home else {
+        return Check::new("agent_skill", CheckStatus::Ok, "Not checked: $HOME is not set.", None);
+    };
+    let path = skill::path(home);
+    match skill::inspect(home) {
+        skill::State::Missing => Check::new(
+            "agent_skill",
+            CheckStatus::Ok,
+            "Not installed (optional): `rallo setup skill` teaches Claude Code and Cursor to use Rallo.",
+            None,
+        ),
+        skill::State::Current => {
+            Check::new("agent_skill", CheckStatus::Ok, format!("Installed at {}.", path.display()), None)
+        }
+        skill::State::Outdated => Check::new(
+            "agent_skill",
+            CheckStatus::Warning,
+            format!("{} is from another Rallo version.", path.display()),
+            Some("rallo setup skill".into()),
+        ),
+        skill::State::Foreign => Check::new(
+            "agent_skill",
+            CheckStatus::Ok,
+            format!("{} isn't Rallo's skill; left alone.", path.display()),
             None,
         ),
     }

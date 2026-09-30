@@ -54,6 +54,22 @@ notification requests when the app is replaced; the app re-adds future
 reminders as soon as it relaunches (`missing_from_readback` in 0005), so a
 reminder due in the few seconds of an update can be missed.
 
+## Agents
+
+Any agent that can run local commands can use `rallo`. It needs the
+terminal command on PATH for shells that aren't interactive (`rallo
+doctor` says when it isn't), and instructions on how to use it:
+
+- **Claude Code and Cursor:** `rallo setup skill` installs the skill as
+  `~/.claude/skills/rallo/SKILL.md`. Claude Code picks it up in running
+  sessions too (`/skills` lists it); Cursor reads that folder as well.
+- **Anything else:** `rallo setup skill --print` prints the same
+  instructions; put them wherever the agent takes standing instructions.
+
+The skill ships inside the CLI, so each release carries its own. After an
+update, `rallo doctor` warns if the installed copy is older; run `rallo
+setup skill` again. Tested placements are in `agent-evaluation.md`.
+
 ## Uninstall
 
 ```sh

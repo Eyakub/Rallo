@@ -253,6 +253,15 @@ pub enum SetupCommand {
     /// correct link idempotently. Never replaces a `rallo` that isn't
     /// Rallo's own link, and never starts the app.
     Terminal,
+    /// Install the agent skill for this version as
+    /// `~/.claude/skills/rallo/SKILL.md`, where Claude Code and Cursor find
+    /// it; updates an older copy. Never replaces a skill that isn't Rallo's.
+    Skill {
+        /// Write the skill to stdout instead, for agents that take
+        /// instructions another way.
+        #[arg(long)]
+        print: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
