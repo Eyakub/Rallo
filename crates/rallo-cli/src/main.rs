@@ -1,3 +1,4 @@
+mod agent_event;
 mod args;
 mod commands;
 mod doctor;
@@ -67,6 +68,12 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
     if let Command::Update { check } = command {
         return update::run(out, cli.data_dir.as_deref(), check).map(|()| ExitCode::SUCCESS);
     }
+    // Never fails, never blocks, never writes to stdout (0007): reports its
+    // own store-open/record errors to stderr rather than through `Failure`.
+    if let Command::AgentEvent { agent } = command {
+        agent_event::run(cli.data_dir.as_deref(), agent);
+        return Ok(ExitCode::SUCCESS);
+    }
     let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
     let mut store = Store::open(StoreOptions::new(data_dir))?;
     let result: commands::CommandResult = match command {
@@ -114,7 +121,13 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
         Command::Export { output, format, force } => commands::export(out, &store, &output, format, force),
         Command::Import { file, dry_run } => commands::import(out, &mut store, &file, dry_run),
         Command::Backup { output, force } => commands::backup(out, &store, output.as_deref(), force),
-        Command::Setup { .. } | Command::Doctor | Command::Update { .. } => {
+        Command::Agents { command: agents_command } => match agents_command {
+            None => commands::agents_list(out, &store),
+            Some(args::AgentsCommand::Clear { agent, session }) => {
+                commands::agents_clear(out, &mut store, agent, session)
+            }
+        },
+        Command::Setup { .. } | Command::Doctor | Command::Update { .. } | Command::AgentEvent { .. } => {
             unreachable!("handled before the store was opened")
         }
     };

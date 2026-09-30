@@ -246,6 +246,32 @@ pub enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Records one Claude Code/Codex hook payload from stdin (0007). Not
+    /// meant to be run by hand: `rallo setup hooks` wires this up. Always
+    /// exits 0 and writes nothing to stdout.
+    #[command(hide = true)]
+    AgentEvent {
+        #[arg(long)]
+        agent: Agent,
+    },
+    /// Lists current Claude Code/Codex sessions the pet is tracking (0007).
+    Agents {
+        #[command(subcommand)]
+        command: Option<AgentsCommand>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentsCommand {
+    /// Removes tracked sessions.
+    Clear {
+        /// Only sessions for this agent.
+        #[arg(long = "agent", value_enum)]
+        agent: Option<Agent>,
+        /// Only this session id.
+        #[arg(long)]
+        session: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]

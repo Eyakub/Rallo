@@ -2,6 +2,7 @@ use std::env;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
+use rallo_core::agents::{AgentKind, AgentSession, AgentState};
 use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome, Page, SearchQuery};
 use rallo_core::preferences::PetVisibility;
 use rallo_core::reminders::{CancellationStatus, ReminderState, SchedulingStatus, TimeSpec};
@@ -282,6 +283,111 @@ pub fn setup_skill(out: &Output, print: bool, agents: Vec<skill::Agent>) -> Comm
         };
         lines.push(hint.to_owned());
         lines.join("\n")
+    });
+    Ok(())
+}
+
+fn to_core_agent(agent: skill::Agent) -> AgentKind {
+    match agent {
+        skill::Agent::Claude => AgentKind::Claude,
+        skill::Agent::Codex => AgentKind::Codex,
+    }
+}
+
+/// `Xs ago` / `X min ago` / `Xh ago` / `Xd ago`; never negative.
+fn agent_age(now_ms: i64, at_ms: i64) -> String {
+    let secs = ((now_ms - at_ms) / 1000).max(0);
+    if secs < 60 {
+        format!("{secs}s ago")
+    } else if secs < 3600 {
+        format!("{} min ago", secs / 60)
+    } else if secs < 86_400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86_400)
+    }
+}
+
+fn agent_detail_phrase(state: AgentState, detail: Option<&str>) -> String {
+    match (state, detail) {
+        (AgentState::Waiting, Some(tool)) => format!("Waiting for permission: {tool}"),
+        (AgentState::Waiting, None) => "Waiting for you".to_owned(),
+        (AgentState::Done, _) => "Done".to_owned(),
+        (AgentState::Working, _) => "Working".to_owned(),
+    }
+}
+
+/// Distinct from `skill::Agent::label` ("Claude Code and Cursor"): this is
+/// the shorter, hook-flavoured name `setup hooks`/`doctor` also use.
+fn agent_kind_label(agent: AgentKind) -> &'static str {
+    match agent {
+        AgentKind::Claude => "Claude Code",
+        AgentKind::Codex => "Codex",
+    }
+}
+
+fn agent_line(session: &AgentSession, now_ms: i64) -> String {
+    let label = agent_kind_label(session.agent);
+    let location = session
+        .cwd
+        .as_deref()
+        .map(|cwd| {
+            Path::new(cwd).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| cwd.to_owned())
+        })
+        .unwrap_or_else(|| "unknown directory".to_owned());
+    format!(
+        "{}  {label} · {location} — {} · {}",
+        session.state.as_str(),
+        agent_detail_phrase(session.state, session.detail.as_deref()),
+        agent_age(now_ms, session.updated_at_ms)
+    )
+}
+
+fn agent_session_json(session: &AgentSession) -> Value {
+    json!({
+        "agent": session.agent.as_str(),
+        "session_id": session.session_id,
+        "state": session.state.as_str(),
+        "cwd": session.cwd,
+        "detail": session.detail,
+        "app_path": session.app_path,
+        "app_pid": session.app_pid,
+        "updated_at_ms": session.updated_at_ms,
+    })
+}
+
+/// `rallo agents [--json]` (0007): fresh (≤24h) `waiting`/`done` sessions,
+/// waiting first then most recent first. Never signals or launches the app:
+/// it only reads the store.
+pub fn agents_list(out: &Output, store: &Store) -> CommandResult {
+    let now_ms = store.now_ms();
+    let sessions = store.agent_sessions(now_ms)?;
+    let fields = json!({ "sessions": sessions.iter().map(agent_session_json).collect::<Vec<_>>() });
+    out.success(fields, &[], || {
+        if sessions.is_empty() {
+            "No agent sessions.".to_owned()
+        } else {
+            sessions.iter().map(|session| agent_line(session, now_ms)).collect::<Vec<_>>().join("\n")
+        }
+    });
+    Ok(())
+}
+
+/// `rallo agents clear [--agent A] [--session ID]` (0007): removes tracked
+/// sessions (any freshness, not just the ones `agents_list` would show), and
+/// signals a running app when it actually removed anything.
+pub fn agents_clear(
+    out: &Output,
+    store: &mut Store,
+    agent: Option<skill::Agent>,
+    session: Option<String>,
+) -> CommandResult {
+    let cleared = store.clear_agent_sessions(agent.map(to_core_agent), session.as_deref())?;
+    if cleared > 0 {
+        signal_if_running(store.data_dir());
+    }
+    out.success(json!({ "cleared": cleared }), &[], || {
+        format!("Cleared {cleared} agent session{}.", if cleared == 1 { "" } else { "s" })
     });
     Ok(())
 }
