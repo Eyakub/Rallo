@@ -581,6 +581,7 @@ dependencies = [
  "libc",
  "rallo-core",
  "rallo-platform-macos",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

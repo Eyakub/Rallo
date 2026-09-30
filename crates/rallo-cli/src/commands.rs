@@ -678,6 +678,21 @@ pub fn import(out: &Output, store: &mut Store, file: &str, dry_run: bool) -> Com
     Ok(())
 }
 
+/// `rallo backup [--output PATH] [--force]` (M4): a consistent snapshot via
+/// the existing SQLite online-backup code. Never starts or signals the app --
+/// it only reads the store, the same as `export`.
+pub fn backup(out: &Output, store: &Store, output: Option<&str>, force: bool) -> CommandResult {
+    let destination = match output {
+        Some(path) => PathBuf::from(path),
+        None => rallo_core::storage::backup::default_manual_backup_path(store.data_dir(), store.now_ms()),
+    };
+    let summary = store.backup_to_file(&destination, force)?;
+    out.success(json!({ "backup": { "path": summary.path, "bytes": summary.bytes } }), &[], || {
+        format!("Backup saved to {} ({} bytes).", summary.path.display(), summary.bytes)
+    });
+    Ok(())
+}
+
 fn platform_failure(error: launch::LaunchError) -> Failure {
     let code = match error {
         launch::LaunchError::AppNotFound => "APP_NOT_FOUND",

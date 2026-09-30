@@ -222,6 +222,20 @@ pub enum Command {
         #[command(subcommand)]
         command: SetupCommand,
     },
+    /// Read-only health report: storage, permissions, the installed app, the
+    /// terminal command, and pending reminder work. Never starts, signals, or
+    /// migrates anything. Exits 1 if any check is a `problem`.
+    Doctor,
+    /// Write a consistent snapshot of the database using SQLite's online
+    /// backup API. Never starts the app; works while it is running.
+    Backup {
+        /// Destination path. Defaults to `<data dir>/backups/manual-<timestamp>.sqlite3`.
+        #[arg(long, value_name = "PATH")]
+        output: Option<String>,
+        /// Overwrite an existing file at --output.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]

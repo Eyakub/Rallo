@@ -13,6 +13,9 @@ use crate::local_time::format_local;
 #[repr(u8)]
 pub enum Exit {
     Success = 0,
+    /// `rallo doctor` found at least one `problem`-level check. Not used by
+    /// any other command.
+    DoctorProblems = 1,
     InvalidInput = 2,
     NotFound = 3,
     Conflict = 4,

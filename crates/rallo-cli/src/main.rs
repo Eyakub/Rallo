@@ -1,5 +1,6 @@
 mod args;
 mod commands;
+mod doctor;
 mod local_time;
 mod output;
 
@@ -12,7 +13,7 @@ use rallo_core::storage::paths;
 use rallo_core::{Store, StoreOptions};
 
 use args::{Cli, Command, SetupCommand};
-use output::Output;
+use output::{Failure, Output};
 
 fn main() -> ExitCode {
     // Ordinary Unix behaviour for `rallo list | head`: die quietly on SIGPIPE
@@ -23,7 +24,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let out = Output { json: cli.json };
     match run(cli, &out) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(exit) => exit,
         Err(failure) => out.failure(&failure),
     }
 }
@@ -37,9 +38,9 @@ fn time_spec(in_: Option<String>, at: Option<String>) -> TimeSpec {
     }
 }
 
-fn run(cli: Cli, out: &Output) -> commands::CommandResult {
+fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
     if cli.version {
-        return commands::version(out);
+        return commands::version(out).map(|()| ExitCode::SUCCESS);
     }
     let Some(command) = cli.command else {
         use clap::CommandFactory;
@@ -51,11 +52,16 @@ fn run(cli: Cli, out: &Output) -> commands::CommandResult {
     if let Command::Setup { command: setup_command } = command {
         return match setup_command {
             SetupCommand::Terminal => commands::setup_terminal(out),
-        };
+        }
+        .map(|()| ExitCode::SUCCESS);
+    }
+    // Read-only and never migrates: must not go through `Store::open`.
+    if let Command::Doctor = command {
+        return doctor::run(out, cli.data_dir.as_deref());
     }
     let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
     let mut store = Store::open(StoreOptions::new(data_dir))?;
-    match command {
+    let result: commands::CommandResult = match command {
         Command::Note { text, stdin, request_id } => commands::note(out, &mut store, text, stdin, request_id),
         Command::Remind { text, stdin, in_, at, request_id } => {
             commands::remind(out, &mut store, text, stdin, time_spec(in_, at), request_id)
@@ -99,6 +105,8 @@ fn run(cli: Cli, out: &Output) -> commands::CommandResult {
         Command::Status { id } => commands::status(out, &store, id),
         Command::Export { output, format, force } => commands::export(out, &store, &output, format, force),
         Command::Import { file, dry_run } => commands::import(out, &mut store, &file, dry_run),
-        Command::Setup { .. } => unreachable!("handled before the store was opened"),
-    }
+        Command::Backup { output, force } => commands::backup(out, &store, output.as_deref(), force),
+        Command::Setup { .. } | Command::Doctor => unreachable!("handled before the store was opened"),
+    };
+    result.map(|()| ExitCode::SUCCESS)
 }
