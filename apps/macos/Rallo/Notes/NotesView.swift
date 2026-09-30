@@ -266,6 +266,28 @@ final class NotesViewModel: ObservableObject {
         }
     }
 
+    func snooze(_ item: ItemSnapshot) async {
+        do {
+            let snoozed = try await core.snoozeReminder(item, duration: "10m")
+            if let reminder = snoozed.reminder {
+                show(Toast(message: "Snoozed until \(ReminderLabel.text(for: reminder.deadline))", undo: nil))
+            }
+            await reload()
+        } catch {
+            await report(error)
+        }
+    }
+
+    /// Stops the reminder alerting; the note itself stays open.
+    func dismissReminder(_ item: ItemSnapshot) async {
+        do {
+            _ = try await core.acknowledgeReminder(item)
+            await reload()
+        } catch {
+            await report(error)
+        }
+    }
+
     func undo() async {
         guard let undo = toast?.undo else { return }
         toastTask?.cancel()

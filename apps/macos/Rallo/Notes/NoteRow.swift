@@ -196,6 +196,16 @@ struct NoteRow: View {
             }
         }
         .padding(.top, expanded ? 2 : 0)
+
+        if let reminder = activeReminder, reminder.deadline <= .now {
+            HStack(spacing: 8) {
+                dueButton("Snooze 10 min", help: "Remind me again in 10 minutes") { Task { await model.snooze(item) } }
+                dueButton("Dismiss", help: "Stop this reminder; the note stays open") {
+                    Task { await model.dismissReminder(item) }
+                }
+            }
+            .padding(.top, 2)
+        }
     }
 
     private var activeReminder: ReminderSnapshot? {
@@ -219,6 +229,21 @@ struct NoteRow: View {
         .help(reminder.statusNote?.help ?? "Reminder \(when)")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Reminder \(when)\(reminder.statusNote.map { ", \($0.text)" } ?? "")")
+    }
+
+    /// Due reminders get their two answers right on the row, not behind a
+    /// swipe or menu.
+    private func dueButton(_ title: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(Theme.rounded(11, .semibold))
+                .foregroundStyle(Theme.rust)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(Capsule().strokeBorder(Theme.rust.opacity(0.5)))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private var remindMenu: some View {
