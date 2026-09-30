@@ -31,6 +31,11 @@ final class DiagnosticsLog: @unchecked Sendable {
         }
     }
 
+    /// Waits for queued records to reach disk (before an abrupt exit).
+    func flush() {
+        queue.sync {}
+    }
+
     func write(_ name: String, data: Data) {
         queue.async { [directory] in
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,

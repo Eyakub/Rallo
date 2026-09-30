@@ -14,8 +14,10 @@ final class AppCoordinator {
     private let notesModel: NotesViewModel
     private let notes: NotesPanelController
     private let observer: ChangeObserver
+    private let drainer: NotificationDrainer
     private let transfer: TransferController
     private var statusMenu: StatusMenuController?
+    private var systemObservers: [NSObjectProtocol] = []
 
     private var storageReady = false
     private var checking = false
@@ -24,16 +26,18 @@ final class AppCoordinator {
     private var placement: PetPlacement?
     private var notificationSummary = "Notifications: checking…"
 
-    init(dataDir: String, launchMode: LaunchOptions.Mode) {
+    init(dataDir: String, launchMode: LaunchOptions.Mode, options: LaunchOptions) {
         self.dataDir = dataDir
         self.launchMode = launchMode
         core = CoreClient(dataDir: dataDir)
         log = DiagnosticsLog(dataDir: dataDir)
         notifications = NotificationCoordinator(log: log)
+        let fault = FaultInjection(argument: options.faultInjection, explicitDataDir: options.dataDir, log: log)
+        drainer = NotificationDrainer(core: core, adapter: notifications.adapter, log: log, fault: fault)
+        transfer = TransferController(core: core, log: log)
         notesModel = NotesViewModel(core: core)
         notes = NotesPanelController(model: notesModel)
         observer = ChangeObserver(dataDir: dataDir)
-        transfer = TransferController(core: core, log: log)
     }
 
     func start() async {
@@ -59,6 +63,10 @@ final class AppCoordinator {
         pet.onMoved = { [weak self] origin in Task { await self?.petMoved(to: origin) } }
         pet.contextMenu = { [weak self] in self?.statusMenu?.makeMenu() }
         notifications.onOpenItem = { [weak self] itemID in self?.openNotes(highlighting: itemID) }
+        notifications.onAction = { [weak self] reminderID, generation, action, itemID in
+            Task { await self?.handleNotificationAction(reminderID, generation, action, itemID) }
+        }
+        NotificationDrainer.registerCategories(on: UNUserNotificationCenter.current())
         observer.onPossibleChange = { [weak self] in Task { await self?.checkForChanges() } }
         observer.onShowRequest = { [weak self] in Task { await self?.handleShowRequest() } }
         observer.onDiagnosticsRequest = { [weak self] in self?.writeWindowReport() }
@@ -74,6 +82,23 @@ final class AppCoordinator {
         observer.start()
         await applyLaunchVisibility()
         await refreshNotificationSummary()
+        observeSystemEvents()
+        drainer.requestDrain("launch")
+    }
+
+    /// Sleep and clock changes can elapse deadlines or strand attempts.
+    private func observeSystemEvents() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        systemObservers.append(workspace.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.drainer.requestDrain("did_wake") }
+        })
+        systemObservers.append(NotificationCenter.default.addObserver(
+            forName: .NSSystemClockDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.drainer.requestDrain("clock_changed") }
+        })
     }
 
     enum ReopenSource {
@@ -118,7 +143,11 @@ final class AppCoordinator {
     }
 
     private func reloadFromCore() async throws {
+        let previousRevision = lastRevision
         lastRevision = try await core.changeRevision()
+        if previousRevision != nil, previousRevision != lastRevision {
+            drainer.requestDrain("revision")
+        }
         let newVisibility = try await core.petVisibility()
         let newPlacement = try await core.petPlacement()
         let placementChanged = newPlacement != placement
@@ -192,6 +221,37 @@ final class AppCoordinator {
         NSApp.activate()
         _ = await notifications.requestAuthorization()
         await refreshNotificationSummary()
+        drainer.requestDrain("authorization")
+    }
+
+    /// The core applies the action only if the notification still matches
+    /// the reminder's current generation; otherwise the note is shown as it
+    /// is now, with an explanation.
+    private func handleNotificationAction(
+        _ reminderID: String, _ generation: Int64, _ action: NotificationAction, _ itemID: String?
+    ) async {
+        do {
+            switch try await core.applyNotificationAction(reminderId: reminderID, generation: generation, action: action) {
+            case let .applied(item):
+                log.record("notification_action_applied", ["item_id": item.id, "action": "\(action)"])
+            case let .stale(item, reason):
+                log.record("notification_action_stale", ["item_id": item?.id ?? NSNull(), "reason": "\(reason)"])
+                openNotes(highlighting: item?.id ?? itemID)
+                notesModel.inform(Self.staleMessage(reason))
+            }
+        } catch {
+            log.record("notification_action_failed", ["error": "\(error)"])
+            openNotes(highlighting: itemID)
+        }
+        drainer.requestDrain("notification_action")
+    }
+
+    private static func staleMessage(_ reason: StaleReason) -> String {
+        switch reason {
+        case .changed: "This reminder changed since that notification."
+        case .deleted: "That note was deleted."
+        case .missing: "That reminder no longer exists."
+        }
     }
 
     private func refreshNotificationSummary() async {

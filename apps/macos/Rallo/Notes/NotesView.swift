@@ -273,6 +273,11 @@ final class NotesViewModel: ObservableObject {
         }
     }
 
+    /// A plain message in the toast position (nothing to undo).
+    func inform(_ message: String) {
+        show(Toast(message: message, undo: nil))
+    }
+
     private func show(_ toast: Toast) {
         toastTask?.cancel()
         self.toast = toast

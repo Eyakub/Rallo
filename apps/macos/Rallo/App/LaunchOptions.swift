@@ -11,6 +11,8 @@ struct LaunchOptions {
 
     var mode: Mode = .interactive
     var dataDir: String?
+    /// Test-only crash point for the notification drainer (see FaultInjection).
+    var faultInjection: String?
     /// Arguments after `--probe`: run a notification characterization and exit.
     var probe: [String]?
 
@@ -25,6 +27,9 @@ struct LaunchOptions {
                 options.mode = .show
             case "--data-dir" where index + 1 < arguments.count:
                 options.dataDir = arguments[index + 1]
+                index += 1
+            case "--fault-injection" where index + 1 < arguments.count:
+                options.faultInjection = arguments[index + 1]
                 index += 1
             case "--probe":
                 options.probe = Array(arguments[(index + 1)...])

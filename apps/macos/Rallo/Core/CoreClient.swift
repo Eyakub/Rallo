@@ -68,6 +68,40 @@ final class CoreClient {
         try await worker.perform { try $0.applyImportFile(path: path) }
     }
 
+    // MARK: Notification protocol (0005)
+
+    func recordNativeObservations(
+        authorization: NotificationAuthorization, pending: [NativeRequest], delivered: [NativeRequest]
+    ) async throws -> CleanupPlan {
+        try await worker.perform {
+            try $0.recordNativeObservations(authorization: authorization, pending: pending, delivered: delivered)
+        }
+    }
+
+    func notificationIdentifierPrefix() async throws -> String {
+        try await worker.perform { $0.notificationIdentifierPrefix() }
+    }
+
+    func nextPlatformWork() async throws -> NextWork {
+        try await worker.perform { try $0.nextPlatformWork() }
+    }
+
+    func beginPlatformAttempt(intentId: Int64, generation: Int64) async throws -> BeginOutcome {
+        try await worker.perform { try $0.beginPlatformAttempt(intentId: intentId, generation: generation) }
+    }
+
+    func finishPlatformAttempt(token: AttemptToken, outcome: NativeOutcome) async throws -> Finished {
+        try await worker.perform { try $0.finishPlatformAttempt(token: token, outcome: outcome) }
+    }
+
+    func applyNotificationAction(
+        reminderId: String, generation: Int64, action: NotificationAction
+    ) async throws -> ActionOutcome {
+        try await worker.perform {
+            try $0.applyNotificationAction(reminderId: reminderId, generation: generation, action: action)
+        }
+    }
+
     func openItems(limit: UInt32 = 50) async throws -> [ItemSnapshot] {
         try await worker.perform { try $0.listOpenItems(limit: limit) }
     }

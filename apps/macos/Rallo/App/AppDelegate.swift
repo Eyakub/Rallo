@@ -31,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             exit(EXIT_SUCCESS)
         }
         instanceLock = lock
-        let coordinator = AppCoordinator(dataDir: dataDir, launchMode: options.mode)
+        let coordinator = AppCoordinator(dataDir: dataDir, launchMode: options.mode, options: options)
         self.coordinator = coordinator
         // Must be set before launch completes to receive the response that
         // launched the app from a notification click.

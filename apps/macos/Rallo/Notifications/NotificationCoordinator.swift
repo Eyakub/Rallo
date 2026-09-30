@@ -1,17 +1,19 @@
 import AppKit
 import UserNotifications
 
-/// Receives native notification callbacks for the running app.
-///
-/// M0 prototype: presents banners while running and routes clicks to the
-/// notes panel. The durable intent/attempt protocol arrives in M2. Actions
-/// carry IDs only; the item is always reloaded before anything is shown.
+/// Receives native notification callbacks for the running app. Presents
+/// banners while running, routes clicks to the notes panel, and hands the
+/// Done/Snooze actions to the core, which checks them against the current
+/// generation (0005). Dismissal is never acknowledgement.
 final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate {
     let adapter = NotificationAdapter()
     private let log: DiagnosticsLog
 
     /// Called on the main thread with the item ID from the notification, if any.
     var onOpenItem: (String?) -> Void = { _ in }
+    /// Called on the main thread for an explicit Done/Snooze action.
+    var onAction: (_ reminderID: String, _ generation: Int64, _ action: NotificationAction, _ itemID: String?) -> Void
+        = { _, _, _, _ in }
 
     init(log: DiagnosticsLog) {
         self.log = log
@@ -46,9 +48,21 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         var fields = Self.ids(response.notification.request)
         fields["action"] = response.actionIdentifier
         log.record("notification_response", fields)
-        let itemID = response.notification.request.content.userInfo["item_id"] as? String
-        DispatchQueue.main.async { [onOpenItem] in
-            onOpenItem(itemID)
+        let userInfo = response.notification.request.content.userInfo
+        let itemID = userInfo["item_id"] as? String
+        let reminderID = userInfo["reminder_id"] as? String
+        let generation = (userInfo["generation"] as? NSNumber)?.int64Value
+        let action: NotificationAction? = switch response.actionIdentifier {
+        case NotificationDrainer.doneAction: .done
+        case NotificationDrainer.snoozeAction: .snooze10m
+        default: nil
+        }
+        DispatchQueue.main.async { [onOpenItem, onAction] in
+            if let action, let reminderID, let generation {
+                onAction(reminderID, generation, action, itemID)
+            } else if response.actionIdentifier != UNNotificationDismissActionIdentifier {
+                onOpenItem(itemID)
+            }
             completionHandler()
         }
     }

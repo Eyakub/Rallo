@@ -26,8 +26,27 @@ struct NoteParts: Equatable {
 
 extension ReminderSnapshot {
     var deadline: Date { Date(timeIntervalSince1970: TimeInterval(deadlineMs) / 1000) }
-    /// Saved but not yet handed to macOS (the core's status, not a guess).
-    var awaitingSchedule: Bool { schedulingState == "pending" }
+
+    /// A short qualifier for the row, straight from the core's scheduling
+    /// status (0005); `nil` when it is simply scheduled.
+    var statusNote: (text: String, help: String)? {
+        switch (schedulingState, schedulingReason) {
+        case ("pending", _):
+            ("not scheduled yet", "Saved. Rallo hasn’t handed this reminder to macOS yet.")
+        case ("scheduled", "permission_not_requested"):
+            ("notifications off", "Scheduled, but notifications aren’t enabled. Choose Enable Notifications in the Rallo menu.")
+        case ("delivered", _):
+            ("sent", "macOS delivered this notification.")
+        case ("unavailable", "permission_denied"):
+            ("notifications off", "Notifications are turned off for Rallo in System Settings.")
+        case ("unavailable", "delivery_unconfirmed"):
+            ("may not have alerted", "Rallo couldn’t confirm the alert. Snooze to try again.")
+        case ("unavailable", _):
+            ("wasn’t scheduled", "The time passed before macOS accepted it. Snooze to try again.")
+        default:
+            nil
+        }
+    }
 }
 
 enum ReminderLabel {
@@ -186,17 +205,15 @@ struct NoteRow: View {
             Image(systemName: overdue ? "bell.fill" : "bell")
                 .font(.system(size: 10, weight: .semibold))
             Text(when.prefix(1).uppercased() + when.dropFirst())
-            if reminder.awaitingSchedule {
-                Text("not scheduled yet").foregroundStyle(Theme.bark)
+            if let note = reminder.statusNote {
+                Text(note.text).foregroundStyle(Theme.bark)
             }
         }
         .font(Theme.rounded(12, overdue ? .semibold : .medium))
         .foregroundStyle(Theme.rust)
-        .help(reminder.awaitingSchedule
-              ? "Saved. Rallo hasn’t handed this reminder to macOS notifications yet."
-              : "Reminder \(when)")
+        .help(reminder.statusNote?.help ?? "Reminder \(when)")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Reminder \(when)\(reminder.awaitingSchedule ? ", not scheduled yet" : "")")
+        .accessibilityLabel("Reminder \(when)\(reminder.statusNote.map { ", \($0.text)" } ?? "")")
     }
 
     private var remindMenu: some View {
