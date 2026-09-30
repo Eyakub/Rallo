@@ -205,6 +205,33 @@ fn delivered_before_bookkeeping_is_recorded_as_delivered_and_never_resubmitted()
 }
 
 #[test]
+fn a_first_delivery_observation_bumps_the_revision_once() {
+    let temp = tempfile::tempdir().unwrap();
+    let clock = Arc::new(ManualClock::new(CLOCK_START_MS));
+    let mut store = open_with_clock(temp.path(), clock.clone());
+    let created = store.create_reminder("fires later", &TimeSpec::In("100s".into()), None).unwrap().item;
+    let id = created.item.id.to_string();
+
+    store.record_native_observations(NotificationAuthorization::Authorized, &[], &[]).unwrap();
+    let (intent_id, reminder_id, _, generation, deadline_ms, identifier) =
+        expect_schedule_work(store.next_platform_work().unwrap());
+    let token = expect_started(store.begin_platform_attempt(intent_id, generation).unwrap());
+    let trigger_ms = (deadline_ms + 999) / 1000 * 1000;
+    store.finish_platform_attempt(token, NativeOutcome::Accepted { readback_trigger_ms: trigger_ms }).unwrap();
+
+    clock.advance(101_000);
+    let delivered = vec![native_request(identifier, Some(reminder_id), Some(generation), None)];
+    let before = store.change_revision().unwrap();
+    store.record_native_observations(NotificationAuthorization::Authorized, &[], &delivered).unwrap();
+    assert_eq!(store.change_revision().unwrap(), before + 1, "status moved to delivered; the UI must reload");
+    let status = store.scheduling_status(&store.get_item(&id).unwrap()).unwrap().unwrap();
+    assert_eq!(status.state, "delivered");
+
+    store.record_native_observations(NotificationAuthorization::Authorized, &[], &delivered).unwrap();
+    assert_eq!(store.change_revision().unwrap(), before + 1, "seeing it again changes nothing");
+}
+
+#[test]
 fn a_newer_intent_mid_attempt_supersedes_the_old_ones_finish_and_the_newer_generation_is_eventually_applied() {
     let temp = tempfile::tempdir().unwrap();
     let clock = Arc::new(ManualClock::new(CLOCK_START_MS));

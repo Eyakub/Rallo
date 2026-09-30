@@ -55,8 +55,9 @@ or `delivery_unconfirmed`.
 Called at the start of every drain pass with Rallo-owned requests only.
 
 1. Stores `notifications.authorization` (+ observed time) and the observed
-   pending count in `metadata`; bumps `change_revision` only if the
-   authorization changed.
+   pending count in `metadata`; bumps `change_revision` when the
+   authorization changed, and when a generation's delivery is observed for
+   the first time (the reported status moves to `delivered`).
 2. For each pending/delivered request whose reminder exists, upserts
    `notification_observations` for that `(reminder, generation)`
    (`pending_observed_at_ms` / `delivered_observed_at_ms`). A new generation

@@ -276,26 +276,37 @@ fn reminder_enabled(tx: &Transaction<'_>, reminder_id: Uuid) -> CoreResult<Optio
         .map(|value| value != 0))
 }
 
+#[derive(Clone, Copy)]
 enum ObservationField {
     Pending,
     Delivered,
 }
 
 /// Upserts `notification_observations` for one `(reminder, generation)`
-/// observation. A new generation resets the row (0005 step 2).
+/// observation. A new generation resets the row (0005 step 2). Returns
+/// whether this is the first time `field` was seen for that generation.
 fn record_observation(
     tx: &Transaction<'_>,
     reminder_id: Uuid,
     generation: i64,
     now_ms: i64,
     field: ObservationField,
-) -> CoreResult<()> {
+) -> CoreResult<bool> {
     let reminder_id = reminder_id.to_string();
-    let existing_generation: Option<i64> = tx
-        .query_row("SELECT generation FROM notification_observations WHERE reminder_id = ?1", [&reminder_id], |row| {
-            row.get(0)
-        })
+    let existing: Option<(i64, Option<i64>, Option<i64>)> = tx
+        .query_row(
+            "SELECT generation, pending_observed_at_ms, delivered_observed_at_ms
+             FROM notification_observations WHERE reminder_id = ?1",
+            [&reminder_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
         .optional()?;
+    let existing_generation = existing.map(|(generation, _, _)| generation);
+    let first_seen = match (existing, field) {
+        (Some((seen, pending, _)), ObservationField::Pending) if seen == generation => pending.is_none(),
+        (Some((seen, _, delivered)), ObservationField::Delivered) if seen == generation => delivered.is_none(),
+        _ => true,
+    };
     if existing_generation == Some(generation) {
         let column = match field {
             ObservationField::Pending => "pending_observed_at_ms",
@@ -322,7 +333,7 @@ fn record_observation(
             params![reminder_id, generation, pending_val, delivered_val, now_ms],
         )?;
     }
-    Ok(())
+    Ok(first_seen)
 }
 
 /// Records acceptance evidence for `finish_platform_attempt`'s `Accepted`
@@ -558,7 +569,11 @@ impl Store {
             if let (Some(reminder_id), Some(generation)) = (request.reminder_id, request.generation)
                 && reminder_enabled(&tx, reminder_id)?.is_some()
             {
-                record_observation(&tx, reminder_id, generation, now, ObservationField::Delivered)?;
+                // A first delivery observation changes the reported status
+                // (scheduled → delivered), so observers must reload.
+                if record_observation(&tx, reminder_id, generation, now, ObservationField::Delivered)? {
+                    bump_revision(&tx)?;
+                }
             }
         }
 
