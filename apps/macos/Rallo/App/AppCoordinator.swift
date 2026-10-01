@@ -20,6 +20,7 @@ final class AppCoordinator {
     private let petState: PetStateDriver
     private let agentWaitNotifier: AgentWaitNotifier
     private let clickUp: ClickUpWatcher
+    private let updateChecker: UpdateChecker
     private let settingsModel = SettingsModel()
     private lazy var settings = SettingsWindowController(model: settingsModel)
     private let globalShortcuts = GlobalShortcuts()
@@ -66,6 +67,8 @@ final class AppCoordinator {
         terminalSetup = TerminalSetupController(log: log)
         petState = PetStateDriver(core: core, pet: pet, log: log)
         clickUp = ClickUpWatcher(core: core, log: log)
+        updateChecker = UpdateChecker(log: log)
+        updateChecker.allowed = !isScratch
         if isScratch {
             clickUp.disabledReason = "ClickUp is off in instances started with --data-dir."
         }
@@ -87,6 +90,7 @@ final class AppCoordinator {
                 jumpToWaitingAgent: { [weak self] in self?.jumpToWaitingAgent() },
                 selectAgentSession: { [weak self] session in self?.activateAgent(session) },
                 openSettings: { [weak self] in self?.openSettings() },
+                openUpdate: { [weak self] in self?.openUpdate() },
                 quit: { NSApp.terminate(nil) }
             ),
             petVisible: { [weak self] in self?.pet.isVisible ?? false }
@@ -95,9 +99,13 @@ final class AppCoordinator {
         menu.agentSessions = { [weak self] in self?.agentSessions ?? [] }
         menu.jumpShortcutAvailable = { [weak self] in self?.globalShortcuts.jumpRegistered ?? true }
         menu.notesShortcutAvailable = { [weak self] in self?.globalShortcuts.toggleNotesRegistered ?? true }
+        menu.updateAvailable = { [weak self] in self?.updateChecker.available }
         menu.install()
         statusMenu = menu
         configureSettings()
+        updateChecker.onChange = { [weak self] in self?.settingsModel.refresh() }
+        updateChecker.start()
+        notifications.onOpenUpdate = { [weak self] in self?.openUpdate() }
 
         pet.onClick = { [weak self] in
             guard let self else { return }
@@ -354,6 +362,14 @@ final class AppCoordinator {
         settings.show()
     }
 
+    /// The menu item and the update notification: Settings → About, where
+    /// "Update Now" and its confirmation do the install.
+    private func openUpdate() {
+        settingsModel.tab = "about"
+        openSettings()
+        settingsModel.checkForUpdates()
+    }
+
     private func configureSettings() {
         let model = settingsModel
         model.dataPath = dataDir
@@ -370,6 +386,8 @@ final class AppCoordinator {
             model.notifyLongWait = notifyLongWaitEnabled
             model.clickUpConnected = clickUp.isConnected
             model.clickUpStatus = clickUp.status
+            model.updateCheckEnabled = updateChecker.isEnabled
+            model.updateCheckAllowed = updateChecker.allowed
         }
         model.toggleLoginItem = { [weak self] in
             guard let self else { return }
@@ -389,6 +407,10 @@ final class AppCoordinator {
         model.exportBackup = { [weak self] in self?.transfer.export(.json) }
         model.exportSpreadsheet = { [weak self] in self?.transfer.export(.csv) }
         model.importNotes = { [weak self] in self?.transfer.importFile() }
+        model.setUpdateCheck = { [weak self] enabled in
+            self?.updateChecker.setEnabled(enabled)
+            self?.settingsModel.refresh()
+        }
     }
 
     /// Agent sessions are runtime state (0009): keep them out of Time

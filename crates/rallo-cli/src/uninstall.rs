@@ -218,6 +218,16 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>, purge: bool, yes: bool) ->
         fs::remove_dir_all(&data_dir).map_err(|error| {
             Failure::new(Exit::Platform, "UNINSTALL_FAILED", format!("couldn't delete {}: {error}", data_dir.display()))
         })?;
+        // The app's settings (UserDefaults) live outside the data dir. Never under an explicit or
+        // overridden data dir (tests, scratch): that domain is the real user's.
+        if data_dir_arg.is_none() && std::env::var_os(paths::DATA_DIR_ENV).is_none() {
+            let _ = Command::new("/usr/bin/defaults")
+                .args(["delete", "com.razlio.rallo"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
     }
 
     let fields = json!({ "uninstall": {

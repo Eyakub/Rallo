@@ -18,6 +18,9 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
     /// (0008): its identifier has `AgentNotificationIdentifier.prefix`.
     var onActivateAgent: (_ agent: String, _ sessionId: String) -> Void = { _, _ in }
 
+    /// Called on the main thread for a click on an update notification.
+    var onOpenUpdate: () -> Void = {}
+
     init(log: DiagnosticsLog) {
         self.log = log
     }
@@ -52,6 +55,13 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         fields["action"] = response.actionIdentifier
         log.record("notification_response", fields)
         let request = response.notification.request
+        if request.identifier.hasPrefix(UpdateChecker.notificationPrefix) {
+            DispatchQueue.main.async { [onOpenUpdate] in
+                if response.actionIdentifier != UNNotificationDismissActionIdentifier { onOpenUpdate() }
+                completionHandler()
+            }
+            return
+        }
         if request.identifier.hasPrefix(NotificationAdapter.agentPrefix) {
             let userInfo = request.content.userInfo
             let agent = userInfo["agent"] as? String

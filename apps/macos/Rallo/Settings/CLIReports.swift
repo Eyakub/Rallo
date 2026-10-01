@@ -55,6 +55,18 @@ enum CLIReports {
             : .upToDate(current: current)
     }
 
+    /// Numeric major.minor.patch comparison; a leading "v" is ignored and
+    /// anything unparsable is "not newer".
+    static func isNewer(_ latest: String, than current: String) -> Bool {
+        func parts(_ version: String) -> [Int]? {
+            let numbers = version.drop { $0 == "v" || $0 == "V" }.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+            guard numbers.count == 3, numbers.allSatisfy({ $0 != nil }) else { return nil }
+            return numbers.compactMap { $0 }
+        }
+        guard let new = parts(latest), let old = parts(current) else { return false }
+        return new.lexicographicallyPrecedes(old) == false && new != old
+    }
+
     private static func setupOutcome(_ data: Data, path: [String]) -> SetupOutcome {
         guard let json = object(data) else { return .failed("Rallo couldn’t read the result.") }
         if let message = errorMessage(json) { return .failed(message) }

@@ -90,6 +90,9 @@ private struct GeneralTab: View {
                 .disabled(model.loginState == .unavailable)
                 .help(model.loginState == .unavailable ? "Move Rallo to Applications to open it at login." : "")
             Toggle("Show the pet", isOn: Binding(get: { model.petVisible }, set: { _ in model.perform(model.togglePet) }))
+            Toggle("Check for updates daily", isOn: Binding(get: { model.updateCheckEnabled }, set: { model.setUpdateCheck($0) }))
+                .disabled(!model.updateCheckAllowed)
+            caption("Asks GitHub once a day whether a newer Rallo is out, then tells you in the menu and with a notification. Nothing about you or your notes is sent; installing still waits for you.")
             Divider()
             Text("Terminal command").font(Theme.rounded(13, .semibold))
             HStack {

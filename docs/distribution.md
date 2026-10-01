@@ -42,7 +42,14 @@ rallo update           # install it
 ```
 
 `rallo update` is the only Rallo command that uses the network, and it runs
-only when you type it: there are no background checks. It downloads the
+only when you type it. The one background use is opt-in: Settings → General
+→ "Check for updates daily" (off by default) makes the app run
+`rallo update --check` at most once a day. It shows "Update to Rallo X…" in
+the menu and posts one notification per version; installing always goes
+through Settings → About and its confirmation. Scratch (`--data-dir`)
+instances never check. See `docs/decisions/0011-update-check.md`.
+
+Installing downloads the
 latest release, verifies the checksum, bundle identifier, version, and
 signature, backs up your notes, quits Rallo, swaps the app (restoring the
 old one if anything fails), and relaunches it in the background with your

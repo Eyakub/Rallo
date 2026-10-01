@@ -20,6 +20,8 @@ final class SettingsModel: ObservableObject {
     @Published var notifyLongWait = false
     @Published var clickUpConnected = false
     @Published var clickUpStatus: String?
+    @Published var updateCheckEnabled = false
+    @Published var updateCheckAllowed = true
     var dataPath = ""
 
     // Own state.
@@ -50,8 +52,7 @@ final class SettingsModel: ObservableObject {
     var exportBackup: () -> Void = {}
     var exportSpreadsheet: () -> Void = {}
     var importNotes: () -> Void = {}
-
-    nonisolated private static let cli = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/rallo")
+    var setUpdateCheck: (Bool) -> Void = { _ in }
 
     var version: String {
         let info = Bundle.main.infoDictionary
@@ -132,7 +133,7 @@ final class SettingsModel: ObservableObject {
     // MARK: Agents (0007)
 
     func loadAgents() async {
-        let data = await Self.run(["doctor", "--json"])
+        let data = await EmbeddedCLI.run(["doctor", "--json"])
         let checks = CLIReports.doctorChecks(data)
         agents = .known(hooks: checks["agent_hooks"], skill: checks["agent_skill"])
     }
@@ -141,7 +142,7 @@ final class SettingsModel: ObservableObject {
         agentsBusy = true
         agentsMessage = nil
         Task {
-            let data = await Self.run(["setup", what, "--json"])
+            let data = await EmbeddedCLI.run(["setup", what, "--json"])
             let outcome = what == "hooks" ? CLIReports.hooksOutcome(data) : CLIReports.skillOutcome(data)
             switch outcome {
             case let .done(text), let .failed(text): agentsMessage = text
@@ -157,7 +158,7 @@ final class SettingsModel: ObservableObject {
         updateBusy = true
         update = nil
         Task {
-            update = CLIReports.updateOutcome(await Self.run(["update", "--check", "--json"]))
+            update = CLIReports.updateOutcome(await EmbeddedCLI.run(["update", "--check", "--json"]))
             updateBusy = false
         }
     }
@@ -166,7 +167,7 @@ final class SettingsModel: ObservableObject {
     /// it is started and left running rather than awaited.
     func installUpdate() {
         let process = Process()
-        process.executableURL = Self.cli
+        process.executableURL = EmbeddedCLI.url
         process.arguments = ["update"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -183,7 +184,7 @@ final class SettingsModel: ObservableObject {
     /// is started and left running rather than awaited.
     func uninstall(deleteNotes: Bool) {
         let process = Process()
-        process.executableURL = Self.cli
+        process.executableURL = EmbeddedCLI.url
         process.arguments = ["uninstall", "--yes"] + (deleteNotes ? ["--purge"] : [])
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -204,23 +205,5 @@ final class SettingsModel: ObservableObject {
             uninstalling = false
             NSSound.beep()
         }
-    }
-
-    /// Runs the embedded CLI off the main thread and returns its stdout.
-    /// `doctor` exits 1 on a problem yet still prints its report, so the
-    /// exit status is ignored.
-    private static func run(_ arguments: [String]) async -> Data {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = cli
-            process.arguments = arguments
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            guard (try? process.run()) != nil else { return Data() }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return data
-        }.value
     }
 }

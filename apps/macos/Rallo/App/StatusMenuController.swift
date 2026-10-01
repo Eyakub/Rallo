@@ -10,6 +10,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         var jumpToWaitingAgent: () -> Void
         var selectAgentSession: (AgentSessionSnapshot) -> Void
         var openSettings: () -> Void
+        var openUpdate: () -> Void
         var quit: () -> Void
     }
 
@@ -24,6 +25,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     var agentSessions: () -> [AgentSessionSnapshot] = { [] }
     var jumpShortcutAvailable: () -> Bool = { true }
     var notesShortcutAvailable: () -> Bool = { true }
+    var updateAvailable: () -> String? = { nil }
 
     init(
         actions: Actions,
@@ -85,6 +87,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     private func populate(_ menu: NSMenu) {
+        if let version = updateAvailable() {
+            menu.addItem(item("Update to Rallo \(version)…", #selector(openUpdate)))
+            menu.addItem(.separator())
+        }
         populateAgentsSection(menu)
         menu.addItem(notesMenuItem())
         menu.addItem(jumpMenuItem())
@@ -148,5 +154,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         actions.selectAgentSession(session)
     }
     @objc private func openSettings() { actions.openSettings() }
+    @objc private func openUpdate() { actions.openUpdate() }
     @objc private func quit() { actions.quit() }
 }

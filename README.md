@@ -105,7 +105,7 @@ the same interface you do. `rallo --help` lists them all;
 |---|---|
 | **Notes panel** | Click the pet or press **⌃⌥⌘N**. Add, edit, complete, and snooze notes; a "Waiting for you" section lists agents and people who need you; swipe one sideways to dismiss it. |
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
-| **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, export and import, updates. |
+| **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, export and import, updates (including an opt-in daily check). |
 | **Reminders** | Delivered by macOS Notification Center, even after Rallo quits. Up to 32 active at once. |
 
 <p align="center">
@@ -150,7 +150,8 @@ message text. Channel @mentions and task comments aren't covered yet
 
 - **Local.** Notes live in SQLite at `~/Library/Application Support/Razlio/Rallo`. There is
   no account and no telemetry.
-- **Network.** Only `rallo update`, when you run it, and ClickUp, if you connect it.
+- **Network.** Only `rallo update`, when you run it, ClickUp, if you connect it, and a daily check
+  for new releases, if you turn it on in Settings → General.
 - **Agent and ClickUp rows** live in a separate throwaway file that is never backed up,
   exported, or included in Time Machine, and is cleared as soon as nobody is waiting.
 - **Backups.** Rallo snapshots your notes before every schema change and every update;
@@ -166,6 +167,9 @@ rallo update           # install it (backs up your notes first)
 rallo uninstall        # remove Rallo; keeps your notes
 rallo uninstall --purge  # also delete your notes (after exporting them to ~/Downloads)
 ```
+
+Settings → General has an opt-in "Check for updates daily" that tells you when a release is out;
+installing still waits for you.
 
 `rallo uninstall` (or Settings → About → Uninstall Rallo…) removes the app, the
 `rallo` command, the agent hooks and skill, Open at Login, scheduled reminders,

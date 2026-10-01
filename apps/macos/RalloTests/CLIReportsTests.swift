@@ -42,4 +42,13 @@ final class CLIReportsTests: XCTestCase {
             CLIReports.updateOutcome(data(#"{"ok":false,"error":{"code":"UPDATE_CHECK_FAILED","message":"offline"}}"#)),
             .failed("offline"))
     }
+
+    func testIsNewer() {
+        XCTAssertTrue(CLIReports.isNewer("0.7.10", than: "0.7.9"))
+        XCTAssertTrue(CLIReports.isNewer("v1.0.0", than: "0.9.9"))
+        XCTAssertFalse(CLIReports.isNewer("0.7.0", than: "0.7.0"))
+        XCTAssertFalse(CLIReports.isNewer("0.6.9", than: "0.7.0"))
+        XCTAssertFalse(CLIReports.isNewer("garbage", than: "0.7.0"))
+        XCTAssertFalse(CLIReports.isNewer("0.8.0", than: "?"))
+    }
 }
