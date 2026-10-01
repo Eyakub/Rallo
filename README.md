@@ -5,7 +5,7 @@
 <h1 align="center">Rallo</h1>
 
 <p align="center">
-  Notes and one-time reminders from a fast command, kept in view by a red panda on your desktop<br>
+  Notes and one-time reminders from a fast command, kept in view by “Rallo the Red Panda” on your desktop<br>
   that waves when Claude Code, Codex, or a ClickUp teammate is waiting on you.
 </p>
 
