@@ -39,8 +39,8 @@ fi
 
 # --- Gates -----------------------------------------------------------------
 echo "==> checks"
-# macOS's bash 3.2 in a UTF-8 locale reads "$VAR…" as a longer variable name
-# (install.sh died with "REPO…: unbound variable"): brace those.
+# macOS's bash 3.2 in a UTF-8 locale reads a $VAR directly followed by "…" as one
+# longer name (install.sh died with "REPO…: unbound variable"): brace those.
 if LC_ALL=C grep -nE '\$[A-Za-z_][A-Za-z0-9_]*[^ -~]' scripts/*.sh; then
   fail "a \$VAR is followed by a non-ASCII character; write \${VAR}"
 fi
