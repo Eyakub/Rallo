@@ -62,6 +62,7 @@ impl Setup {
             .args(["setup", "terminal", "--json"])
             .env("HOME", &self.home)
             .env("PATH", path)
+            .env("SHELL", "/bin/zsh")
             .env_remove("RALLO_APP_PATH")
             .env_remove("RALLO_DATA_DIR");
         command
@@ -171,14 +172,22 @@ fn app_outside_applications_is_a_clear_error_not_a_conflict() {
 }
 
 #[test]
-fn off_path_still_enables_and_reports_the_export_line() {
+fn off_path_enables_and_adds_the_directory_to_the_login_profile() {
     let setup = Setup::new();
     let (code, doc) = setup.json("/usr/bin");
     assert_eq!(code, 0, "{doc}");
     assert_eq!(doc["terminal"]["status"], "enabled");
     assert_eq!(doc["terminal"]["on_path"], false);
-    assert_eq!(doc["terminal"]["path_export"], r#"export PATH="$HOME/.local/bin:$PATH""#);
-    assert!(doc["warnings"].as_array().unwrap().iter().any(|warning| warning.as_str().unwrap().contains("PATH")));
+    let profile = setup.home.join(".zprofile");
+    assert_eq!(doc["terminal"]["profile_updated"], profile.to_string_lossy().as_ref());
+    assert!(doc["warnings"].as_array().unwrap().is_empty(), "{doc}");
+    let text = fs::read_to_string(&profile).unwrap();
+    assert!(text.contains(r#"export PATH="$HOME/.local/bin:$PATH""#), "{text}");
+
+    // Still off PATH in this (old) terminal, but the profile isn't written twice.
+    let (_, again) = setup.json("/usr/bin");
+    assert_eq!(again["terminal"]["profile_updated"], Value::Null);
+    assert_eq!(fs::read_to_string(&profile).unwrap(), text);
 }
 
 #[test]

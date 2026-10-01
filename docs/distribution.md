@@ -29,7 +29,9 @@ curl -fsSL https://raw.githubusercontent.com/Eyakub/Rallo/master/scripts/install
 To read the script before running it, save it to a file first. It installs to
 `~/Applications` (no administrator password; `--system` for `/Applications`),
 verifies the release's SHA-256 and the app's signature, links the `rallo`
-terminal command, and opens Rallo. `--version X.Y.Z` picks a release;
+terminal command into `~/.local/bin` (adding that folder to PATH in
+`~/.zprofile`, or `~/.bash_profile` for bash, when it isn't on PATH yet;
+open a new terminal afterwards), and opens Rallo. `--version X.Y.Z` picks a release;
 `--from DIR` installs a zip and `SHA256SUMS` you already downloaded.
 
 ## Update

@@ -7,7 +7,7 @@
 
 use std::env;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -84,6 +84,36 @@ pub fn login_profile(shell: &Path) -> &'static str {
         Some("zsh") => "~/.zprofile",
         _ => "~/.profile",
     }
+}
+
+/// Marks the line `add_to_login_profile` writes.
+pub const PROFILE_MARKER: &str = "# Added by Rallo so the `rallo` command is found (rallo setup terminal).";
+
+/// Puts `directory` on PATH for new terminals by appending one marked
+/// `export` line to the shell's login profile (`login_profile`), which
+/// tools that run commands without an interactive terminal read too.
+/// Leaves a profile alone that already mentions the directory (the user,
+/// or another installer, did it) or carries the marker. Returns the
+/// profile's path when it wrote to it.
+pub fn add_to_login_profile(shell: &Path, home: &Path, directory: &Path) -> std::io::Result<Option<PathBuf>> {
+    let profile = home.join(login_profile(shell).trim_start_matches("~/"));
+    let shown = match directory.strip_prefix(home) {
+        Ok(relative) => format!("$HOME/{}", relative.display()),
+        Err(_) => directory.display().to_string(),
+    };
+    let existing = match fs::read_to_string(&profile) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error),
+    };
+    let relative = shown.trim_start_matches("$HOME/");
+    if existing.contains(PROFILE_MARKER) || existing.contains(relative) {
+        return Ok(None);
+    }
+    let separator = if existing.is_empty() || existing.ends_with('\n') { "" } else { "\n" };
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(&profile)?;
+    write!(file, "{separator}\n{PROFILE_MARKER}\nexport PATH=\"{shown}:$PATH\"\n")?;
+    Ok(Some(profile))
 }
 
 /// PATH as `shell -lc` sets it from a fresh environment: what tools that run commands without an
@@ -222,6 +252,36 @@ mod tests {
         let app = home.join("Applications/Rallo.app");
         make_cli(&app);
         (root, home, app)
+    }
+
+    #[test]
+    fn the_login_profile_gets_one_marked_path_line() {
+        let home = tempfile::tempdir().unwrap();
+        let local_bin = home.path().join(".local/bin");
+        let zsh = Path::new("/bin/zsh");
+        fs::write(home.path().join(".zprofile"), "eval \"$(/opt/homebrew/bin/brew shellenv)\"").unwrap();
+
+        let profile = add_to_login_profile(zsh, home.path(), &local_bin).unwrap();
+        assert_eq!(profile, Some(home.path().join(".zprofile")));
+        let text = fs::read_to_string(home.path().join(".zprofile")).unwrap();
+        assert!(text.starts_with("eval \"$(/opt/homebrew/bin/brew shellenv)\"\n\n"), "{text}");
+        assert!(text.ends_with(&format!("{PROFILE_MARKER}\nexport PATH=\"$HOME/.local/bin:$PATH\"\n")), "{text}");
+
+        assert_eq!(add_to_login_profile(zsh, home.path(), &local_bin).unwrap(), None, "written once");
+        assert_eq!(fs::read_to_string(home.path().join(".zprofile")).unwrap(), text);
+    }
+
+    #[test]
+    fn a_profile_that_already_mentions_the_directory_is_left_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let line = "export PATH=\"$HOME/.local/bin:$PATH\"\n";
+        fs::write(home.path().join(".bash_profile"), line).unwrap();
+        let bash = Path::new("/bin/bash");
+        assert_eq!(add_to_login_profile(bash, home.path(), &home.path().join(".local/bin")).unwrap(), None);
+        assert_eq!(fs::read_to_string(home.path().join(".bash_profile")).unwrap(), line);
+        // A missing profile is created.
+        let zsh = Path::new("/bin/zsh");
+        assert!(add_to_login_profile(zsh, home.path(), &home.path().join(".local/bin")).unwrap().is_some());
     }
 
     #[test]

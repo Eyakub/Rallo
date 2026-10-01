@@ -94,9 +94,18 @@ pub fn setup_terminal(out: &Output) -> CommandResult {
 
 fn setup_terminal_success(out: &Output, status: &str, link: &Path, target: &Path, on_path: bool) -> CommandResult {
     const PATH_EXPORT: &str = r#"export PATH="$HOME/.local/bin:$PATH""#;
+    let directory = link.parent().unwrap_or(link);
+    // Off PATH: add it for new terminals rather than leave it to the user.
+    let profile = if on_path {
+        None
+    } else {
+        terminal_command::home_dir().and_then(|home| {
+            terminal_command::add_to_login_profile(&terminal_command::user_shell(), &home, directory).ok().flatten()
+        })
+    };
     let mut warnings = Vec::new();
-    if !on_path {
-        warnings.push(format!("{} is not on your PATH.", link.parent().unwrap_or(link).display()));
+    if !on_path && profile.is_none() {
+        warnings.push(format!("{} is not on your PATH.", directory.display()));
     }
     let noninteractive_fix = if on_path {
         terminal_command::home_dir().and_then(|home| crate::doctor::noninteractive_fix(link, &home))
@@ -111,6 +120,7 @@ fn setup_terminal_success(out: &Output, status: &str, link: &Path, target: &Path
                 "target": target,
                 "on_path": on_path,
                 "path_export": if on_path { None } else { Some(PATH_EXPORT) },
+                "profile_updated": profile,
                 "noninteractive_fix": noninteractive_fix,
             }
         }),
@@ -130,10 +140,18 @@ fn setup_terminal_success(out: &Output, status: &str, link: &Path, target: &Path
                     ));
                 }
                 text
+            } else if let Some(profile) = &profile {
+                format!(
+                    "{headline}\nAdded {} to your PATH in {}. Open a new terminal window to use `rallo` \
+                     (or run: source {}).",
+                    directory.display(),
+                    profile.display(),
+                    profile.display()
+                )
             } else {
                 format!(
                     "{headline}\n{} isn't on your PATH. Add this line to your shell's startup file, then open a new terminal:\n  {PATH_EXPORT}\nFull path: {}",
-                    link.parent().unwrap_or(link).display(),
+                    directory.display(),
                     target.display()
                 )
             }
