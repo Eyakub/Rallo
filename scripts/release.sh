@@ -22,6 +22,8 @@ asset="Rallo-$version-macos-arm64.zip"
 app="build/DerivedData/Build/Products/Release/Rallo.app"
 
 fail() { echo "error: $*" >&2; exit 1; }
+# A stalled SSH connection to GitHub otherwise hangs the tag check forever.
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3}"
 
 # --- Preconditions ---------------------------------------------------------
 [[ "$(uname -m)" == arm64 ]] || fail "release builds are Apple Silicon only (this Mac is $(uname -m))"
