@@ -38,10 +38,20 @@ final class AppCoordinator {
     private var notifyLongWaitEnabled = false
     private var agentJumpState = AgentJumpState()
     private var livenessTimer: Timer?
+    private var demoOpen: String?
 
     init(dataDir: String, launchMode: LaunchOptions.Mode, options: LaunchOptions) {
         self.dataDir = dataDir
         self.launchMode = launchMode
+        // Screenshot mode only ever applies to a scratch instance.
+        if options.dataDir != nil {
+            demoOpen = options.demoOpen
+            switch options.demoAppearance {
+            case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+            case "light": NSApp.appearance = NSAppearance(named: .aqua)
+            default: break
+            }
+        }
         core = CoreClient(dataDir: dataDir)
         log = DiagnosticsLog(dataDir: dataDir)
         notifications = NotificationCoordinator(log: log)
@@ -132,6 +142,24 @@ final class AppCoordinator {
         await refreshNotificationSummary()
         observeSystemEvents()
         drainer.requestDrain("launch")
+        openForDemo()
+    }
+
+    /// `--demo-open` (scripts/screenshots.sh): opens the view to capture
+    /// once launch has settled.
+    private func openForDemo() {
+        guard let demoOpen else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self else { return }
+            switch demoOpen.split(separator: ":").first {
+            case "notes": openNotes(highlighting: nil)
+            case "menu": statusMenu?.openMenu()
+            case "settings":
+                if let tab = demoOpen.split(separator: ":").dropFirst().first { settingsModel.tab = String(tab) }
+                openSettings()
+            default: break
+            }
+        }
     }
 
     /// Unregisters the global shortcuts; called once, at quit.

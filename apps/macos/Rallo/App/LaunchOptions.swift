@@ -15,6 +15,11 @@ struct LaunchOptions {
     var faultInjection: String?
     /// Arguments after `--probe`: run a notification characterization and exit.
     var probe: [String]?
+    /// Screenshot mode (scripts/screenshots.sh), honoured only with an
+    /// explicit `--data-dir`: `light`/`dark` for this instance, and what to
+    /// open once it's up (`notes`, `menu`, `settings` or `settings:<tab>`).
+    var demoAppearance: String?
+    var demoOpen: String?
 
     static func parse(_ arguments: [String]) -> LaunchOptions {
         var options = LaunchOptions()
@@ -30,6 +35,12 @@ struct LaunchOptions {
                 index += 1
             case "--fault-injection" where index + 1 < arguments.count:
                 options.faultInjection = arguments[index + 1]
+                index += 1
+            case "--demo-appearance" where index + 1 < arguments.count:
+                options.demoAppearance = arguments[index + 1]
+                index += 1
+            case "--demo-open" where index + 1 < arguments.count:
+                options.demoOpen = arguments[index + 1]
                 index += 1
             case "--probe":
                 options.probe = Array(arguments[(index + 1)...])

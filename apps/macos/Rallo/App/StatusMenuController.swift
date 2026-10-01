@@ -33,6 +33,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         self.petVisible = petVisible
     }
 
+    /// Opens the menu as a click on the paw would (screenshot mode).
+    func openMenu() {
+        statusItem?.menu?.appearance = NSApp.appearance
+        statusItem?.button?.performClick(nil)
+    }
+
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let image = NSImage(systemSymbolName: "pawprint.fill", accessibilityDescription: "Rallo")

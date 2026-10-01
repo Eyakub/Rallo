@@ -35,6 +35,18 @@ teammate's message, it waves.
 
 Everything lives on your Mac. No account, no server, no telemetry.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-dark.png">
+    <img src="docs/images/panel-light.png" width="340" alt="The notes panel: the pet above a note field, a Waiting for you section with a Claude Code permission request and a ClickUp message, and notes with reminders">
+  </picture>
+  &nbsp;
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-dark.png">
+    <img src="docs/images/settings-light.png" width="460" alt="The Settings window on its Agents tab, showing hooks and the skill installed">
+  </picture>
+</p>
+
 ## Meet the pet
 
 <table align="center">
@@ -95,6 +107,10 @@ the same interface you do. `rallo --help` lists them all;
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
 | **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, export and import, updates. |
 | **Reminders** | Delivered by macOS Notification Center, even after Rallo quits. Up to 32 active at once. |
+
+<p align="center">
+  <img src="docs/images/menu.png" width="440" alt="The menu bar menu: two rows waiting for you, then Open Notes, Jump to Waiting Agent, Hide Pet, Pause Animations, Settings, and Quit">
+</p>
 
 ## Coding agents
 
@@ -164,6 +180,8 @@ cargo test --workspace             # Rust tests
 ```
 
 Use `--data-dir` (or `RALLO_DATA_DIR`) for experiments, so tests never touch your real notes.
+`scripts/screenshots.sh` regenerates the images in `docs/images` from a demo instance with
+sample data.
 
 | Path | What's there |
 |---|---|
