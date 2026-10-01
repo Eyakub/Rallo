@@ -110,7 +110,7 @@ else
     tag="$(plutil -extract tag_name raw "$stage/latest.json")"
     version="${tag#v}"
   fi
-  say "Downloading v$version from $REPO…"
+  say "Downloading v$version from ${REPO}…"
   base="https://github.com/$REPO/releases/download/v$version"
   curl -fsSL "$base/Rallo-$version-macos-arm64.zip" -o "$stage/Rallo-$version-macos-arm64.zip" || fail "download failed"
   curl -fsSL "$base/SHA256SUMS" -o "$stage/SHA256SUMS" || fail "download failed"
