@@ -25,12 +25,12 @@ const STATE_SEQ_KEY: &str = "agents.state_seq";
 /// known agent process.
 pub(crate) const FRESH_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 
-const RUNTIME_SCHEMA_VERSION: i64 = 2;
+const RUNTIME_SCHEMA_VERSION: i64 = 3;
 const RUNTIME_SCHEMA: &str = "
 CREATE TABLE runtime.agent_sessions (
   agent            TEXT NOT NULL CHECK (agent IN ('claude', 'codex', 'clickup')),
   session_id       TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 200),
-  state            TEXT NOT NULL CHECK (state IN ('working', 'waiting')),
+  state            TEXT NOT NULL CHECK (state IN ('working', 'waiting', 'dismissed')),
   place            TEXT CHECK (place IS NULL OR length(place) <= 300),
   detail           TEXT CHECK (detail IS NULL OR length(detail) <= 120),
   app_path         TEXT CHECK (app_path IS NULL OR length(app_path) <= 4096),
@@ -95,6 +95,9 @@ impl AgentKind {
 pub enum AgentState {
     Working,
     Waiting,
+    /// A ClickUp conversation the user opened or dismissed (0010): hidden
+    /// until a newer message arrives, so the next poll doesn't bring it back.
+    Dismissed,
 }
 
 impl AgentState {
@@ -102,6 +105,7 @@ impl AgentState {
         match self {
             Self::Working => "working",
             Self::Waiting => "waiting",
+            Self::Dismissed => "dismissed",
         }
     }
 
@@ -109,6 +113,7 @@ impl AgentState {
         match value {
             "working" => Some(Self::Working),
             "waiting" => Some(Self::Waiting),
+            "dismissed" => Some(Self::Dismissed),
             _ => None,
         }
     }
@@ -499,6 +504,28 @@ impl Store {
     /// Removes sessions matching the given filters (either, both, or
     /// neither); returns the number removed. Not limited to fresh rows:
     /// clearing is an explicit user action, unlike the passive prune.
+    /// The panel's ✕, a swipe, or opening a ClickUp row: an agent session
+    /// is deleted (its next hook brings it back if it still waits); a
+    /// ClickUp conversation is marked `dismissed` instead, because the next
+    /// poll would re-add it -- `sync_external_waiting` revives it only for a
+    /// newer message (0010). Returns whether a waiting row went away.
+    pub fn dismiss_agent_session(&mut self, agent: AgentKind, session_id: &str) -> CoreResult<bool> {
+        if agent != AgentKind::ClickUp {
+            return Ok(self.clear_agent_sessions(Some(agent), Some(session_id))? > 0);
+        }
+        let tx = self.write_tx()?;
+        let count = tx.execute(
+            "UPDATE runtime.agent_sessions SET state = 'dismissed'
+             WHERE agent = ?1 AND session_id = ?2 AND state = 'waiting'",
+            params![agent.as_str(), session_id],
+        )?;
+        if count > 0 {
+            bump_revision(&tx)?;
+        }
+        tx.commit()?;
+        Ok(count > 0)
+    }
+
     pub fn clear_agent_sessions(&mut self, agent: Option<AgentKind>, session_id: Option<&str>) -> CoreResult<u32> {
         let tx = self.write_tx()?;
         let count = match (agent, session_id) {
@@ -922,6 +949,35 @@ mod tests {
             focus: Some(format!("https://app.clickup.com/chat/{id}")),
             latest_at_ms: at,
         }
+    }
+
+    #[test]
+    fn a_dismissed_clickup_row_stays_hidden_until_a_newer_message() {
+        let (_dir, mut store) = open_store();
+        store.sync_external_waiting(AgentKind::ClickUp, &[waiting("a", "Ann", false, 1_000_000)]).unwrap();
+        let seq = store.agent_sessions(1_001_000).unwrap()[0].state_seq;
+
+        assert!(store.dismiss_agent_session(AgentKind::ClickUp, "a").unwrap());
+        assert!(store.agent_sessions(1_001_000).unwrap().is_empty());
+        assert!(!store.dismiss_agent_session(AgentKind::ClickUp, "a").unwrap(), "already dismissed");
+        assert!(!store.sync_external_waiting(AgentKind::ClickUp, &[waiting("a", "Ann", false, 1_000_000)]).unwrap());
+        assert!(store.agent_sessions(1_001_000).unwrap().is_empty(), "the same message stays dismissed");
+        assert_eq!(store.pet_snapshot().unwrap().agents_waiting, 0);
+
+        assert!(store.sync_external_waiting(AgentKind::ClickUp, &[waiting("a", "Ann", false, 1_000_500)]).unwrap());
+        let back = store.agent_sessions(1_001_000).unwrap();
+        assert_eq!(back.len(), 1, "a newer message brings it back");
+        assert!(back[0].state_seq > seq, "and the pet waves again");
+    }
+
+    #[test]
+    fn dismissing_an_agent_session_deletes_it() {
+        let (_dir, mut store) = open_store();
+        store
+            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, None), 1_000_000, &alive)
+            .unwrap();
+        assert!(store.dismiss_agent_session(AgentKind::Claude, "s1").unwrap());
+        assert_eq!(store.clear_agent_sessions(None, None).unwrap(), 0, "no row left behind");
     }
 
     #[test]

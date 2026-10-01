@@ -47,13 +47,23 @@ enum ClickUpError: Error {
 struct ClickUpAPI {
     let token: String
 
+    /// In-memory only: no response cache, cookies, or connection records on
+    /// disk, whatever ClickUp's headers say (0010).
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        return URLSession(configuration: configuration)
+    }()
+
     func get(_ path: String, _ query: [String: String] = [:]) async throws -> [String: Any] {
         var components = URLComponents(string: "https://api.clickup.com/api" + path)!
         if !query.isEmpty { components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
         var request = URLRequest(url: components.url!, timeoutInterval: 20)
         request.setValue(token, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
         case 200: break
         case 401: throw ClickUpError.unauthorized
@@ -194,7 +204,7 @@ final class ClickUpWatcher {
             log.record("clickup_rate_limited", ["skip": "\(skipChecks)"])
         } catch {
             // Offline, asleep, or a ClickUp hiccup: the next minute retries.
-            log.record("clickup_check_failed", ["error": "\(error)"])
+            log.record("clickup_check_failed", ["error": Self.describe(error)])
         }
     }
 
@@ -216,6 +226,16 @@ final class ClickUpWatcher {
         identityLoadedAt = Date()
         let who = (user?["username"] as? String) ?? "you"
         status = "ClickUp: \(who) · \((team["name"] as? String) ?? "workspace")"
+    }
+
+    /// An error code only: a URL error's description carries the request
+    /// address (workspace and conversation ids), which the log never gets.
+    private static func describe(_ error: Error) -> String {
+        switch error {
+        case let error as URLError: "URLError \(error.code.rawValue)"
+        case let error as ClickUpError: "\(error)"
+        default: String(describing: type(of: error))
+        }
     }
 
     private func clearRows() async {

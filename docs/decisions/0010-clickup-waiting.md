@@ -28,7 +28,8 @@ messages, and a chat's latest message carries `user_id`.
 A **direct or group message whose latest message is someone else's**, within
 the last 24 hours, is waiting for the user. It clears when they reply.
 Channels (and @mentions in them) are not covered yet. Read state isn't
-available, so reading without replying doesn't clear a row; ✕ does.
+available, so Rallo can't see you reading it in ClickUp; opening the
+conversation from Rallo, ✕, or a swipe dismisses the row (below).
 
 Per check: one channel listing, plus one "latest message" request for each
 conversation whose `latest_comment_at` changed since the last check. A quiet
@@ -48,6 +49,10 @@ says so in the menu. Offline or asleep: the next minute retries.
   scoped personal tokens). It is never written to the database, logs, or
   files. Rallo only sends GET requests and never stores message text: a row
   holds the sender's name, whether it's a group, and the conversation id.
+- Requests go through an ephemeral `URLSession` with no cache and no cookie
+  store, so no ClickUp response reaches disk whatever its headers say. The
+  diagnostics log gets error codes only (a URL error's text would carry the
+  workspace and conversation ids).
 - An ad-hoc-signed app's Keychain access is tied to its exact build, so
   macOS asks again ("Always Allow") after each update.
 
@@ -61,13 +66,24 @@ replaces the ClickUp rows wholesale (`sync_clickup_waiting`): a new
 conversation or a newer message bumps `agents.state_seq`, so the pet waves;
 an unchanged list is a no-op.
 
+Dismissing (✕, a swipe, or opening the conversation from the panel or menu)
+sets a ClickUp row's state to `dismissed` (runtime layout v3) instead of
+deleting it, since the next poll would re-add it; only a newer message
+makes it `waiting` again. Lists and the pet count `waiting` rows only.
+Dismissing an agent session still deletes it.
+
 ## Showing it
 
 - Panel and menu ("Waiting for You"): "Muhsin Ahmed — Messaged you on
   ClickUp · 2 min". The pet's badge and wave count them with agents; its
   accessibility label now says "N waiting for you".
 - A click opens the conversation: `clickup://app.clickup.com/<workspace>/chat/r/<id>`
-  in the desktop app (it maps that to the web address), else the web address.
+  in the desktop app (it maps that to the web address), else the web
+  address, and dismisses the row.
+- Any row in the panel (agent or ClickUp) can be swiped away: a two-finger
+  trackpad swipe or a click-drag past 90 pt dismisses it; shorter springs
+  back. Vertical scrolling and mouse wheels pass through. Reduce Motion
+  drops the slide animation.
 - No Rallo banner: ClickUp sends its own, and the 5-minute long-wait banner
   (0008) stays for agents only.
 - `rallo agents` lists them (`"agent": "clickup"`).

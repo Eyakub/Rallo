@@ -313,6 +313,7 @@ fn agent_detail_phrase(state: AgentState, detail: Option<&str>) -> String {
         (AgentState::Waiting, Some(tool)) => format!("Waiting for permission: {tool}"),
         (AgentState::Waiting, None) => "Waiting for you".to_owned(),
         (AgentState::Working, _) => "Working".to_owned(),
+        (AgentState::Dismissed, _) => "Dismissed".to_owned(),
     }
 }
 

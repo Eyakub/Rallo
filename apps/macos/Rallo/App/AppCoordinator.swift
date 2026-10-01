@@ -381,6 +381,16 @@ final class AppCoordinator {
     /// a no-op if Rallo couldn't identify one (the row is disabled instead).
     private func activateAgent(_ session: AgentSessionSnapshot) {
         AgentSessionActivation.activate(session)
+        // Opening a ClickUp conversation counts as reading it (0010).
+        guard session.isClickUp else { return }
+        Task {
+            do {
+                try await core.dismissAgentSession(session)
+                await checkForChanges()
+            } catch {
+                log.record("clickup_dismiss_failed", ["error": "\(error)"])
+            }
+        }
     }
 
     /// ⌃⌥⌘J and the menu's "Jump to Waiting Agent": longest-waiting first,

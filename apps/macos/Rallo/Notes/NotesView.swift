@@ -207,9 +207,12 @@ final class NotesViewModel: ObservableObject {
     }
 
     /// Brings the session's terminal app forward; a no-op if Rallo couldn't
-    /// identify one (`appPath` is nil, so the row isn't clickable).
+    /// identify one (`appPath` is nil, so the row isn't clickable). Opening
+    /// a ClickUp conversation counts as reading it: the row goes until a
+    /// newer message arrives (0010).
     func activateAgent(_ session: AgentSessionSnapshot) {
         AgentSessionActivation.activate(session)
+        if session.isClickUp { Task { await dismissAgent(session) } }
     }
 
     func dismissAgent(_ session: AgentSessionSnapshot) async {

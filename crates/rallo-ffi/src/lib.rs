@@ -284,7 +284,7 @@ impl RalloStore {
             code: ErrorCode::InvalidInput.as_str().to_owned(),
             message: format!("unknown agent \"{agent}\""),
         })?;
-        Ok(self.store().clear_agent_sessions(Some(agent), Some(&session_id))? > 0)
+        Ok(self.store().dismiss_agent_session(agent, &session_id)?)
     }
 
     pub fn pet_animations_paused(&self) -> Result<bool, RalloError> {
