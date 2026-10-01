@@ -23,6 +23,8 @@ final class SettingsModel: ObservableObject {
     var dataPath = ""
 
     // Own state.
+    /// The selected tab's tag: general, notifications, agents, clickup, data, about.
+    @Published var tab = "general"
     @Published var token = ""
     @Published var clickUpBusy = false
     @Published var clickUpMessage: String?

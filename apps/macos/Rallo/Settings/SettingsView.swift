@@ -1,22 +1,50 @@
 import AppKit
 import SwiftUI
 
-struct SettingsView: View {
-    static let width: CGFloat = 540
-    static let height: CGFloat = 400
+/// The Settings window's tabs, shown as native toolbar tabs by
+/// `SettingsWindowController` (a SwiftUI TabView in an AppKit window folds
+/// its tabs into the toolbar's overflow menu on macOS 26). The raw value is
+/// `SettingsModel.tab`.
+enum SettingsTab: String, CaseIterable {
+    case general, notifications, agents, clickup, data, about
 
-    @ObservedObject var model: SettingsModel
+    static let size = CGSize(width: 540, height: 400)
 
-    var body: some View {
-        TabView {
-            GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }
-            NotificationsTab(model: model).tabItem { Label("Notifications", systemImage: "bell") }
-            AgentsTab(model: model).tabItem { Label("Agents", systemImage: "terminal") }
-            ClickUpTab(model: model).tabItem { Label("ClickUp", systemImage: "bubble.left.and.bubble.right") }
-            DataTab(model: model).tabItem { Label("Data", systemImage: "externaldrive") }
-            AboutTab(model: model).tabItem { Label("About", systemImage: "info.circle") }
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .notifications: "Notifications"
+        case .agents: "Agents"
+        case .clickup: "ClickUp"
+        case .data: "Data"
+        case .about: "About"
         }
-        .frame(width: Self.width, height: Self.height)
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .notifications: "bell"
+        case .agents: "terminal"
+        case .clickup: "bubble.left.and.bubble.right"
+        case .data: "externaldrive"
+        case .about: "info.circle"
+        }
+    }
+
+    @MainActor
+    func view(_ model: SettingsModel) -> some View {
+        Group {
+            switch self {
+            case .general: GeneralTab(model: model)
+            case .notifications: NotificationsTab(model: model)
+            case .agents: AgentsTab(model: model)
+            case .clickup: ClickUpTab(model: model)
+            case .data: DataTab(model: model)
+            case .about: AboutTab(model: model)
+            }
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
     }
 }
 
@@ -144,12 +172,22 @@ private struct AgentsTab: View {
         return nil
     }
 
+    /// Doctor's statuses: ok, warning (worth fixing), problem.
+    private func color(_ status: String?) -> Color {
+        switch status {
+        case "ok": Theme.bamboo
+        case "warning": Theme.rust
+        case "problem": Theme.error
+        default: Theme.ink
+        }
+    }
+
     private func statusRow(_ title: String, check: CLIReports.Check?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title).font(Theme.rounded(13, .semibold)).frame(width: 48, alignment: .leading)
-            Text(check?.summary ?? "Checking…")
+            Text(check.map { ($0.summary as NSString).replacingOccurrences(of: NSHomeDirectory(), with: "~") } ?? "Checking…")
                 .font(Theme.rounded(13))
-                .foregroundStyle(check?.status == "ok" || check == nil ? Theme.ink : Theme.error)
+                .foregroundStyle(color(check?.status))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
