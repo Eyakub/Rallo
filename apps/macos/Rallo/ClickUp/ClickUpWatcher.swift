@@ -121,13 +121,16 @@ final class ClickUpWatcher {
     }
 
     /// Checks the token against ClickUp before saving it; throws if ClickUp
-    /// rejects it or can't be reached.
-    func connect(token: String) async throws {
+    /// rejects it or can't be reached. Returns who is connected, for the
+    /// dialog: "eyakub in SDS Manager".
+    @discardableResult
+    func connect(token: String) async throws -> String {
         let api = ClickUpAPI(token: token)
-        try await loadIdentity(api)
+        let who = try await loadIdentity(api)
         guard ClickUpToken.save(token) else { throw ClickUpError.failed(0) }
         log.record("clickup_connected")
         begin(api)
+        return who
     }
 
     func disconnect() async {
@@ -208,8 +211,10 @@ final class ClickUpWatcher {
         }
     }
 
-    /// Who "me" is, the first workspace, and its member names.
-    private func loadIdentity(_ api: ClickUpAPI) async throws {
+    /// Who "me" is, the first workspace, and its member names; returns
+    /// "<user> in <workspace>".
+    @discardableResult
+    private func loadIdentity(_ api: ClickUpAPI) async throws -> String {
         let user = try await api.get("/v2/user")["user"] as? [String: Any]
         guard let me = ClickUpWaiting.string(user?["id"]),
               let team = (try await api.get("/v2/team")["teams"] as? [[String: Any]])?.first,  // ponytail: first workspace only
@@ -225,7 +230,9 @@ final class ClickUpWatcher {
         self.names = names
         identityLoadedAt = Date()
         let who = (user?["username"] as? String) ?? "you"
-        status = "ClickUp: \(who) · \((team["name"] as? String) ?? "workspace")"
+        let workspace = (team["name"] as? String) ?? "your workspace"
+        status = "ClickUp: \(who) · \(workspace)"
+        return "\(who) in \(workspace)"
     }
 
     /// An error code only: a URL error's description carries the request

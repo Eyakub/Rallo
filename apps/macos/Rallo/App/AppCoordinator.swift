@@ -332,36 +332,9 @@ final class AppCoordinator {
             Task { await clickUp.disconnect() }
             return
         }
-        let alert = NSAlert()
-        alert.messageText = "Connect ClickUp"
-        alert.informativeText = """
-        Rallo checks ClickUp once a minute and lists direct messages waiting for your reply. \
-        Paste a personal API token from ClickUp → Settings → Apps. It stays in your Keychain; \
-        Rallo never stores message text.
-        """
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        field.placeholderString = "pk_…"
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Connect")
-        alert.addButton(withTitle: "Cancel")
-        alert.window.initialFirstResponder = field
-        NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let token = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty else { return }
-        Task {
-            do {
-                try await clickUp.connect(token: token)
-            } catch {
-                let failure = NSAlert()
-                failure.messageText = "ClickUp didn’t accept that token"
-                failure.informativeText = error is ClickUpError
-                    ? "Check that you copied the whole token (it starts with pk_)."
-                    : "Rallo couldn’t reach ClickUp. Check your connection and try again."
-                NSApp.activate()
-                failure.runModal()
-            }
-        }
+        // The button targets it weakly; keep it alive for the modal run.
+        let dialog = ClickUpConnectDialog(watcher: clickUp)
+        withExtendedLifetime(dialog) { dialog.run() }
     }
 
     /// Agent sessions are runtime state (0009): keep them out of Time
