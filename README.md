@@ -3,18 +3,18 @@
 Capture small thoughts and one-time reminders from a fast command; an optional
 floating animal keeps them quietly visible. macOS first.
 
-**Status:** pre-release (milestones M0–M4 built; M5 release candidate next).
-Ad-hoc signed, not notarized, Apple Silicon, macOS 14+. See
-`docs/platform-support.md`.
+**Status:** pre-release. Ad-hoc signed, not notarized, Apple Silicon,
+macOS 14+. See `docs/platform-support.md`.
 
 ## Install
 
 From GitHub Releases, no developer tools needed (`docs/distribution.md`):
 
 ```sh
-gh api repos/Eyakub/Rallo/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | bash
+curl -fsSL https://raw.githubusercontent.com/Eyakub/Rallo/master/scripts/install.sh | bash
 rallo note "Try Rallo"
-rallo setup skill   # teach Claude Code and Cursor to use rallo
+rallo setup skill   # teach Claude Code, Cursor and Codex to use rallo
+rallo setup hooks   # optional: the pet waves when an agent waits for you
 rallo update        # later: install the newest release
 ```
 
@@ -40,12 +40,13 @@ cargo test --workspace
 
 ## Documents
 
-- `rallo-macos-build-plan.md` — authoritative specification
 - `docs/architecture.md` — what is built and its interfaces
 - `docs/cli-contract.md`, `docs/reminder-semantics.md`, `docs/platform-support.md`
 - `docs/backup-and-restore.md` — backup kinds and exact restore steps
 - `docs/distribution.md` — install, update, uninstall, and making a release
-- `docs/release-report.md` — verified Macs, performance, signing, known limitations
 - `skills/rallo/SKILL.md` — how agents should use `rallo`
 - `docs/decisions/` — decision records with real observations
-- `docs/progress.md` — progress log
+
+## License
+
+MIT — see `LICENSE`.

@@ -1,7 +1,10 @@
 # Rallo — repo notes for agents
 
-- Spec: `rallo-macos-build-plan.md` is authoritative. Do not edit it or
-  `claude-start-prompt.md`. Progress: `docs/progress.md`.
+- Internal notes live in the gitignored `private/` folder (never commit it):
+  the spec `private/rallo-macos-build-plan.md` is authoritative; do not edit
+  it or `private/claude-start-prompt.md`. Progress:
+  `private/docs/progress.md`; manual checks and the release report sit
+  beside it.
 - Rust is Homebrew `rustup` (keg-only): `export PATH=/opt/homebrew/opt/rustup/bin:$PATH`.
 - Build/install app: `scripts/build-macos.sh --install`. Rust tests:
   `cargo test --workspace`. Swift tests: see README.

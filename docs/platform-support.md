@@ -8,7 +8,7 @@ Nothing here claims support that has not been verified.
 | | Status |
 |---|---|
 | Target | macOS 14+ on Apple Silicon (initial validation) |
-| Verified OS | macOS 27.0 (26A428) and 27.0.1 (26A434); machines and results in `release-report.md` |
+| Verified OS | macOS 27.0 (26A428) and 27.0.1 (26A434) |
 | Minimum OS (14.0) | **Not yet validated** — no macOS 14 environment available |
 | Intel (x86_64) | **Not supported.** The Rust target is installed and code is kept buildable, but nothing has been built or tested on Intel hardware. The first release will be labelled Apple Silicon unless Intel testing happens. |
 | Signing | Ad-hoc only (no Developer ID identity on the build machine). Not notarized. |

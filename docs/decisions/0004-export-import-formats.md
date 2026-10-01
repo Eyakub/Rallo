@@ -3,8 +3,8 @@
 - **Status:** Accepted for M4 implementation.
 - **Date:** 2026-09-30
 - **Implements:** section 10 ("Privacy and data lifecycle") and the
-  `rallo export`/`rallo import` entries of section 5 of
-  `rallo-macos-build-plan.md`. Builds on
+  `rallo export`/`rallo import` entries of section 5 of the internal
+  specification. Builds on
   `docs/decisions/0003-core-command-semantics.md` (schema v2, `reminders`
   states, `disabled_reason = 'imported'`).
 

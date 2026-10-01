@@ -1,14 +1,14 @@
 Generated with the built-in image_gen tool from existing pet-sleep@2x.png and pet-idle@2x.png.
 
 rallo_drowsy.png
-Source: /Users/eyakub/Desktop/Rallo/assets/pet/rallo/pet-sleep@2x.png
+Source: assets/pet/rallo/pet-sleep@2x.png
 Use case: precise-object-edit. Edit the supplied existing Rallo red panda sprite. Preserve the exact original illustration, curled sleeping pose, body, tail, fur texture, colours, line style, silhouette, relative size and position, and original canvas aspect ratio. Do not redesign or redraw the body. Replace transparency with a plain uniform flat cream background #FCF8EF. No text, no Zzz, no extra objects. Change only the facial expression: one eye half-open sleepily peeking, the other eye still closed. Keep the mouth and all other details unchanged.
 
 rallo_content.png
-Source: /Users/eyakub/Desktop/Rallo/assets/pet/rallo/pet-sleep@2x.png
+Source: assets/pet/rallo/pet-sleep@2x.png
 Use case: precise-object-edit. Edit the supplied existing Rallo red panda sprite. Preserve the exact original illustration, curled sleeping pose, body, tail, fur texture, colours, line style, silhouette, relative size and position, and original canvas aspect ratio. Do not redesign or redraw the body. Replace transparency with a plain uniform flat cream background #FCF8EF. No text, no Zzz, no extra objects. Change only the facial expression: both eyes still closed but curved upward in happy arcs, a small contented smile and a light pink blush on the cheeks. No hearts.
 
 rallo_grumpy.png
-Source: /Users/eyakub/Desktop/Rallo/assets/pet/rallo/pet-idle@2x.png
+Source: assets/pet/rallo/pet-idle@2x.png
 Use case: precise-object-edit. Edit the supplied existing Rallo sitting red panda sprite. Keep the panda exactly the same: same sitting pose, body, tail, colours, fur texture, line style, size and position, original canvas aspect ratio. Change only the face and slight ear tilt: cheeks puffed out, eyebrows lowered in a mild cute pout, eyes open looking slightly to the side, ears tilted slightly back. Playfully annoyed, not angry. Preserve the body and tail exactly. Replace transparency with plain flat cream background #FCF8EF. No text, no extra objects.
 

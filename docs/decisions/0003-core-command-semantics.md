@@ -2,7 +2,7 @@
 
 - **Status:** Accepted for M1 implementation.
 - **Date:** 2026-09-30
-- **Implements:** sections 5–7 of `rallo-macos-build-plan.md`.
+- **Implements:** sections 5–7 of the internal specification ("the plan").
 
 This pins down the transitions, selectors, idempotency, and error shapes that
 the plan leaves to implementation. Native notification effects are M2; M1

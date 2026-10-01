@@ -83,10 +83,8 @@ detected on this Mac (falling back to Claude Code/Cursor if none is);
 
 The skill ships inside the CLI, so each release carries its own. After an
 update, `rallo doctor` warns if an installed copy (skill or Codex's
-`rallo.rules`) is older; run `rallo setup skill` again. Claude Code and
-Cursor were tested with it (`agent-evaluation.md`); `scripts/agent-eval`
-supports Codex too (`RALLO_EVAL_AGENT=codex`) once its skill and rules are
-installed.
+`rallo.rules`) is older; run `rallo setup skill` again. Claude Code, Cursor
+and Codex were tested with it.
 
 `rallo setup hooks` (Claude Code and Codex; not Cursor, which has no hook
 mechanism) goes further than the skill: it wires up the `agent-event` hook

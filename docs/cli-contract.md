@@ -1,8 +1,7 @@
 # CLI contract
 
 `rallo` is the same interface for people and agents. This file documents what
-is implemented. The canonical command set is section 5 of
-`rallo-macos-build-plan.md`; the exact transitions, selectors, idempotency,
+is implemented. The exact transitions, selectors, idempotency,
 and output shapes are pinned down in
 `docs/decisions/0003-core-command-semantics.md` ("0003" below), which this
 file points to rather than duplicates.

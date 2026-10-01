@@ -12,3 +12,5 @@ DerivedData/
 /.claude/worktrees/
 # Python bytecode from the art scripts.
 __pycache__/
+# Internal notes, spec, and dev logs: kept local, never published.
+/private/

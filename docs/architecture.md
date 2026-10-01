@@ -4,9 +4,9 @@ Rust core and CLI, SQLite, UniFFI, and a native Swift/AppKit/SwiftUI app with
 Core Animation. No Tauri, React, webview, HTTP listener, daemon, privileged
 helper, or LLM. macOS first; Linux and then Windows are later releases.
 
-The authoritative product/engineering specification is
-`rallo-macos-build-plan.md`. This document records what is actually built and
-the final names of interfaces.
+Rallo was built from an internal product/engineering specification that is
+not published; code comments citing "plan §N" refer to its sections. This
+document records what is actually built and the final names of interfaces.
 
 ## Processes
 
