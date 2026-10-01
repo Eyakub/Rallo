@@ -32,9 +32,10 @@ enum ClickUpToken {
         return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
-    static func delete() {
+    @discardableResult
+    static func delete() -> OSStatus {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
-        SecItemDelete(query as CFDictionary)
+        return SecItemDelete(query as CFDictionary)
     }
 }
 

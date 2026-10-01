@@ -6,6 +6,7 @@ mod hooks;
 mod local_time;
 mod output;
 mod skill;
+mod uninstall;
 mod update;
 
 use std::process::ExitCode;
@@ -70,6 +71,9 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
     if let Command::Update { check } = command {
         return update::run(out, cli.data_dir.as_deref(), check).map(|()| ExitCode::SUCCESS);
     }
+    if let Command::Uninstall { purge, yes } = command {
+        return uninstall::run(out, cli.data_dir.as_deref(), purge, yes).map(|()| ExitCode::SUCCESS);
+    }
     // Never fails, never blocks, never writes to stdout (0007): reports its
     // own store-open/record errors to stderr rather than through `Failure`.
     if let Command::AgentEvent { agent } = command {
@@ -129,7 +133,11 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
                 commands::agents_clear(out, &mut store, agent, session)
             }
         },
-        Command::Setup { .. } | Command::Doctor | Command::Update { .. } | Command::AgentEvent { .. } => {
+        Command::Setup { .. }
+        | Command::Doctor
+        | Command::Update { .. }
+        | Command::Uninstall { .. }
+        | Command::AgentEvent { .. } => {
             unreachable!("handled before the store was opened")
         }
     };

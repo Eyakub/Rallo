@@ -28,3 +28,21 @@ pub fn format_local(deadline_ms: i64) -> String {
         tm.tm_min,
     )
 }
+
+/// `YYYYMMDD-HHMMSS` in local time, for file names.
+pub fn file_stamp(timestamp_ms: i64) -> String {
+    let time = timestamp_ms.div_euclid(1000) as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe {
+        libc::localtime_r(&time, &mut tm);
+    }
+    format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec
+    )
+}

@@ -118,14 +118,24 @@ or closes the notes panel.
 ## Uninstall
 
 ```sh
+rallo uninstall          # keeps your notes
+rallo uninstall --purge  # also deletes them, after a JSON export to ~/Downloads
+```
+
+Also available as Settings → About → Uninstall Rallo…. It removes the app, the
+`rallo` command, Rallo's agent hooks and skill, Open at Login, scheduled
+reminders, and the ClickUp token. `--purge` removes nothing if it can't save
+that export first. The PATH line Rallo may have added to your login profile is
+left in place (other tools may use `~/.local/bin`).
+
+When the `rallo` command is already gone, the install script does the same
+(it runs `rallo uninstall --yes` from the installed app, and falls back to
+removing just the app and its terminal command for older versions):
+
+```sh
 bash scripts/install.sh --uninstall          # keeps your notes
 bash scripts/install.sh --uninstall --purge  # also deletes them, after a JSON export to ~/Downloads
 ```
-
-`--purge` removes nothing if it can't save that export first.
-
-Turn off Open at Login from Rallo's menu first if you enabled it (otherwise
-remove it under System Settings → General → Login Items).
 
 ## Making a release (maintainer, on this Mac)
 

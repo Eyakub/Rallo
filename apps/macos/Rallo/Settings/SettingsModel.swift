@@ -33,6 +33,10 @@ final class SettingsModel: ObservableObject {
     @Published var agentsMessage: String?
     @Published var update: CLIReports.UpdateOutcome?
     @Published var updateBusy = false
+    /// Set by the coordinator: only the installed app, never a `--data-dir` instance.
+    @Published var uninstallAvailable = false
+    @Published var uninstalling = false
+    @Published var uninstallMessage: String?
 
     // Actions, wired by the coordinator.
     var refreshSnapshot: () -> Void = {}
@@ -172,6 +176,33 @@ final class SettingsModel: ObservableObject {
         } catch {
             update = .failed("Rallo couldn’t start the update.")
             updateBusy = false
+        }
+    }
+
+    /// `rallo uninstall` quits this app and removes it, so like the update it
+    /// is started and left running rather than awaited.
+    func uninstall(deleteNotes: Bool) {
+        let process = Process()
+        process.executableURL = Self.cli
+        process.arguments = ["uninstall", "--yes"] + (deleteNotes ? ["--purge"] : [])
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        // On success this app is quit before the CLI exits; still running
+        // means it stopped early (say, the final export failed).
+        process.terminationHandler = { [weak self] process in
+            guard process.terminationStatus != 0 else { return }
+            Task { @MainActor in
+                self?.uninstalling = false
+                self?.uninstallMessage = "Rallo couldn’t uninstall; nothing was removed. Run “rallo uninstall” in Terminal to see why."
+            }
+        }
+        uninstalling = true
+        uninstallMessage = nil
+        do {
+            try process.run()
+        } catch {
+            uninstalling = false
+            NSSound.beep()
         }
     }
 

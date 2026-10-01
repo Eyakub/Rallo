@@ -15,6 +15,10 @@ struct LaunchOptions {
     var faultInjection: String?
     /// Arguments after `--probe`: run a notification characterization and exit.
     var probe: [String]?
+    /// `--prepare-uninstall`: undo what the bundle ID owns (Login Item,
+    /// notifications, Keychain token), print a JSON report, and exit. Run by
+    /// `rallo uninstall` (see UninstallPreparation).
+    var prepareUninstall = false
     /// Screenshot mode (scripts/screenshots.sh), honoured only with an
     /// explicit `--data-dir`: `light`/`dark` for this instance, and what to
     /// open once it's up (`notes`, `menu`, `settings` or `settings:<tab>`).
@@ -42,6 +46,8 @@ struct LaunchOptions {
             case "--demo-open" where index + 1 < arguments.count:
                 options.demoOpen = arguments[index + 1]
                 index += 1
+            case "--prepare-uninstall":
+                options.prepareUninstall = true
             case "--probe":
                 options.probe = Array(arguments[(index + 1)...])
                 return options

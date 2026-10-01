@@ -41,6 +41,7 @@ mutation also accepts `--if-revision N` (0003 §9).
 | `doctor [--json]` | Read-only health report (M4, spec §8/§10): app install/embedding, terminal command, agent skill, agent hooks, data directory permissions/schema/integrity/size, whether the app is running, last-observed notification authorization, active-reminder/unresolved-intent counts, and `backups/` contents. Never opens the store the normal way (no migration), never writes, never signals or launches the app. Exits `0` if every check is `ok`/`warning`, `1` if any is a `problem` (`DOCTOR_PROBLEMS`; see 0004/backup-and-restore.md for repair steps). |
 | `backup [--output PATH] [--force] [--json]` | Writes a consistent snapshot of the database via SQLite's online backup API (`docs/backup-and-restore.md`): default `<data dir>/backups/manual-<now_ms>.sqlite3`, mode `0600`, atomic (temp file + `fsync` + rename). Refuses to overwrite an existing file without `--force` (`FILE_EXISTS`, exit 4, like `export`). Works while the app is running. Never starts or signals the app: like `export`, it only reads the store. |
 | `update [--check] [--json]` | Distribution build only (`docs/distribution.md`): checks GitHub Releases for a newer version and, unless `--check`, downloads, verifies, and installs it. **The only Rallo command that uses the network, and only when run directly** — no background checks, no automatic updater. Refuses (`NOT_INSTALLED`, exit 2) unless this CLI is the one embedded in an installed `/Applications` or `~/Applications` copy. `--check` reports and stops. Otherwise: verifies the downloaded zip's SHA-256 against `SHA256SUMS`, the extracted bundle's identifier/version, its code signature, and that its embedded CLI runs and reports the same version — all before touching the installed app; backs up the data directory first, like `rallo backup` (skipped with no data yet); quits a running Rallo (`SIGTERM`, 5 s); swaps the app bundle atomically, restoring the previous one if the swap itself fails; and relaunches in the background exactly as other commands launch the app (pet visibility unchanged). |
+| `uninstall [--purge] [--yes] [--json]` | Removes Rallo from this Mac. Refuses (`NOT_INSTALLED`, exit 2) unless this CLI is the one embedded in an installed `/Applications` or `~/Applications` copy. Asks `[y/N]` on stderr unless `--yes`; with no terminal on stdin and no `--yes` it fails (`CONFIRMATION_REQUIRED`, exit 2), and an answer other than y/yes fails (`CANCELLED`, exit 2) -- nothing removed either way. In order: with `--purge` and an existing data directory, saves a final JSON export to `~/Downloads/rallo-export-YYYYMMDD-HHMMSS.json` (`UNINSTALL_EXPORT_FAILED`, exit 5, if it can't); quits a running Rallo (`SIGTERM`, 5 s; `UPDATE_APP_BUSY` if it won't); runs the app's own cleanup `Contents/MacOS/Rallo --prepare-uninstall` (cancels scheduled reminders, turns off Open at Login, deletes the ClickUp token; `UNINSTALL_PREPARE_FAILED`, exit 6, if it fails or takes over 60 s) -- skipped when `--data-dir`/`RALLO_DATA_DIR` is set, since those belong to the bundle ID, not the data directory; removes Rallo's hooks (`setup hooks --remove` for both agents; an invalid config is a warning), its own skill and `rallo.rules` (never a foreign file), and its own `rallo` links in `~/.local/bin` and `~/bin` (never another tool's); unregisters and deletes the app (`UNINSTALL_FAILED`, exit 6); with `--purge`, deletes the data directory. The login-profile PATH line is left in place and reported. Notes are kept unless `--purge`. |
 | `agent-event --agent claude\|codex` | 0007: reads one Claude Code/Codex hook payload (JSON, capped at 1 MiB) from stdin and records the mapped session state (`docs/decisions/0007-agent-attention.md`'s event table). Hidden from `--help`: `rallo setup hooks` installs it as the hook command; it is not meant to be typed by hand. **Always exits 0 and writes nothing to stdout** (a nonzero exit or stdout output could block or contaminate the calling agent); every problem (invalid JSON, a missing/too-long `session_id`, a busy or unavailable store) is one line on stderr instead. Only `hook_event_name`, `session_id`, `cwd`, `notification_type`, and `tool_name` are ever read; prompt/model text (`prompt`, `last_assistant_message`) is never read, stored, or logged. Walks process ancestry (no `ps`, no shelling out) to find the terminal/editor app to bring forward, only for a `waiting`/`working` write. On a change, posts the usual per-data-directory change signal; never launches or nudges the app. |
 | `agents [--json]` | Lists fresh (≤24h) Claude Code/Codex sessions and ClickUp conversations waiting on the user (0007, 0009, 0010): `waiting` only, most recent first (a finished turn removes its session). First prunes sessions whose agent process has gone, posting the change signal if it removed any; never launches the app. |
 | `agents clear [--agent claude\|codex] [--session ID] [--json]` | Removes tracked sessions matching the given filters (default: every session, any freshness — not limited to what `agents` would currently show); reports the number removed. Posts the change signal when it removed at least one. |
@@ -144,6 +145,15 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   is the one command whose top-level `ok`/exit code can be non-`true`/nonzero
   without `"ok": false` in the usual error-envelope sense — `doctor` always
   uses the success envelope, since it always successfully produces a report.
+- `uninstall` JSON: `{"uninstall": {"app", "links_removed", "hooks", "skills_removed",
+  "prepared", "export_path", "data", "data_dir", "path_line_kept"}}`. `hooks` is
+  `setup hooks`'s per-target array; `skills_removed` lists every skill file and
+  the rules file removed; `prepared` is the app's cleanup report
+  (`{"login_item": "removed"|"not_registered"|"failed", "notifications_removed",
+  "clickup_token": "removed"|"none"|"failed"}`) or `null` when skipped;
+  `export_path` is `null` unless `--purge` exported; `data` is `kept` or
+  `deleted`; `path_line_kept` is the profile still holding Rallo's PATH line, or
+  `null`. A `failed` Login Item or token cleanup is a `warnings` entry.
 - `backup` JSON: success is `{"backup": {"path", "bytes"}}`. `FILE_EXISTS`
   (exit 4) mirrors `export`.
 - `update` JSON: `--check`, and a non-`--check` run that finds nothing newer,
@@ -192,6 +202,10 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   - `doctor`: one line per check, `[ok]`/`[warning]`/`[problem]` followed by
     its id and summary; a `fix`, when present, is an indented line beneath it.
   - `backup`: `Backup saved to PATH (N bytes).`
+  - `uninstall`: one line per thing removed (app, `rallo` command, hooks,
+    skill, Open at Login/reminders/ClickUp token), `Saved a final export:
+    PATH` with `--purge`, then whether the notes were kept or deleted, and a
+    note if the PATH line was left in a profile.
   - `update`: `Rallo X.Y.Z is up to date.` when there is nothing to do;
     `Updated Rallo X.Y.Z → A.B.C.` (with `Backup: PATH` appended when one was
     made) after installing.
@@ -253,6 +267,7 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   agent had gone (0009). Neither launches anything.
 - `setup hooks` never signals or launches the app, and does not touch a
   data directory.
+- `uninstall` quits a running app (`SIGTERM`) and never launches it.
 
 ## Exit codes
 
@@ -260,11 +275,11 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
 |---|---|
 | 0 | Success / committed |
 | 1 | `DOCTOR_PROBLEMS` — `rallo doctor` found at least one `problem`-level check (used by no other command) |
-| 2 | Invalid arguments or input (nothing committed), including `INVALID_IMPORT`, `NOT_INSTALLED` |
+| 2 | Invalid arguments or input (nothing committed), including `INVALID_IMPORT`, `NOT_INSTALLED`, `CONFIRMATION_REQUIRED`, `CANCELLED` |
 | 3 | Not found |
 | 4 | Conflict / ambiguous: `AMBIGUOUS_ID`, `AMBIGUOUS_ITEM`, `REVISION_CONFLICT`, `REQUEST_ID_CONFLICT`, `ITEM_DELETED`, `ITEM_NOT_OPEN`, `NO_REMINDER`, `REMINDER_CAPACITY_REACHED`, `IMPORT_CONFLICT`, `FILE_EXISTS`, `TERMINAL_COMMAND_CONFLICT`, `SKILL_CONFLICT`, `HOOKS_CONFIG_INVALID` |
-| 5 | Storage failure or lock timeout |
-| 6 | Installation/platform failure for platform-only commands (e.g. `show` when the app cannot be found); `update`'s `UPDATE_CHECK_FAILED`, `UPDATE_DOWNLOAD_FAILED`, `UPDATE_VERIFICATION_FAILED`, `UPDATE_APP_BUSY`, `UPDATE_INSTALL_FAILED` |
+| 5 | Storage failure or lock timeout; `uninstall`'s `UNINSTALL_EXPORT_FAILED` |
+| 6 | Installation/platform failure for platform-only commands (e.g. `show` when the app cannot be found); `update`'s `UPDATE_CHECK_FAILED`, `UPDATE_DOWNLOAD_FAILED`, `UPDATE_VERIFICATION_FAILED`, `UPDATE_APP_BUSY`, `UPDATE_INSTALL_FAILED`; `uninstall`'s `UNINSTALL_PREPARE_FAILED`, `UNINSTALL_FAILED` |
 | 7 | Incompatible schema, including an export document newer than this build supports |
 
 See `docs/backup-and-restore.md` for the kinds of backups Rallo makes

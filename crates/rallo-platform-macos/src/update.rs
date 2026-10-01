@@ -578,6 +578,11 @@ pub fn register_launch_services(app: &Path) {
     let _ = Command::new(LSREGISTER).arg("-f").arg(app).status();
 }
 
+/// Best effort, the inverse of `register_launch_services`.
+pub fn unregister_launch_services(app: &Path) {
+    let _ = Command::new(LSREGISTER).arg("-u").arg(app).status();
+}
+
 /// Removes the renamed-aside previous bundle after a successful swap.
 /// Returns whether it was actually removed, for the command's
 /// `previous_removed` field.

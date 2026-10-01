@@ -246,6 +246,16 @@ pub enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Remove Rallo from this Mac: the app, its terminal command, agent hooks and skill, Open at Login,
+    /// scheduled reminders, and the ClickUp token. Keeps your notes unless --purge.
+    Uninstall {
+        /// Also delete your notes and settings, after saving a final JSON export to ~/Downloads.
+        #[arg(long)]
+        purge: bool,
+        /// Don't ask for confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Records one Claude Code/Codex hook payload from stdin (0007). Not
     /// meant to be run by hand: `rallo setup hooks` wires this up. Always
     /// exits 0 and writes nothing to stdout.

@@ -163,6 +163,16 @@ message text. Channel @mentions and task comments aren't covered yet
 rallo update --check   # is there a newer release?
 rallo update           # install it (backs up your notes first)
 
+rallo uninstall        # remove Rallo; keeps your notes
+rallo uninstall --purge  # also delete your notes (after exporting them to ~/Downloads)
+```
+
+`rallo uninstall` (or Settings → About → Uninstall Rallo…) removes the app, the
+`rallo` command, the agent hooks and skill, Open at Login, scheduled reminders,
+and the ClickUp token. If the `rallo` command is already gone, use the install
+script instead:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/Eyakub/Rallo/master/scripts/install.sh | bash -s -- --uninstall
 # add --purge to also delete your notes (after exporting them to ~/Downloads)
 ```

@@ -420,7 +420,25 @@ pub fn run(out: &Output, agents: Vec<Agent>, remove: bool, print: bool) -> Comma
     let home = terminal_command::home_dir()
         .ok_or_else(|| Failure::new(Exit::InvalidInput, "INVALID_INPUT", "$HOME is not set"))?;
     let cli_path = if remove { None } else { Some(installed_cli_path()?) };
-    let target_agents = targets(agents, &home);
+    let results = apply(&home, agents, remove, cli_path.as_deref())?;
+    let installs: Vec<Value> = results.iter().map(|(value, _)| value.clone()).collect();
+    let lines: Vec<String> = results.into_iter().map(|(_, line)| line).collect();
+
+    out.success(json!({ "hooks": { "targets": installs } }), &[], || lines.join("\n"));
+    Ok(())
+}
+
+/// Installs or removes Rallo's hooks for `agents` (all detected if empty),
+/// returning each target's JSON value and human line without printing.
+/// `cli_path` is required unless `remove`. All targets are checked before any
+/// is written (`HOOKS_CONFIG_INVALID`).
+pub(crate) fn apply(
+    home: &Path,
+    agents: Vec<Agent>,
+    remove: bool,
+    cli_path: Option<&Path>,
+) -> Result<Vec<(Value, String)>, Failure> {
+    let target_agents = targets(agents, home);
 
     struct Target {
         agent: Agent,
@@ -432,7 +450,7 @@ pub fn run(out: &Output, agents: Vec<Agent>, remove: bool, print: bool) -> Comma
     let mut loaded = Vec::new();
     let mut invalid_paths = Vec::new();
     for &agent in &target_agents {
-        let path = hooks_path(agent, &home);
+        let path = hooks_path(agent, home);
         match load(&path) {
             Loaded::Existing(value) => loaded.push(Target { agent, path, original: value, existed: true }),
             Loaded::Missing => loaded.push(Target { agent, path, original: default_content(agent), existed: false }),
@@ -443,13 +461,12 @@ pub fn run(out: &Output, agents: Vec<Agent>, remove: bool, print: bool) -> Comma
         return Err(hooks_config_invalid(&invalid_paths));
     }
 
-    let mut installs = Vec::new();
-    let mut lines = Vec::new();
+    let mut results = Vec::new();
     for target in loaded {
         let mut proposed = target.original.clone();
         let removed = remove_rallo_entries(&mut proposed);
         if !remove {
-            append_rallo_groups(&mut proposed, target.agent, cli_path.as_deref().expect("resolved above"));
+            append_rallo_groups(&mut proposed, target.agent, cli_path.expect("install needs the CLI path"));
         }
 
         let unchanged = proposed == target.original;
@@ -470,17 +487,17 @@ pub fn run(out: &Output, agents: Vec<Agent>, remove: bool, print: bool) -> Comma
                 .map_err(|error| Failure::new(Exit::InvalidInput, "HOOKS_SETUP_FAILED", error.to_string()))?
         };
 
-        lines.push(human_line(target.agent, status, &target.path));
-        installs.push(json!({
-            "agent": target.agent.json_name(),
-            "status": status,
-            "path": target.path,
-            "backup_path": backup_path,
-        }));
+        results.push((
+            json!({
+                "agent": target.agent.json_name(),
+                "status": status,
+                "path": target.path,
+                "backup_path": backup_path,
+            }),
+            human_line(target.agent, status, &target.path),
+        ));
     }
-
-    out.success(json!({ "hooks": { "targets": installs } }), &[], || lines.join("\n"));
-    Ok(())
+    Ok(results)
 }
 
 #[cfg(test)]

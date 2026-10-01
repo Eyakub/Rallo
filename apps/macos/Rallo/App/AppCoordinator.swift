@@ -39,10 +39,12 @@ final class AppCoordinator {
     private var agentJumpState = AgentJumpState()
     private var livenessTimer: Timer?
     private var demoOpen: String?
+    private let hasExplicitDataDir: Bool
 
     init(dataDir: String, launchMode: LaunchOptions.Mode, options: LaunchOptions) {
         self.dataDir = dataDir
         self.launchMode = launchMode
+        hasExplicitDataDir = options.dataDir != nil
         // Screenshot mode only ever applies to a scratch instance.
         if options.dataDir != nil {
             demoOpen = options.demoOpen
@@ -352,6 +354,9 @@ final class AppCoordinator {
     private func configureSettings() {
         let model = settingsModel
         model.dataPath = dataDir
+        // A --data-dir instance must never offer it: the CLI would uninstall the real app.
+        model.uninstallAvailable = !hasExplicitDataDir
+            && TerminalCommand.isInstalled(Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
         model.refreshSnapshot = { [weak self] in
             guard let self else { return }
             model.loginState = LoginItem.state

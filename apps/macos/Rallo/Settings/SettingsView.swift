@@ -249,6 +249,7 @@ private struct DataTab: View {
 private struct AboutTab: View {
     @ObservedObject var model: SettingsModel
     @State private var confirmUpdate = false
+    @State private var confirmUninstall = false
 
     var body: some View {
         Page {
@@ -260,6 +261,11 @@ private struct AboutTab: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Rallo").font(Theme.rounded(20, .semibold))
                     Text("Version \(model.version)").font(Theme.rounded(12)).foregroundStyle(Theme.bark)
+                    HStack(spacing: 4) {
+                        Link("github.com/Eyakub/Rallo", destination: URL(string: "https://github.com/Eyakub/Rallo")!)
+                        Text("· MIT License").foregroundStyle(Theme.bark)
+                    }
+                    .font(Theme.rounded(12))
                 }
             }
             HStack {
@@ -268,13 +274,23 @@ private struct AboutTab: View {
             }
             .disabled(model.updateBusy)
             updateResult
-            Spacer()
+            Divider().padding(.top, 8)
             HStack {
-                Link("github.com/Eyakub/Rallo", destination: URL(string: "https://github.com/Eyakub/Rallo")!)
+                caption(model.uninstallAvailable
+                    ? "Removes Rallo and everything it set up. Your notes stay unless you choose to delete them."
+                    : "Uninstall from the copy of Rallo in Applications.")
                 Spacer()
-                Text("MIT License").foregroundStyle(Theme.bark)
+                Button("Uninstall Rallo…") { confirmUninstall = true }
+                    .disabled(!model.uninstallAvailable || model.uninstalling)
+                    .confirmationDialog("Uninstall Rallo?", isPresented: $confirmUninstall, titleVisibility: .visible) {
+                        Button("Uninstall, Keep My Notes") { model.uninstall(deleteNotes: false) }
+                        Button("Uninstall and Delete My Notes", role: .destructive) { model.uninstall(deleteNotes: true) }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Rallo quits and removes the app, its terminal command, agent hooks and skill, Open at Login, scheduled reminders, and the ClickUp token. Deleting your notes saves a final export to Downloads first.")
+                    }
             }
-            .font(Theme.rounded(12))
+            if let message = model.uninstallMessage { line(message).foregroundStyle(Theme.error) }
         }
     }
 

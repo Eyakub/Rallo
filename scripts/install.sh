@@ -6,7 +6,9 @@
 #   install.sh --version 0.2.0       a specific release
 #   install.sh --system              /Applications instead of ~/Applications
 #   install.sh --from DIR            use a release zip + SHA256SUMS already in DIR
-#   install.sh --uninstall [--purge] remove the app and its terminal command;
+#   install.sh --uninstall [--purge] remove Rallo (runs `rallo uninstall --yes`
+#                                    when the installed version has it, else
+#                                    removes the app and its terminal command);
 #                                    --purge also deletes your notes (after
 #                                    saving a JSON export to ~/Downloads)
 #
@@ -31,7 +33,7 @@ while [ $# -gt 0 ]; do
     --from) from="${2:?--from needs a directory}"; shift ;;
     --uninstall) mode=uninstall ;;
     --purge) purge=true ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -59,6 +61,16 @@ quit_app() {
 if [ "$mode" = uninstall ]; then
   [ -d "$app" ] || fail "no Rallo at $app (use --system for /Applications)"
   cli="$app/Contents/Helpers/rallo"
+  # Newer versions remove everything themselves (hooks, skill, Open at Login,
+  # reminders, ClickUp token); older ones fall through to the steps below.
+  if "$cli" help uninstall >/dev/null 2>&1; then
+    if $purge; then
+      "$cli" uninstall --yes --purge || fail "uninstall failed; nothing more was removed (see above)"
+    else
+      "$cli" uninstall --yes || fail "uninstall failed; nothing more was removed (see above)"
+    fi
+    exit 0
+  fi
   if $purge; then
     export_path="$HOME/Downloads/rallo-export-$(date +%Y%m%d-%H%M%S).json"
     "$cli" export --output "$export_path" >/dev/null ||

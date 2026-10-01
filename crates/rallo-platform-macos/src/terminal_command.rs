@@ -225,6 +225,30 @@ pub fn enable(state: &State, app: &Path) -> Result<PathBuf, TerminalCommandError
     Ok(link)
 }
 
+/// Removes Rallo's own `rallo` links (those pointing into a `Rallo.app`
+/// bundle's CLI) from the preferred directories; any other `rallo` is left
+/// alone. Returns the links removed.
+pub fn remove_links(home: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut removed = Vec::new();
+    for directory in candidates(home) {
+        let link = directory.join(NAME);
+        if fs::read_link(&link).is_ok_and(|target| is_rallo_cli(&target)) {
+            fs::remove_file(&link)?;
+            removed.push(link);
+        }
+    }
+    Ok(removed)
+}
+
+/// The first login profile carrying `PROFILE_MARKER` (the PATH line
+/// `add_to_login_profile` wrote), if any.
+pub fn profile_with_marker(home: &Path) -> Option<PathBuf> {
+    [".zprofile", ".bash_profile", ".profile"]
+        .iter()
+        .map(|name| home.join(name))
+        .find(|path| fs::read_to_string(path).is_ok_and(|text| text.contains(PROFILE_MARKER)))
+}
+
 fn is_executable(path: &Path) -> bool {
     fs::metadata(path).map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0).unwrap_or(false)
 }
@@ -282,6 +306,21 @@ mod tests {
         // A missing profile is created.
         let zsh = Path::new("/bin/zsh");
         assert!(add_to_login_profile(zsh, home.path(), &home.path().join(".local/bin")).unwrap().is_some());
+    }
+
+    #[test]
+    fn remove_links_takes_only_rallos_own() {
+        let (_root, home, app) = scratch();
+        let local_bin = home.join(".local/bin");
+        let bin = home.join("bin");
+        fs::create_dir_all(&local_bin).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        symlink(cli_path(&app), local_bin.join(NAME)).unwrap();
+        symlink("/usr/bin/true", bin.join(NAME)).unwrap();
+        assert_eq!(remove_links(&home).unwrap(), vec![local_bin.join(NAME)]);
+        assert!(local_bin.join(NAME).symlink_metadata().is_err());
+        assert_eq!(fs::read_link(bin.join(NAME)).unwrap(), Path::new("/usr/bin/true"));
+        assert!(remove_links(&home).unwrap().is_empty());
     }
 
     #[test]
