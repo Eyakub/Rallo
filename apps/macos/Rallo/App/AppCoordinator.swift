@@ -39,14 +39,17 @@ final class AppCoordinator {
     private var agentJumpState = AgentJumpState()
     private var livenessTimer: Timer?
     private var demoOpen: String?
-    private let hasExplicitDataDir: Bool
+    /// Started with a --data-dir other than the default (tests, demos). The
+    /// CLI launches the real app with --data-dir set to the default folder,
+    /// so passing the flag alone doesn't make an instance a scratch one.
+    private let isScratch: Bool
 
     init(dataDir: String, launchMode: LaunchOptions.Mode, options: LaunchOptions) {
         self.dataDir = dataDir
         self.launchMode = launchMode
-        hasExplicitDataDir = options.dataDir != nil
+        isScratch = options.dataDir != nil && dataDir != (try? resolveDataDir(explicit: nil))
         // Screenshot mode only ever applies to a scratch instance.
-        if options.dataDir != nil {
+        if isScratch {
             demoOpen = options.demoOpen
             switch options.demoAppearance {
             case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -63,12 +66,12 @@ final class AppCoordinator {
         terminalSetup = TerminalSetupController(log: log)
         petState = PetStateDriver(core: core, pet: pet, log: log)
         clickUp = ClickUpWatcher(core: core, log: log)
-        if options.dataDir != nil {
+        if isScratch {
             clickUp.disabledReason = "ClickUp is off in instances started with --data-dir."
         }
         // The wait-threshold testing override (0008) only ever applies to a
         // scratch instance started with an explicit --data-dir.
-        agentWaitNotifier = AgentWaitNotifier(adapter: notifications.adapter, log: log, allowThresholdOverride: options.dataDir != nil)
+        agentWaitNotifier = AgentWaitNotifier(adapter: notifications.adapter, log: log, allowThresholdOverride: isScratch)
         notesModel = NotesViewModel(core: core)
         notes = NotesPanelController(model: notesModel)
         observer = ChangeObserver(dataDir: dataDir)
@@ -355,7 +358,7 @@ final class AppCoordinator {
         let model = settingsModel
         model.dataPath = dataDir
         // A --data-dir instance must never offer it: the CLI would uninstall the real app.
-        model.uninstallAvailable = !hasExplicitDataDir
+        model.uninstallAvailable = !isScratch
             && TerminalCommand.isInstalled(Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
         model.refreshSnapshot = { [weak self] in
             guard let self else { return }
