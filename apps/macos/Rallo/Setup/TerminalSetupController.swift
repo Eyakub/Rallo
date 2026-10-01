@@ -18,11 +18,11 @@ final class TerminalSetupController {
     }
 
     /// Menu title reflecting the current link, without asking the shell.
-    var menuTitle: String {
-        if case .enabled = TerminalCommand.inspect(appURL: appURL, home: home, pathDirectories: []) {
-            return "Terminal Command…"
-        }
-        return "Enable Terminal Command…"
+    var menuTitle: String { isEnabled ? "Terminal Command…" : "Enable Terminal Command…" }
+
+    var isEnabled: Bool {
+        if case .enabled = TerminalCommand.inspect(appURL: appURL, home: home, pathDirectories: []) { return true }
+        return false
     }
 
     func open() {

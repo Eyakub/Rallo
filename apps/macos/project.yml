@@ -59,6 +59,7 @@ targets:
       - path: Rallo/Notifications/AgentNotificationIdentifier.swift
       - path: Rallo/Notifications/AgentWaitPlanner.swift
       - path: Rallo/App/AgentJumpPlanner.swift
+      - path: Rallo/Settings/CLIReports.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo.tests

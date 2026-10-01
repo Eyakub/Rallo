@@ -9,14 +9,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         var openNotes: () -> Void
         var jumpToWaitingAgent: () -> Void
         var selectAgentSession: (AgentSessionSnapshot) -> Void
-        var enableNotifications: () -> Void
-        var toggleNotifyLongWait: () -> Void
-        var toggleClickUp: () -> Void
-        var exportBackup: () -> Void
-        var exportSpreadsheet: () -> Void
-        var importNotes: () -> Void
-        var terminalCommand: () -> Void
-        var toggleLoginItem: () -> Void
+        var openSettings: () -> Void
         var quit: () -> Void
     }
 
@@ -27,28 +20,17 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let actions: Actions
     private let petVisible: () -> Bool
-    private let notificationSummary: () -> String
-    private let terminalCommandTitle: () -> String
     var animationsPaused: () -> Bool = { false }
-    var loginItemState: () -> LoginItem.State = { .unavailable }
     var agentSessions: () -> [AgentSessionSnapshot] = { [] }
-    var notifyLongWaitEnabled: () -> Bool = { false }
-    var notificationsAuthorized: () -> Bool = { false }
     var jumpShortcutAvailable: () -> Bool = { true }
     var notesShortcutAvailable: () -> Bool = { true }
-    var clickUpConnected: () -> Bool = { false }
-    var clickUpStatus: () -> String? = { nil }
 
     init(
         actions: Actions,
-        petVisible: @escaping () -> Bool,
-        notificationSummary: @escaping () -> String,
-        terminalCommandTitle: @escaping () -> String
+        petVisible: @escaping () -> Bool
     ) {
         self.actions = actions
         self.petVisible = petVisible
-        self.notificationSummary = notificationSummary
-        self.terminalCommandTitle = terminalCommandTitle
     }
 
     func install() {
@@ -98,40 +80,14 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private func populate(_ menu: NSMenu) {
         populateAgentsSection(menu)
+        menu.addItem(notesMenuItem())
+        menu.addItem(jumpMenuItem())
         menu.addItem(item(petVisible() ? "Hide Pet" : "Show Pet", #selector(togglePet)))
         let pause = item("Pause Animations", #selector(toggleAnimations))
         pause.state = animationsPaused() ? .on : .off
         menu.addItem(pause)
-        menu.addItem(notesMenuItem())
-        menu.addItem(jumpMenuItem())
         menu.addItem(.separator())
-        menu.addItem(item("Export Backup (JSON)…", #selector(exportBackup)))
-        menu.addItem(item("Export Spreadsheet (CSV)…", #selector(exportSpreadsheet)))
-        menu.addItem(item("Import Notes…", #selector(importNotes)))
-        menu.addItem(.separator())
-        menu.addItem(item(terminalCommandTitle(), #selector(terminalCommand)))
-        menu.addItem(loginMenuItem())
-        let status = NSMenuItem(title: notificationSummary(), action: nil, keyEquivalent: "")
-        status.isEnabled = false
-        menu.addItem(status)
-        menu.addItem(item("Enable Notifications…", #selector(enableNotifications)))
-        menu.addItem(notifyLongWaitMenuItem())
-        if !notificationsAuthorized() {
-            let note = NSMenuItem(title: "Notifications are off for Rallo", action: nil, keyEquivalent: "")
-            note.isEnabled = false
-            menu.addItem(note)
-        }
-        menu.addItem(.separator())
-        menu.addItem(item(clickUpConnected() ? "Disconnect ClickUp" : "Connect ClickUp…", #selector(toggleClickUp)))
-        if let status = clickUpStatus() {
-            let line = NSMenuItem(title: status, action: nil, keyEquivalent: "")
-            line.isEnabled = false
-            menu.addItem(line)
-        }
-        menu.addItem(.separator())
-        let note = NSMenuItem(title: "Reminders already scheduled with macOS still arrive after quitting.", action: nil, keyEquivalent: "")
-        note.isEnabled = false
-        menu.addItem(note)
+        menu.addItem(item("Settings…", #selector(openSettings), key: ","))
         menu.addItem(item("Quit Rallo", #selector(quit), key: "q"))
     }
 
@@ -171,22 +127,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         return jump
     }
 
-    private func notifyLongWaitMenuItem() -> NSMenuItem {
-        let toggle = item("Notify When an Agent Waits 5 Minutes", #selector(toggleNotifyLongWait))
-        toggle.state = notifyLongWaitEnabled() ? .on : .off
-        return toggle
-    }
-
-    private func loginMenuItem() -> NSMenuItem {
-        let state = loginItemState()
-        let title = state == .needsApproval ? "Open at Login (Allow in System Settings…)" : "Open at Login"
-        let login = item(title, #selector(toggleLoginItem))
-        login.state = state == .on ? .on : .off
-        login.isEnabled = state != .unavailable
-        if state == .unavailable { login.toolTip = "Move Rallo to Applications to open it at login." }
-        return login
-    }
-
     private func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
@@ -201,13 +141,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         guard let session = sender.representedObject as? AgentSessionSnapshot else { return }
         actions.selectAgentSession(session)
     }
-    @objc private func enableNotifications() { actions.enableNotifications() }
-    @objc private func toggleNotifyLongWait() { actions.toggleNotifyLongWait() }
-    @objc private func toggleClickUp() { actions.toggleClickUp() }
-    @objc private func exportBackup() { actions.exportBackup() }
-    @objc private func exportSpreadsheet() { actions.exportSpreadsheet() }
-    @objc private func importNotes() { actions.importNotes() }
-    @objc private func terminalCommand() { actions.terminalCommand() }
-    @objc private func toggleLoginItem() { actions.toggleLoginItem() }
+    @objc private func openSettings() { actions.openSettings() }
     @objc private func quit() { actions.quit() }
 }

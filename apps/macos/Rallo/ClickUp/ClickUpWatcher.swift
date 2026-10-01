@@ -39,7 +39,7 @@ enum ClickUpToken {
 }
 
 enum ClickUpError: Error {
-    case unauthorized, rateLimited, failed(Int), malformed
+    case unauthorized, rateLimited, failed(Int), malformed, disabled
 }
 
 /// GET-only ClickUp REST client. The token goes in `Authorization` as is
@@ -102,6 +102,13 @@ final class ClickUpWatcher {
 
     var isConnected: Bool { api != nil }
 
+    /// Set for an instance started with `--data-dir` (tests, demos): it
+    /// never reads, writes, or uses the real Keychain token, and leaves its
+    /// scratch ClickUp rows alone.
+    var disabledReason: String? {
+        didSet { status = disabledReason }
+    }
+
     init(core: CoreClient, log: DiagnosticsLog) {
         self.core = core
         self.log = log
@@ -111,6 +118,7 @@ final class ClickUpWatcher {
     /// rows a previous connection left behind. The read is off the main
     /// thread: macOS may ask the user to allow it, and the call waits.
     func start() {
+        guard disabledReason == nil else { return }
         Task {
             guard let token = await Task.detached(operation: { ClickUpToken.read() }).value else {
                 await clearRows()
@@ -125,6 +133,7 @@ final class ClickUpWatcher {
     /// dialog: "eyakub in SDS Manager".
     @discardableResult
     func connect(token: String) async throws -> String {
+        guard disabledReason == nil else { throw ClickUpError.disabled }
         let api = ClickUpAPI(token: token)
         let who = try await loadIdentity(api)
         guard ClickUpToken.save(token) else { throw ClickUpError.failed(0) }

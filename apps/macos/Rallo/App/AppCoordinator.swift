@@ -20,6 +20,8 @@ final class AppCoordinator {
     private let petState: PetStateDriver
     private let agentWaitNotifier: AgentWaitNotifier
     private let clickUp: ClickUpWatcher
+    private let settingsModel = SettingsModel()
+    private lazy var settings = SettingsWindowController(model: settingsModel)
     private let globalShortcuts = GlobalShortcuts()
     private var animationsPaused = false
     private var statusMenu: StatusMenuController?
@@ -49,6 +51,9 @@ final class AppCoordinator {
         terminalSetup = TerminalSetupController(log: log)
         petState = PetStateDriver(core: core, pet: pet, log: log)
         clickUp = ClickUpWatcher(core: core, log: log)
+        if options.dataDir != nil {
+            clickUp.disabledReason = "ClickUp is off in instances started with --data-dir."
+        }
         // The wait-threshold testing override (0008) only ever applies to a
         // scratch instance started with an explicit --data-dir.
         agentWaitNotifier = AgentWaitNotifier(adapter: notifications.adapter, log: log, allowThresholdOverride: options.dataDir != nil)
@@ -66,34 +71,18 @@ final class AppCoordinator {
                 openNotes: { [weak self] in self?.openNotes(highlighting: nil) },
                 jumpToWaitingAgent: { [weak self] in self?.jumpToWaitingAgent() },
                 selectAgentSession: { [weak self] session in self?.activateAgent(session) },
-                enableNotifications: { [weak self] in Task { await self?.enableNotifications() } },
-                toggleNotifyLongWait: { [weak self] in Task { await self?.toggleNotifyLongWait() } },
-                toggleClickUp: { [weak self] in self?.toggleClickUp() },
-                exportBackup: { [weak self] in self?.transfer.export(.json) },
-                exportSpreadsheet: { [weak self] in self?.transfer.export(.csv) },
-                importNotes: { [weak self] in self?.transfer.importFile() },
-                terminalCommand: { [weak self] in self?.terminalSetup.open() },
-                toggleLoginItem: { [weak self] in
-                    guard let self else { return }
-                    LoginItem.toggle(log: self.log)
-                },
+                openSettings: { [weak self] in self?.openSettings() },
                 quit: { NSApp.terminate(nil) }
             ),
-            petVisible: { [weak self] in self?.pet.isVisible ?? false },
-            notificationSummary: { [weak self] in self?.notificationSummary ?? "" },
-            terminalCommandTitle: { [weak self] in self?.terminalSetup.menuTitle ?? "Enable Terminal Command…" }
+            petVisible: { [weak self] in self?.pet.isVisible ?? false }
         )
         menu.animationsPaused = { [weak self] in self?.animationsPaused ?? false }
-        menu.loginItemState = { LoginItem.state }
         menu.agentSessions = { [weak self] in self?.agentSessions ?? [] }
-        menu.notifyLongWaitEnabled = { [weak self] in self?.notifyLongWaitEnabled ?? false }
-        menu.notificationsAuthorized = { [weak self] in self?.notificationsAuthorized ?? false }
         menu.jumpShortcutAvailable = { [weak self] in self?.globalShortcuts.jumpRegistered ?? true }
         menu.notesShortcutAvailable = { [weak self] in self?.globalShortcuts.toggleNotesRegistered ?? true }
-        menu.clickUpConnected = { [weak self] in self?.clickUp.isConnected ?? false }
-        menu.clickUpStatus = { [weak self] in self?.clickUp.status }
         menu.install()
         statusMenu = menu
+        configureSettings()
 
         pet.onClick = { [weak self] in
             guard let self else { return }
@@ -247,6 +236,7 @@ final class AppCoordinator {
             agentWaitNotifier.reload(sessions: agentSessions.filter { !$0.isClickUp }, reminderPrefix: reminderPrefix)
         }
         petState.refresh()
+        settingsModel.refresh()
     }
 
     private func checkForChanges() async {
@@ -324,17 +314,45 @@ final class AppCoordinator {
         }
     }
 
-    /// "Connect ClickUp…" asks for a personal API token and checks it with
-    /// ClickUp before keeping it in the Keychain; "Disconnect ClickUp"
-    /// forgets it and clears its rows (0010).
-    private func toggleClickUp() {
-        if clickUp.isConnected {
-            Task { await clickUp.disconnect() }
-            return
+    // MARK: Settings
+
+    /// ⌘, and the menu's "Settings…" (also the hidden app menu's).
+    func openSettings() {
+        settings.show()
+    }
+
+    private func configureSettings() {
+        let model = settingsModel
+        model.dataPath = dataDir
+        model.refreshSnapshot = { [weak self] in
+            guard let self else { return }
+            model.loginState = LoginItem.state
+            model.petVisible = pet.isVisible
+            model.terminalEnabled = terminalSetup.isEnabled
+            model.notificationSummary = notificationSummary
+            model.notificationsAuthorized = notificationsAuthorized
+            model.notifyLongWait = notifyLongWaitEnabled
+            model.clickUpConnected = clickUp.isConnected
+            model.clickUpStatus = clickUp.status
         }
-        // The button targets it weakly; keep it alive for the modal run.
-        let dialog = ClickUpConnectDialog(watcher: clickUp)
-        withExtendedLifetime(dialog) { dialog.run() }
+        model.toggleLoginItem = { [weak self] in
+            guard let self else { return }
+            LoginItem.toggle(log: log)
+        }
+        model.togglePet = { [weak self] in await self?.togglePet() }
+        model.openTerminalSetup = { [weak self] in self?.terminalSetup.open() }
+        model.enableNotifications = { [weak self] in await self?.enableNotifications() }
+        model.toggleNotifyLongWait = { [weak self] in await self?.toggleNotifyLongWait() }
+        // Connect checks the token with ClickUp before keeping it in the
+        // Keychain; Disconnect forgets it and clears its rows (0010).
+        model.connectClickUp = { [weak self] token in
+            guard let self else { return "" }
+            return try await clickUp.connect(token: token)
+        }
+        model.disconnectClickUp = { [weak self] in await self?.clickUp.disconnect() }
+        model.exportBackup = { [weak self] in self?.transfer.export(.json) }
+        model.exportSpreadsheet = { [weak self] in self?.transfer.export(.csv) }
+        model.importNotes = { [weak self] in self?.transfer.importFile() }
     }
 
     /// Agent sessions are runtime state (0009): keep them out of Time

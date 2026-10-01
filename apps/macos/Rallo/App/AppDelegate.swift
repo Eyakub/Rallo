@@ -40,15 +40,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.mainMenu = Self.editMenu()
+        NSApp.mainMenu = editMenu()
         Task { @MainActor in await coordinator?.start() }
     }
 
     /// A menu-bar app shows no menu bar, and without a main menu nothing
     /// routes ⌘X/⌘C/⌘V/⌘A/⌘Z to text fields (the composer, the ClickUp
-    /// token field). This main menu is never visible; it only carries the
+    /// token field in Settings). This main menu is never visible; it only carries the
     /// standard Edit key equivalents.
-    private static func editMenu() -> NSMenu {
+    private func editMenu() -> NSMenu {
         let edit = NSMenu(title: "Edit")
         edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
@@ -59,11 +59,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         editItem.submenu = edit
+        let app = NSMenu(title: "Rallo")
+        let settings = app.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        let appItem = NSMenuItem(title: "Rallo", action: nil, keyEquivalent: "")  // the app menu's slot
+        appItem.submenu = app
         let main = NSMenu()
-        main.addItem(NSMenuItem(title: "Rallo", action: nil, keyEquivalent: ""))  // the app menu's slot
+        main.addItem(appItem)
         main.addItem(editItem)
         return main
     }
+
+    @objc private func openSettings() { coordinator?.openSettings() }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         let source = Self.reopenSource()
