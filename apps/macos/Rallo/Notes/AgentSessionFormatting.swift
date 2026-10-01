@@ -29,14 +29,12 @@ enum AgentSessionFormatting {
         }
     }
 
-    /// Where the agent runs: the last two path components of `cwd`
-    /// ("haat/raw" and "circuit/raw" stay apart), "~" for the home folder,
-    /// or nil for a nil or empty `cwd`.
-    static func place(cwd: String?, home: String = NSHomeDirectory()) -> String? {
-        guard let cwd, !cwd.isEmpty else { return nil }
-        if cwd == home { return "~" }
-        let parts = (cwd as NSString).pathComponents.filter { $0 != "/" }
-        return parts.isEmpty ? nil : parts.suffix(2).joined(separator: "/")
+    /// Where the agent runs: the last two folders of its working directory
+    /// ("haat/raw", "~" for home), which the hook stores in place of the
+    /// path (0009); nil when unknown.
+    static func place(for session: AgentSessionSnapshot) -> String? {
+        guard let place = session.place, !place.isEmpty else { return nil }
+        return place
     }
 
     /// The terminal app Rallo found for the session ("cmux"), if any.
@@ -45,10 +43,11 @@ enum AgentSessionFormatting {
         return ((appPath as NSString).lastPathComponent as NSString).deletingPathExtension
     }
 
-    /// "Claude Code · code/rallo", or "Claude Code" alone when `cwd` is nil.
+    /// "Claude Code · code/rallo", or "Claude Code" alone when the place is
+    /// unknown.
     static func title(for session: AgentSessionSnapshot) -> String {
         let name = agentName(session.agent)
-        guard let place = place(cwd: session.cwd) else { return name }
+        guard let place = place(for: session) else { return name }
         return "\(name) · \(place)"
     }
 
@@ -78,7 +77,7 @@ enum AgentSessionFormatting {
     /// waiting for permission: Bash, 2 minutes ago".
     static func accessibilityLabel(for session: AgentSessionSnapshot, now: Date = Date()) -> String {
         let name = agentName(session.agent)
-        let location = place(cwd: session.cwd).map { " in \($0)" } ?? ""
+        let location = place(for: session).map { " in \($0)" } ?? ""
         return "\(name)\(location), \(accessibleState(for: session)), \(accessibleTime(updatedAtMs: session.updatedAtMs, now: now))"
     }
 
@@ -86,7 +85,7 @@ enum AgentSessionFormatting {
     /// title (0008). Its body is `subtitle(for:)`.
     static func notificationTitle(for session: AgentSessionSnapshot) -> String {
         let name = agentName(session.agent)
-        guard let place = place(cwd: session.cwd) else { return "\(name) is waiting" }
+        guard let place = place(for: session) else { return "\(name) is waiting" }
         return "\(name) is waiting in \(place)"
     }
 
@@ -94,7 +93,7 @@ enum AgentSessionFormatting {
     /// VoiceOver announcement when a session enters `waiting` (0008).
     static func waitingAnnouncement(for session: AgentSessionSnapshot) -> String {
         let name = agentName(session.agent)
-        let location = place(cwd: session.cwd).map { " in \($0)" } ?? ""
+        let location = place(for: session).map { " in \($0)" } ?? ""
         return "\(name)\(location) is \(accessibleState(for: session))."
     }
 

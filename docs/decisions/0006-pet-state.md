@@ -124,4 +124,5 @@ table without renumbering it:
   `agents_waiting > 0`, independent of pose, same as the rest of the label.
 
 See 0007 for where `agents_waiting`/the two agent seqs come from
-(`agent_sessions`, schema v3).
+(`agent_sessions`, schema v3). 0009 removed `agent_done_seq` and
+`seen_agent_done_seq` and moved the sessions to the runtime file.

@@ -11,7 +11,7 @@ use rallo_core::storage::instance_lock::InstanceLock;
 use rallo_core::storage::migrations::SCHEMA_VERSION;
 use rallo_core::transfer::{ExportFormat, ImportReport, MAX_IMPORT_BYTES};
 use rallo_core::{ErrorCode, Store};
-use rallo_platform_macos::{change_signal, launch, terminal_command};
+use rallo_platform_macos::{change_signal, launch, process_ancestry, terminal_command};
 use serde_json::{Value, json};
 
 use crate::args::ExportFormatArg;
@@ -312,7 +312,6 @@ fn agent_detail_phrase(state: AgentState, detail: Option<&str>) -> String {
     match (state, detail) {
         (AgentState::Waiting, Some(tool)) => format!("Waiting for permission: {tool}"),
         (AgentState::Waiting, None) => "Waiting for you".to_owned(),
-        (AgentState::Done, _) => "Done".to_owned(),
         (AgentState::Working, _) => "Working".to_owned(),
     }
 }
@@ -328,13 +327,7 @@ fn agent_kind_label(agent: AgentKind) -> &'static str {
 
 fn agent_line(session: &AgentSession, now_ms: i64) -> String {
     let label = agent_kind_label(session.agent);
-    let location = session
-        .cwd
-        .as_deref()
-        .map(|cwd| {
-            Path::new(cwd).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| cwd.to_owned())
-        })
-        .unwrap_or_else(|| "unknown directory".to_owned());
+    let location = session.place.as_deref().unwrap_or("unknown directory");
     format!(
         "{}  {label} · {location} — {} · {}",
         session.state.as_str(),
@@ -348,19 +341,23 @@ fn agent_session_json(session: &AgentSession) -> Value {
         "agent": session.agent.as_str(),
         "session_id": session.session_id,
         "state": session.state.as_str(),
-        "cwd": session.cwd,
+        "place": session.place,
         "detail": session.detail,
         "app_path": session.app_path,
         "app_pid": session.app_pid,
+        "focus": session.focus,
         "updated_at_ms": session.updated_at_ms,
     })
 }
 
-/// `rallo agents [--json]` (0007): fresh (≤24h) `waiting`/`done` sessions,
-/// waiting first then most recent first. Never signals or launches the app:
-/// it only reads the store.
-pub fn agents_list(out: &Output, store: &Store) -> CommandResult {
+/// `rallo agents [--json]` (0007, 0009): fresh `waiting` sessions whose
+/// agent is still running, most recent first. Prunes sessions whose agent
+/// has gone, signalling a running app if it did; never launches the app.
+pub fn agents_list(out: &Output, store: &mut Store) -> CommandResult {
     let now_ms = store.now_ms();
+    if store.prune_agent_sessions(now_ms, &|p| process_ancestry::is_alive(p.pid, p.started_us))? {
+        signal_if_running(store.data_dir());
+    }
     let sessions = store.agent_sessions(now_ms)?;
     let fields = json!({ "sessions": sessions.iter().map(agent_session_json).collect::<Vec<_>>() });
     out.success(fields, &[], || {

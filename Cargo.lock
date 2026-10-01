@@ -610,6 +610,7 @@ name = "rallo-ffi"
 version = "0.4.0"
 dependencies = [
  "rallo-core",
+ "rallo-platform-macos",
  "thiserror",
  "uniffi",
  "uuid",

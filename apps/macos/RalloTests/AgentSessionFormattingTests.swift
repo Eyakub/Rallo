@@ -5,37 +5,24 @@ import XCTest
 final class AgentSessionFormattingTests: XCTestCase {
     private func session(
         agent: String = "claude", sessionId: String = "s1", state: String = "waiting",
-        cwd: String? = "/Users/x/code/shop", detail: String? = nil, appPath: String? = nil,
+        place: String? = "code/shop", detail: String? = nil, appPath: String? = nil,
         updatedAtMs: Int64 = 0
     ) -> AgentSessionSnapshot {
-        AgentSessionSnapshot(agent: agent, sessionId: sessionId, state: state, cwd: cwd, detail: detail,
-                             appPath: appPath, appPid: nil, updatedAtMs: updatedAtMs)
+        AgentSessionSnapshot(agent: agent, sessionId: sessionId, state: state, place: place, detail: detail,
+                             appPath: appPath, appPid: nil, focus: nil, updatedAtMs: updatedAtMs)
     }
 
     // MARK: Title
 
-    func testTitleUsesTheLastTwoFoldersAndAgentDisplayName() {
-        XCTAssertEqual(AgentSessionFormatting.title(for: session(agent: "claude", cwd: "/Users/x/code/shop")),
+    func testTitleUsesThePlaceAndAgentDisplayName() {
+        XCTAssertEqual(AgentSessionFormatting.title(for: session(agent: "claude", place: "code/shop")),
                        "Claude Code · code/shop")
-        XCTAssertEqual(AgentSessionFormatting.title(for: session(agent: "codex", cwd: "/Users/x/code/rallo")),
-                       "Codex · code/rallo")
+        XCTAssertEqual(AgentSessionFormatting.title(for: session(agent: "codex", place: "~")), "Codex · ~")
     }
 
-    func testProjectsWithTheSameLastFolderStayApart() {
-        let haat = AgentSessionFormatting.place(cwd: "/Users/x/demo_content/haat/raw")
-        let circuit = AgentSessionFormatting.place(cwd: "/Users/x/demo_content/circuit/raw")
-        XCTAssertEqual(haat, "haat/raw")
-        XCTAssertEqual(circuit, "circuit/raw")
-    }
-
-    func testHomeFolderIsATilde() {
-        XCTAssertEqual(AgentSessionFormatting.place(cwd: "/Users/x", home: "/Users/x"), "~")
-        XCTAssertEqual(AgentSessionFormatting.place(cwd: "/tmp", home: "/Users/x"), "tmp")
-    }
-
-    func testTitleWithoutCwdIsTheAgentNameAlone() {
-        XCTAssertEqual(AgentSessionFormatting.title(for: session(cwd: nil)), "Claude Code")
-        XCTAssertEqual(AgentSessionFormatting.title(for: session(cwd: "")), "Claude Code")
+    func testTitleWithoutAPlaceIsTheAgentNameAlone() {
+        XCTAssertEqual(AgentSessionFormatting.title(for: session(place: nil)), "Claude Code")
+        XCTAssertEqual(AgentSessionFormatting.title(for: session(place: "")), "Claude Code")
     }
 
     // MARK: Subtitle
@@ -74,22 +61,22 @@ final class AgentSessionFormattingTests: XCTestCase {
     // MARK: Notification title and VoiceOver announcement (0008)
 
     func testNotificationTitleNamesTheFolder() {
-        XCTAssertEqual(AgentSessionFormatting.notificationTitle(for: session(agent: "claude", cwd: "/Users/x/code/shop")),
+        XCTAssertEqual(AgentSessionFormatting.notificationTitle(for: session(agent: "claude", place: "code/shop")),
                        "Claude Code is waiting in code/shop")
     }
 
-    func testNotificationTitleWithoutCwdOmitsThePlace() {
-        XCTAssertEqual(AgentSessionFormatting.notificationTitle(for: session(cwd: nil)), "Claude Code is waiting")
+    func testNotificationTitleWithoutAPlaceOmitsThePlace() {
+        XCTAssertEqual(AgentSessionFormatting.notificationTitle(for: session(place: nil)), "Claude Code is waiting")
     }
 
     func testWaitingAnnouncementForAPermissionRequest() {
-        let row = session(agent: "claude", cwd: "/Users/x/code/shop", detail: "Bash")
+        let row = session(agent: "claude", place: "code/shop", detail: "Bash")
         XCTAssertEqual(AgentSessionFormatting.waitingAnnouncement(for: row),
                        "Claude Code in code/shop is asking to use Bash.")
     }
 
-    func testWaitingAnnouncementWithoutCwdOrDetail() {
-        let row = session(cwd: nil, detail: nil)
+    func testWaitingAnnouncementWithoutAPlaceOrDetail() {
+        let row = session(place: nil, detail: nil)
         XCTAssertEqual(AgentSessionFormatting.waitingAnnouncement(for: row), "Claude Code is waiting for your answer.")
     }
 
@@ -98,15 +85,15 @@ final class AgentSessionFormattingTests: XCTestCase {
     func testAccessibilityLabelForAWaitingPermissionRow() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let nowMs = Int64(now.timeIntervalSince1970 * 1000)
-        let row = session(agent: "claude", state: "waiting", cwd: "/Users/x/code/shop", detail: "Bash",
+        let row = session(agent: "claude", state: "waiting", place: "code/shop", detail: "Bash",
                           updatedAtMs: nowMs - 2 * 60_000)
         XCTAssertEqual(AgentSessionFormatting.accessibilityLabel(for: row, now: now),
                        "Claude Code in code/shop, asking to use Bash, 2 minutes ago")
     }
 
-    func testAccessibilityLabelWithoutCwdOmitsThePlace() {
+    func testAccessibilityLabelWithoutAPlaceOmitsThePlace() {
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let row = session(cwd: nil, detail: nil, updatedAtMs: Int64(now.timeIntervalSince1970 * 1000))
+        let row = session(place: nil, detail: nil, updatedAtMs: Int64(now.timeIntervalSince1970 * 1000))
         XCTAssertEqual(AgentSessionFormatting.accessibilityLabel(for: row, now: now),
                        "Claude Code, waiting for your answer, just now")
     }

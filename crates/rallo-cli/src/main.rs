@@ -124,7 +124,7 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
         Command::Import { file, dry_run } => commands::import(out, &mut store, &file, dry_run),
         Command::Backup { output, force } => commands::backup(out, &store, output.as_deref(), force),
         Command::Agents { command: agents_command } => match agents_command {
-            None => commands::agents_list(out, &store),
+            None => commands::agents_list(out, &mut store),
             Some(args::AgentsCommand::Clear { agent, session }) => {
                 commands::agents_clear(out, &mut store, agent, session)
             }

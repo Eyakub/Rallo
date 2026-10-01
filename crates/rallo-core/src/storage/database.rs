@@ -11,6 +11,10 @@ use crate::shared::clock::{Clock, SystemClock};
 use crate::shared::errors::{CoreError, CoreResult};
 
 pub const DATABASE_FILE: &str = "rallo.sqlite3";
+/// Runtime state (agent sessions, 0009), never backed up or migrated: in
+/// `<data dir>/runtime/`, attached to every connection as `runtime`.
+pub const RUNTIME_DIR: &str = "runtime";
+pub const RUNTIME_FILE: &str = "agents.sqlite3";
 pub const BUSY_TIMEOUT: Duration = Duration::from_millis(1000);
 
 pub struct StoreOptions {
@@ -61,6 +65,7 @@ impl Store {
             return Err(CoreError::storage(format!("could not enable WAL journaling (got {mode})")));
         }
         migrations::migrate(&mut conn, &data_dir.join("backups"), clock.now_ms())?;
+        attach_runtime(&mut conn, &data_dir)?;
 
         Ok(Self { conn, data_dir, clock })
     }
@@ -91,6 +96,25 @@ impl Store {
     pub fn schema_version(&self) -> CoreResult<u32> {
         Ok(self.conn.pragma_query_value(None, "user_version", |row| row.get(0))?)
     }
+}
+
+/// Attaches the runtime database as `runtime`, creating it 0600 inside a
+/// 0700 folder. Losing it costs nothing that matters, so durability is
+/// relaxed and a layout from another version is simply recreated.
+fn attach_runtime(conn: &mut Connection, data_dir: &Path) -> CoreResult<()> {
+    let dir = data_dir.join(RUNTIME_DIR);
+    ensure_private_dir(&dir)?;
+    let path = dir.join(RUNTIME_FILE);
+    OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(&path)?;
+    let path = path.to_str().ok_or_else(|| CoreError::storage("data directory path is not UTF-8"))?;
+    conn.execute("ATTACH DATABASE ?1 AS runtime", [path])?;
+    let runtime = Some("runtime");
+    let mode: String = conn.pragma_update_and_check(runtime, "journal_mode", "WAL", |row| row.get(0))?;
+    if !mode.eq_ignore_ascii_case("wal") {
+        return Err(CoreError::storage(format!("could not enable WAL journaling for runtime state (got {mode})")));
+    }
+    conn.pragma_update(runtime, "synchronous", "NORMAL")?;
+    crate::agents::ensure_runtime_schema(conn)
 }
 
 /// Bumps the global change revision inside a mutation transaction.

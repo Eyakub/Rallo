@@ -5,8 +5,8 @@ final class AgentJumpPlannerTests: XCTestCase {
     private func session(
         sessionId: String, state: String = "waiting", updatedAtMs: Int64 = 0, appPath: String? = "/Applications/Terminal.app"
     ) -> AgentSessionSnapshot {
-        AgentSessionSnapshot(agent: "claude", sessionId: sessionId, state: state, cwd: "/tmp", detail: nil,
-                             appPath: appPath, appPid: nil, updatedAtMs: updatedAtMs)
+        AgentSessionSnapshot(agent: "claude", sessionId: sessionId, state: state, place: "tmp", detail: nil,
+                             appPath: appPath, appPid: nil, focus: nil, updatedAtMs: updatedAtMs)
     }
 
     // MARK: Order

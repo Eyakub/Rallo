@@ -10,8 +10,8 @@ final class AgentWaitPlannerTests: XCTestCase {
     private func session(
         sessionId: String = "s1", agent: String = "claude", state: String = "waiting", updatedAtMs: Int64
     ) -> AgentSessionSnapshot {
-        AgentSessionSnapshot(agent: agent, sessionId: sessionId, state: state, cwd: "/tmp/shop", detail: "Bash",
-                             appPath: "/Applications/Terminal.app", appPid: nil, updatedAtMs: updatedAtMs)
+        AgentSessionSnapshot(agent: agent, sessionId: sessionId, state: state, place: "tmp/shop", detail: "Bash",
+                             appPath: "/Applications/Terminal.app", appPid: nil, focus: nil, updatedAtMs: updatedAtMs)
     }
 
     private func identifier(sessionId: String = "s1", agent: String = "claude") -> String {

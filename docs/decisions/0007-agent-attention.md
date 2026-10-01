@@ -14,6 +14,10 @@
   that plumbing is inert). Rows name the last two folders of `cwd` and the
   terminal app, and say what is asked; the panel section scrolls within a
   fixed height.
+- **Amended 2026-10-01 by 0009:** sessions moved to a throwaway runtime
+  file (schema v4 drops the table below), last as long as their agent
+  process, store the last two folders instead of `cwd`, and a click jumps
+  to the exact cmux pane or Terminal/iTerm2 tab. `agent_done_seq` is gone.
 
 Coding agents (Claude Code, Codex) often sit idle waiting for a permission
 answer while the user is in another window. Both run hook commands at

@@ -5,19 +5,17 @@ struct PetWatermarks {
     private var completion: Int64?
     private var save: Int64?
     private var agentWaiting: Int64?
-    private var agentDone: Int64?
 
     /// The "seen" values to feed `PetInputs`, seeding (and remembering) any
     /// watermark not yet read to `snapshot`'s current value: at startup,
     /// history isn't a new event.
     mutating func seenValues(
         for snapshot: PetSnapshot
-    ) -> (completion: Int64, save: Int64, agentWaiting: Int64, agentDone: Int64) {
+    ) -> (completion: Int64, save: Int64, agentWaiting: Int64) {
         if completion == nil { completion = snapshot.completionSeq }
         if save == nil { save = snapshot.saveSeq }
         if agentWaiting == nil { agentWaiting = snapshot.agentWaitingSeq }
-        if agentDone == nil { agentDone = snapshot.agentDoneSeq }
-        return (completion: completion!, save: save!, agentWaiting: agentWaiting!, agentDone: agentDone!)
+        return (completion: completion!, save: save!, agentWaiting: agentWaiting!)
     }
 
     /// Marks every event up to `snapshot` as consumed, whether or not it was
@@ -27,6 +25,5 @@ struct PetWatermarks {
         completion = snapshot.completionSeq
         save = snapshot.saveSeq
         agentWaiting = snapshot.agentWaitingSeq
-        agentDone = snapshot.agentDoneSeq
     }
 }

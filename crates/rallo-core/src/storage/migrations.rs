@@ -11,6 +11,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("sql/0001_initial.sql"),
     include_str!("sql/0002_reminders.sql"),
     include_str!("sql/0003_agent_sessions.sql"),
+    include_str!("sql/0004_agent_sessions_to_runtime.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;

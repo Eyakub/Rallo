@@ -33,6 +33,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo
         INFOPLIST_FILE: Rallo/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Rallo/Resources/Rallo.entitlements
     preBuildScripts:
       - name: Build Rust core, bindings, and CLI
         script: '"$PROJECT_DIR/../../scripts/build-rust.sh"'
@@ -52,6 +53,7 @@ targets:
       - path: Rallo/Pet/Stroke.swift
       - path: Rallo/Pet/PetWatermarks.swift
       - path: Rallo/Notes/AgentSessionFormatting.swift
+      - path: Rallo/Notes/AgentSessionActivation.swift
       - path: Rallo/Notifications/NotificationAdapter.swift
       - path: Rallo/Notifications/AgentNotificationIdentifier.swift
       - path: Rallo/Notifications/AgentWaitPlanner.swift

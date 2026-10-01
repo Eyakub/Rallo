@@ -123,6 +123,14 @@ impl RalloStore {
     }
 }
 
+/// Drops agent sessions whose process has gone or that sat idle for 24 h;
+/// returns the `now_ms` it used.
+fn prune_agent_sessions(store: &mut Store) -> Result<i64, RalloError> {
+    let now_ms = store.now_ms();
+    store.prune_agent_sessions(now_ms, &|p| rallo_platform_macos::process_ancestry::is_alive(p.pid, p.started_us))?;
+    Ok(now_ms)
+}
+
 #[uniffi::export]
 impl RalloStore {
     #[uniffi::constructor]
@@ -246,17 +254,20 @@ impl RalloStore {
         Ok(from_outcome(self.store().snooze(&id, &duration, &opts)?))
     }
 
-    /// Cheap, read-only projection for `decide_pet`'s `PetInputs.snapshot`.
+    /// Projection for `decide_pet`'s `PetInputs.snapshot`. Prunes agent
+    /// sessions whose process has gone first (0009), so a closed terminal
+    /// stops the pet asking for attention.
     pub fn pet_snapshot(&self) -> Result<PetSnapshot, RalloError> {
-        Ok(self.store().pet_snapshot()?.into())
+        let mut store = self.store();
+        prune_agent_sessions(&mut store)?;
+        Ok(store.pet_snapshot()?.into())
     }
 
-    /// Fresh (≤24h) `waiting`/`done` agent sessions, waiting first then most
-    /// recent first, for the panel's "Agents" section (0007). `working`
-    /// sessions are never returned.
+    /// Fresh `waiting` agent sessions whose process is still running, most
+    /// recent first, for the panel's "Agents" section (0007, 0009).
     pub fn agent_sessions(&self) -> Result<Vec<AgentSessionSnapshot>, RalloError> {
-        let store = self.store();
-        let now_ms = store.now_ms();
+        let mut store = self.store();
+        let now_ms = prune_agent_sessions(&mut store)?;
         Ok(store.agent_sessions(now_ms)?.into_iter().map(Into::into).collect())
     }
 

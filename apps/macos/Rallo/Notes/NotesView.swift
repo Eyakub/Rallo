@@ -209,8 +209,7 @@ final class NotesViewModel: ObservableObject {
     /// Brings the session's terminal app forward; a no-op if Rallo couldn't
     /// identify one (`appPath` is nil, so the row isn't clickable).
     func activateAgent(_ session: AgentSessionSnapshot) {
-        guard let appPath = session.appPath else { return }
-        AgentSessionActivation.activate(appPath: appPath)
+        AgentSessionActivation.activate(session)
     }
 
     func dismissAgent(_ session: AgentSessionSnapshot) async {

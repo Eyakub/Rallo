@@ -53,6 +53,8 @@ shell / agent ──► rallo (CLI, Rust) ────────────�
   tagged release.
 - `metadata.change_revision` is a monotonic global revision bumped only when
   state actually changes. Observers read it to decide whether to reload.
+- Agent sessions are runtime state in `<data dir>/runtime/agents.sqlite3`,
+  attached as `runtime`: never backed up, exported or migrated (0009).
 
 ## Single instance, signals, and launch
 

@@ -19,6 +19,7 @@ bindgen = ["uniffi/cli"]
 
 [dependencies]
 rallo-core.workspace = true
+rallo-platform-macos.workspace = true
 thiserror.workspace = true
 uniffi.workspace = true
 uuid.workspace = true

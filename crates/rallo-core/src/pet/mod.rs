@@ -5,9 +5,9 @@
 //! domain state. `decide` is a pure function with no clock or storage access,
 //! so the priority table is unit-testable without a database. Swift owns
 //! animation timing/rendering and decides when a played transient advances
-//! `seen_completion_seq`/`seen_save_seq`/`seen_agent_waiting_seq`/
-//! `seen_agent_done_seq` (coalescing any further jumps into the next
-//! decision); the core only computes what to show right now.
+//! `seen_completion_seq`/`seen_save_seq`/`seen_agent_waiting_seq`
+//! (coalescing any further jumps into the next decision); the core only
+//! computes what to show right now.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
@@ -61,15 +61,14 @@ pub struct PetSnapshot {
     pub agents_waiting: u32,
     /// Max `state_seq` among fresh `waiting` rows, 0 if none.
     pub agent_waiting_seq: i64,
-    /// Max `state_seq` among fresh `done` rows, 0 if none.
-    pub agent_done_seq: i64,
 }
 
 impl Store {
     /// Read-only; reuses `items_open_by_created` (open_count) and
     /// `reminders_enabled_deadline` (due_count/next_due_at_ms) — both already
     /// indexed for `list`/`list --due`, so no migration is needed here. The
-    /// agent fields (0007) scan `agent_sessions`, which schema v3 adds.
+    /// agent fields (0007) scan the runtime `agent_sessions` (0009); callers
+    /// prune dead sessions first (`prune_agent_sessions`).
     pub fn pet_snapshot(&self) -> CoreResult<PetSnapshot> {
         let now = self.now_ms();
         let conn = self.conn();
@@ -90,15 +89,10 @@ impl Store {
 
         let since = now - crate::agents::FRESH_WINDOW_MS;
         let (agents_waiting, agent_waiting_seq): (u32, i64) = conn.query_row(
-            "SELECT COUNT(*), COALESCE(MAX(state_seq), 0) FROM agent_sessions
+            "SELECT COUNT(*), COALESCE(MAX(state_seq), 0) FROM runtime.agent_sessions
              WHERE state = 'waiting' AND updated_at_ms >= ?1",
             [since],
             |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
-        let agent_done_seq: i64 = conn.query_row(
-            "SELECT COALESCE(MAX(state_seq), 0) FROM agent_sessions WHERE state = 'done' AND updated_at_ms >= ?1",
-            [since],
-            |row| row.get(0),
         )?;
 
         Ok(PetSnapshot {
@@ -109,7 +103,6 @@ impl Store {
             save_seq,
             agents_waiting,
             agent_waiting_seq,
-            agent_done_seq,
         })
     }
 }
@@ -133,9 +126,6 @@ pub struct PetInputs {
     /// `agent_waiting_seq` last acknowledged by a played `Attention` (0007),
     /// same startup rule.
     pub seen_agent_waiting_seq: i64,
-    /// `agent_done_seq` last acknowledged by a played `Acknowledge` (0007),
-    /// same startup rule.
-    pub seen_agent_done_seq: i64,
     /// Whether the previous decision's pose was already `Due`: a completion
     /// or save made while due never celebrates, only the falling edge does.
     pub was_due: bool,
@@ -227,7 +217,7 @@ pub fn decide(inputs: &PetInputs) -> PetDecision {
         let pose = if snapshot.open_count > 0 { PetPose::Idle } else { PetPose::Sleeping };
         let event = if snapshot.completion_seq > inputs.seen_completion_seq {
             PetEvent::Celebrate
-        } else if snapshot.agent_done_seq > inputs.seen_agent_done_seq || snapshot.save_seq > inputs.seen_save_seq {
+        } else if snapshot.save_seq > inputs.seen_save_seq {
             PetEvent::Acknowledge
         } else {
             PetEvent::None

@@ -51,7 +51,6 @@ final class PetStateDriver {
                 seenCompletionSeq: seen.completion,
                 seenSaveSeq: seen.save,
                 seenAgentWaitingSeq: seen.agentWaiting,
-                seenAgentDoneSeq: seen.agentDone,
                 wasDue: wasDue
             ))
             let newAgentWaiting = snapshot.agentWaitingSeq > seen.agentWaiting

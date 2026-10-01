@@ -1,22 +1,69 @@
-//! Agent attention (0007): sessions Claude Code/Codex hooks report through
-//! `rallo agent-event`, and the read paths the pet reducer (`pet::mod`) and
-//! `rallo agents` build on.
+//! Agent attention (0007, 0009): sessions Claude Code/Codex hooks report
+//! through `rallo agent-event`, and the read paths the pet reducer
+//! (`pet::mod`) and `rallo agents` build on.
 //!
-//! `record_agent_event` never stores prompt or model text (`detail` is a
-//! fixed-template tool name at most); the caller (the CLI) has already mapped
-//! a raw hook payload to one of the two `AgentEvent` variants below per
-//! 0007's event table.
+//! Sessions are runtime state, not user data (0009): they live in the
+//! attached `runtime` database (`<data dir>/runtime/agents.sqlite3`), which
+//! is never backed up, exported, or migrated -- a layout from another version
+//! is dropped and recreated. A row lasts as long as its agent process:
+//! `prune_agent_sessions` removes rows whose process has gone, plus anything
+//! idle for 24 h.
+//!
+//! Nothing here stores prompt or model text: `detail` is a tool name at most,
+//! `place` the last two folders of the working directory, and `focus` an
+//! opaque terminal target ("cmux:<workspace>:<panel>" or "tty:/dev/ttysN").
 
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 
 use crate::shared::errors::CoreResult;
 use crate::storage::database::{Store, bump_revision};
 
 const STATE_SEQ_KEY: &str = "agents.state_seq";
 
-/// Rows not updated within this window are pruned on every write and
-/// excluded from every read (`agent_sessions`, `pet_snapshot`).
+/// Rows not updated within this window are pruned and excluded from every
+/// read (`agent_sessions`, `pet_snapshot`): a backstop for rows without a
+/// known agent process.
 pub(crate) const FRESH_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
+
+const RUNTIME_SCHEMA_VERSION: i64 = 1;
+const RUNTIME_SCHEMA: &str = "
+CREATE TABLE runtime.agent_sessions (
+  agent            TEXT NOT NULL CHECK (agent IN ('claude', 'codex')),
+  session_id       TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 200),
+  state            TEXT NOT NULL CHECK (state IN ('working', 'waiting')),
+  place            TEXT CHECK (place IS NULL OR length(place) <= 300),
+  detail           TEXT CHECK (detail IS NULL OR length(detail) <= 120),
+  app_path         TEXT CHECK (app_path IS NULL OR length(app_path) <= 4096),
+  app_pid          INTEGER,
+  focus            TEXT CHECK (focus IS NULL OR length(focus) <= 200),
+  agent_pid        INTEGER,
+  agent_started_us INTEGER,
+  state_seq        INTEGER NOT NULL,
+  updated_at_ms    INTEGER NOT NULL,
+  PRIMARY KEY (agent, session_id)
+) STRICT, WITHOUT ROWID;";
+
+fn runtime_version(conn: &Connection) -> CoreResult<i64> {
+    Ok(conn.pragma_query_value(Some("runtime"), "user_version", |row| row.get(0))?)
+}
+
+/// Creates the runtime layout, or drops and recreates one from another
+/// version: its rows are disposable by design (0009).
+pub(crate) fn ensure_runtime_schema(conn: &mut Connection) -> CoreResult<()> {
+    if runtime_version(conn)? == RUNTIME_SCHEMA_VERSION {
+        return Ok(());
+    }
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    // Another process may have created it while we waited for the lock.
+    if runtime_version(&tx)? != RUNTIME_SCHEMA_VERSION {
+        tx.execute_batch(&format!(
+            "DROP TABLE IF EXISTS runtime.agent_sessions; {RUNTIME_SCHEMA}
+             PRAGMA runtime.user_version = {RUNTIME_SCHEMA_VERSION};"
+        ))?;
+    }
+    tx.commit()?;
+    Ok(())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
@@ -45,10 +92,6 @@ impl AgentKind {
 pub enum AgentState {
     Working,
     Waiting,
-    /// No longer written: a finished turn removes the row (0007, amended
-    /// 2026-10-01). Still parsed for rows written before that, which the
-    /// 24 h prune removes.
-    Done,
 }
 
 impl AgentState {
@@ -56,7 +99,6 @@ impl AgentState {
         match self {
             Self::Working => "working",
             Self::Waiting => "waiting",
-            Self::Done => "done",
         }
     }
 
@@ -64,10 +106,26 @@ impl AgentState {
         match value {
             "working" => Some(Self::Working),
             "waiting" => Some(Self::Waiting),
-            "done" => Some(Self::Done),
             _ => None,
         }
     }
+}
+
+/// An agent process: pid plus start time, which together tell a live agent
+/// from a recycled pid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgentProcessId {
+    pub pid: i64,
+    pub started_us: i64,
+}
+
+/// Where a hook found its agent running; every part is optional.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentLocation {
+    pub app_path: Option<String>,
+    pub app_pid: Option<i64>,
+    pub focus: Option<String>,
+    pub process: Option<AgentProcessId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,10 +133,12 @@ pub struct AgentSession {
     pub agent: AgentKind,
     pub session_id: String,
     pub state: AgentState,
-    pub cwd: Option<String>,
+    pub place: Option<String>,
     pub detail: Option<String>,
     pub app_path: Option<String>,
     pub app_pid: Option<i64>,
+    pub focus: Option<String>,
+    pub process: Option<AgentProcessId>,
     pub state_seq: i64,
     pub updated_at_ms: i64,
 }
@@ -91,10 +151,9 @@ pub enum AgentEvent {
         agent: AgentKind,
         session_id: String,
         state: AgentState,
-        cwd: Option<String>,
+        place: Option<String>,
         detail: Option<String>,
-        app_path: Option<String>,
-        app_pid: Option<i64>,
+        location: AgentLocation,
     },
     End {
         agent: AgentKind,
@@ -112,9 +171,9 @@ fn current_state_seq(conn: &Connection) -> CoreResult<i64> {
     Ok(read_metadata_i64(conn, STATE_SEQ_KEY)?.unwrap_or(0))
 }
 
-/// Bumps (creating at 1 if absent) the same kind of monotonic counter
-/// `pet::increment_completion_seq`/`increment_save_seq` use, so deleting rows
-/// later never lowers a watermark a caller has already seen.
+/// Bumps (creating at 1 if absent) a monotonic counter in the notes
+/// database's `metadata`, so neither deleting rows nor recreating the
+/// runtime file ever lowers a watermark a caller has already seen.
 fn bump_state_seq(tx: &Transaction<'_>) -> CoreResult<i64> {
     tx.execute(
         "INSERT INTO metadata (key, value) VALUES (?1, 1)
@@ -124,60 +183,71 @@ fn bump_state_seq(tx: &Transaction<'_>) -> CoreResult<i64> {
     Ok(read_metadata_i64(tx, STATE_SEQ_KEY)?.expect("just inserted or updated"))
 }
 
+const SESSION_COLUMNS: &str = "agent, session_id, state, place, detail, app_path, app_pid, focus,
+    agent_pid, agent_started_us, state_seq, updated_at_ms";
+
 fn row_to_session(row: &Row<'_>) -> rusqlite::Result<AgentSession> {
+    let invalid = |column, what: &str| {
+        rusqlite::Error::FromSqlConversionFailure(column, rusqlite::types::Type::Text, what.to_owned().into())
+    };
     let agent: String = row.get(0)?;
     let state: String = row.get(2)?;
+    let pid: Option<i64> = row.get(8)?;
+    let started_us: Option<i64> = row.get(9)?;
     Ok(AgentSession {
-        agent: AgentKind::parse(&agent).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, "unknown agent".into())
-        })?,
+        agent: AgentKind::parse(&agent).ok_or_else(|| invalid(0, "unknown agent"))?,
         session_id: row.get(1)?,
-        state: AgentState::parse(&state).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, "unknown agent state".into())
-        })?,
-        cwd: row.get(3)?,
+        state: AgentState::parse(&state).ok_or_else(|| invalid(2, "unknown agent state"))?,
+        place: row.get(3)?,
         detail: row.get(4)?,
         app_path: row.get(5)?,
         app_pid: row.get(6)?,
-        state_seq: row.get(7)?,
-        updated_at_ms: row.get(8)?,
+        focus: row.get(7)?,
+        process: pid.zip(started_us).map(|(pid, started_us)| AgentProcessId { pid, started_us }),
+        state_seq: row.get(10)?,
+        updated_at_ms: row.get(11)?,
     })
 }
-
-const SESSION_COLUMNS: &str = "agent, session_id, state, cwd, detail, app_path, app_pid, state_seq, updated_at_ms";
 
 fn fetch_row(conn: &Connection, agent: AgentKind, session_id: &str) -> CoreResult<Option<AgentSession>> {
     Ok(conn
         .query_row(
-            &format!("SELECT {SESSION_COLUMNS} FROM agent_sessions WHERE agent = ?1 AND session_id = ?2"),
+            &format!("SELECT {SESSION_COLUMNS} FROM runtime.agent_sessions WHERE agent = ?1 AND session_id = ?2"),
             params![agent.as_str(), session_id],
             row_to_session,
         )
         .optional()?)
 }
 
-fn prune_stale(tx: &Transaction<'_>, now_ms: i64) -> CoreResult<()> {
-    tx.execute("DELETE FROM agent_sessions WHERE updated_at_ms < ?1", params![now_ms - FRESH_WINDOW_MS])?;
-    Ok(())
+/// Rows to prune: idle for 24 h, or whose agent process has gone.
+fn dead_rows(
+    conn: &Connection,
+    now_ms: i64,
+    is_alive: &dyn Fn(AgentProcessId) -> bool,
+) -> CoreResult<Vec<(String, String)>> {
+    let mut statement = conn
+        .prepare("SELECT agent, session_id, agent_pid, agent_started_us, updated_at_ms FROM runtime.agent_sessions")?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get::<_, Option<i64>>(2)?, row.get::<_, Option<i64>>(3)?, row.get(4)?))
+    })?;
+    let mut dead = Vec::new();
+    for row in rows {
+        let (agent, session_id, pid, started_us, updated_at_ms): (String, String, _, _, i64) = row?;
+        let gone = pid.zip(started_us).is_some_and(|(pid, started_us)| !is_alive(AgentProcessId { pid, started_us }));
+        if gone || updated_at_ms < now_ms - FRESH_WINDOW_MS {
+            dead.push((agent, session_id));
+        }
+    }
+    Ok(dead)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn insert_row(
-    tx: &Transaction<'_>,
-    agent: AgentKind,
-    session_id: &str,
-    state: AgentState,
-    cwd: Option<&str>,
-    detail: Option<&str>,
-    app_path: Option<&str>,
-    app_pid: Option<i64>,
-    state_seq: i64,
-    now_ms: i64,
-) -> CoreResult<()> {
-    tx.execute(
-        &format!("INSERT INTO agent_sessions ({SESSION_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"),
-        params![agent.as_str(), session_id, state.as_str(), cwd, detail, app_path, app_pid, state_seq, now_ms],
-    )?;
+fn delete_rows(tx: &Transaction<'_>, rows: &[(String, String)]) -> CoreResult<()> {
+    for (agent, session_id) in rows {
+        tx.execute(
+            "DELETE FROM runtime.agent_sessions WHERE agent = ?1 AND session_id = ?2",
+            params![agent, session_id],
+        )?;
+    }
     Ok(())
 }
 
@@ -189,103 +259,111 @@ fn set_state(
     agent: AgentKind,
     session_id: &str,
     state: AgentState,
-    cwd: Option<String>,
+    place: Option<String>,
     detail: Option<String>,
-    app_path: Option<String>,
-    app_pid: Option<i64>,
+    location: AgentLocation,
     now_ms: i64,
 ) -> CoreResult<bool> {
-    match fetch_row(tx, agent, session_id)? {
-        None => {
-            if state == AgentState::Working {
-                // Not a pet-visible change: seeds app info for a later
-                // waiting/done event without bumping the counter.
-                let seq = current_state_seq(tx)?;
-                insert_row(
-                    tx,
-                    agent,
+    let existing = fetch_row(tx, agent, session_id)?;
+    if let Some(existing) = &existing
+        && existing.state == state
+    {
+        // A resumed session can come back under a new process: track it
+        // quietly, or the old pid would get the row pruned.
+        if let Some(process) = location.process
+            && location.process != existing.process
+        {
+            tx.execute(
+                "UPDATE runtime.agent_sessions SET agent_pid = ?3, agent_started_us = ?4,
+                    focus = COALESCE(?5, focus), app_path = COALESCE(?6, app_path), app_pid = COALESCE(?7, app_pid)
+                 WHERE agent = ?1 AND session_id = ?2",
+                params![
+                    agent.as_str(),
                     session_id,
-                    state,
-                    cwd.as_deref(),
-                    detail.as_deref(),
-                    app_path.as_deref(),
-                    app_pid,
-                    seq,
-                    now_ms,
-                )?;
-                Ok(false)
-            } else {
-                let seq = bump_state_seq(tx)?;
-                insert_row(
-                    tx,
-                    agent,
-                    session_id,
-                    state,
-                    cwd.as_deref(),
-                    detail.as_deref(),
-                    app_path.as_deref(),
-                    app_pid,
-                    seq,
-                    now_ms,
-                )?;
-                Ok(true)
-            }
+                    process.pid,
+                    process.started_us,
+                    location.focus,
+                    location.app_path,
+                    location.app_pid
+                ],
+            )?;
         }
-        Some(existing) => {
-            if existing.state == state {
-                // A rising `Waiting` event with a different tool name (e.g.
-                // the agent finished one permission request and immediately
-                // hit another) still updates what the panel shows, but is
-                // not a new attention-worthy transition: no seq bump.
-                if state == AgentState::Waiting && existing.detail != detail {
-                    tx.execute(
-                        "UPDATE agent_sessions SET detail = ?3, updated_at_ms = ?4 WHERE agent = ?1 AND session_id = ?2",
-                        params![agent.as_str(), session_id, detail, now_ms],
-                    )?;
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            } else {
-                let seq = bump_state_seq(tx)?;
-                // `app_path`/`app_pid` use COALESCE: a write whose ancestry
-                // walk found no app (e.g. a hook run from a background
-                // process) keeps whatever terminal an earlier event found, so
-                // a waiting row stays clickable.
-                tx.execute(
-                    "UPDATE agent_sessions SET state = ?3, cwd = ?4, detail = ?5,
-                        app_path = COALESCE(?6, app_path), app_pid = COALESCE(?7, app_pid),
-                        state_seq = ?8, updated_at_ms = ?9
-                     WHERE agent = ?1 AND session_id = ?2",
-                    params![agent.as_str(), session_id, state.as_str(), cwd, detail, app_path, app_pid, seq, now_ms],
-                )?;
-                Ok(true)
-            }
+        // A new tool name while already waiting updates what the panel
+        // shows, but is not a new attention-worthy transition: no seq bump.
+        if state == AgentState::Waiting && existing.detail != detail {
+            tx.execute(
+                "UPDATE runtime.agent_sessions SET detail = ?3, updated_at_ms = ?4 WHERE agent = ?1 AND session_id = ?2",
+                params![agent.as_str(), session_id, detail, now_ms],
+            )?;
+            return Ok(true);
         }
+        return Ok(false);
     }
+
+    // A fresh `Working` row only seeds where the agent runs; it isn't a
+    // pet-visible change, so it doesn't bump the counter.
+    let pet_visible = existing.is_some() || state == AgentState::Waiting;
+    let seq = if pet_visible { bump_state_seq(tx)? } else { current_state_seq(tx)? };
+    let process = location.process;
+    // Location parts use COALESCE: a write whose lookup found nothing (e.g. a
+    // hook run from a background process) keeps what an earlier event found,
+    // so a waiting row stays clickable.
+    tx.execute(
+        &format!(
+            "INSERT INTO runtime.agent_sessions ({SESSION_COLUMNS})
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT (agent, session_id) DO UPDATE SET
+                state = excluded.state, place = COALESCE(excluded.place, place), detail = excluded.detail,
+                app_path = COALESCE(excluded.app_path, app_path), app_pid = COALESCE(excluded.app_pid, app_pid),
+                focus = COALESCE(excluded.focus, focus), agent_pid = COALESCE(excluded.agent_pid, agent_pid),
+                agent_started_us = COALESCE(excluded.agent_started_us, agent_started_us),
+                state_seq = excluded.state_seq, updated_at_ms = excluded.updated_at_ms"
+        ),
+        params![
+            agent.as_str(),
+            session_id,
+            state.as_str(),
+            place,
+            detail,
+            location.app_path,
+            location.app_pid,
+            location.focus,
+            process.map(|p| p.pid),
+            process.map(|p| p.started_us),
+            seq,
+            now_ms
+        ],
+    )?;
+    Ok(pet_visible)
 }
 
 impl Store {
-    /// Applies one mapped hook event in a single transaction: prunes rows
-    /// idle for 24h, then writes the event per 0007's rules. `Ok(true)` means
-    /// the app should be told (the CLI posts the change signal on `true`);
-    /// this never fails for anything the CLI itself already validated, only
-    /// for storage errors.
-    pub fn record_agent_event(&mut self, event: AgentEvent, now_ms: i64) -> CoreResult<bool> {
+    /// Applies one mapped hook event in a single transaction: prunes dead
+    /// and idle rows, then writes the event per 0007's rules. `Ok(true)`
+    /// means the app should be told (the CLI posts the change signal on
+    /// `true`); this fails only for storage errors.
+    pub fn record_agent_event(
+        &mut self,
+        event: AgentEvent,
+        now_ms: i64,
+        is_alive: &dyn Fn(AgentProcessId) -> bool,
+    ) -> CoreResult<bool> {
         let tx = self.write_tx()?;
-        prune_stale(&tx, now_ms)?;
+        let dead = dead_rows(&tx, now_ms, is_alive)?;
+        delete_rows(&tx, &dead)?;
         let changed = match event {
-            AgentEvent::SetState { agent, session_id, state, cwd, detail, app_path, app_pid } => {
-                set_state(&tx, agent, &session_id, state, cwd, detail, app_path, app_pid, now_ms)?
+            AgentEvent::SetState { agent, session_id, state, place, detail, location } => {
+                set_state(&tx, agent, &session_id, state, place, detail, location, now_ms)?
             }
             AgentEvent::End { agent, session_id } => {
                 let count = tx.execute(
-                    "DELETE FROM agent_sessions WHERE agent = ?1 AND session_id = ?2",
+                    "DELETE FROM runtime.agent_sessions WHERE agent = ?1 AND session_id = ?2",
                     params![agent.as_str(), session_id],
                 )?;
                 count > 0
             }
         };
+        let changed = changed || !dead.is_empty();
         if changed {
             bump_revision(&tx)?;
         }
@@ -293,13 +371,30 @@ impl Store {
         Ok(changed)
     }
 
+    /// Removes rows whose agent process has gone or that sat idle for 24 h.
+    /// Takes the write lock only when there is something to remove; returns
+    /// whether anything was. Call before reading sessions or the pet
+    /// snapshot, so a terminal closed without a clean exit leaves no ghost.
+    pub fn prune_agent_sessions(&mut self, now_ms: i64, is_alive: &dyn Fn(AgentProcessId) -> bool) -> CoreResult<bool> {
+        if dead_rows(self.conn(), now_ms, is_alive)?.is_empty() {
+            return Ok(false);
+        }
+        let tx = self.write_tx()?;
+        let dead = dead_rows(&tx, now_ms, is_alive)?;
+        delete_rows(&tx, &dead)?;
+        if !dead.is_empty() {
+            bump_revision(&tx)?;
+        }
+        tx.commit()?;
+        Ok(!dead.is_empty())
+    }
+
     /// Fresh (≤24h) `waiting` rows, most recent first: `rallo agents` and
-    /// the panel's "Agents" section (0007). Only agents waiting on the user
-    /// are shown; `working` rows and legacy `done` rows never are.
+    /// the panel's agents section (0007). `working` rows are never shown.
     pub fn agent_sessions(&self, now_ms: i64) -> CoreResult<Vec<AgentSession>> {
         let since = now_ms - FRESH_WINDOW_MS;
         let mut statement = self.conn().prepare(&format!(
-            "SELECT {SESSION_COLUMNS} FROM agent_sessions
+            "SELECT {SESSION_COLUMNS} FROM runtime.agent_sessions
              WHERE updated_at_ms >= ?1 AND state = 'waiting'
              ORDER BY updated_at_ms DESC"
         ))?;
@@ -309,21 +404,21 @@ impl Store {
 
     /// Removes sessions matching the given filters (either, both, or
     /// neither); returns the number removed. Not limited to fresh rows:
-    /// clearing is an explicit user action, unlike the passive 24h prune.
+    /// clearing is an explicit user action, unlike the passive prune.
     pub fn clear_agent_sessions(&mut self, agent: Option<AgentKind>, session_id: Option<&str>) -> CoreResult<u32> {
         let tx = self.write_tx()?;
         let count = match (agent, session_id) {
             (Some(agent), Some(session_id)) => tx.execute(
-                "DELETE FROM agent_sessions WHERE agent = ?1 AND session_id = ?2",
+                "DELETE FROM runtime.agent_sessions WHERE agent = ?1 AND session_id = ?2",
                 params![agent.as_str(), session_id],
             )?,
             (Some(agent), None) => {
-                tx.execute("DELETE FROM agent_sessions WHERE agent = ?1", params![agent.as_str()])?
+                tx.execute("DELETE FROM runtime.agent_sessions WHERE agent = ?1", params![agent.as_str()])?
             }
             (None, Some(session_id)) => {
-                tx.execute("DELETE FROM agent_sessions WHERE session_id = ?1", params![session_id])?
+                tx.execute("DELETE FROM runtime.agent_sessions WHERE session_id = ?1", params![session_id])?
             }
-            (None, None) => tx.execute("DELETE FROM agent_sessions", [])?,
+            (None, None) => tx.execute("DELETE FROM runtime.agent_sessions", [])?,
         };
         if count > 0 {
             bump_revision(&tx)?;
@@ -346,15 +441,27 @@ mod tests {
         (dir, store)
     }
 
+    fn alive(_: AgentProcessId) -> bool {
+        true
+    }
+
+    fn located(focus: Option<&str>, process: Option<AgentProcessId>) -> AgentLocation {
+        AgentLocation {
+            app_path: Some("/Applications/Code.app".to_owned()),
+            app_pid: Some(123),
+            focus: focus.map(str::to_owned),
+            process,
+        }
+    }
+
     fn set_state_event(agent: AgentKind, session_id: &str, state: AgentState, detail: Option<&str>) -> AgentEvent {
         AgentEvent::SetState {
             agent,
             session_id: session_id.to_owned(),
             state,
-            cwd: Some("/tmp/w".to_owned()),
+            place: Some("tmp/w".to_owned()),
             detail: detail.map(str::to_owned),
-            app_path: Some("/Applications/Code.app".to_owned()),
-            app_pid: Some(123),
+            location: located(Some("tty:/dev/ttys001"), None),
         }
     }
 
@@ -362,7 +469,7 @@ mod tests {
     fn working_for_an_unknown_session_inserts_but_is_not_pet_visible() {
         let (_dir, mut store) = open_store();
         let changed = store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Working, None), 1_000_000)
+            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Working, None), 1_000_000, &alive)
             .unwrap();
         assert!(!changed);
         let sessions = store.agent_sessions(1_000_000).unwrap();
@@ -373,7 +480,11 @@ mod tests {
     fn waiting_from_scratch_is_pet_visible_and_bumps_seq() {
         let (_dir, mut store) = open_store();
         let changed = store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")), 1_000_000)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")),
+                1_000_000,
+                &alive,
+            )
             .unwrap();
         assert!(changed);
         let sessions = store.agent_sessions(1_000_000).unwrap();
@@ -387,11 +498,19 @@ mod tests {
     fn identical_state_is_a_true_no_op() {
         let (_dir, mut store) = open_store();
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")), 1_000_000)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")),
+                1_000_000,
+                &alive,
+            )
             .unwrap();
         let before = store.agent_sessions(1_000_000).unwrap()[0].clone();
         let changed = store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")), 1_000_500)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")),
+                1_000_500,
+                &alive,
+            )
             .unwrap();
         assert!(!changed);
         let after = store.agent_sessions(1_000_500).unwrap()[0].clone();
@@ -403,11 +522,19 @@ mod tests {
     fn waiting_with_a_new_detail_updates_without_bumping_seq() {
         let (_dir, mut store) = open_store();
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")), 1_000_000)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")),
+                1_000_000,
+                &alive,
+            )
             .unwrap();
         let before = store.agent_sessions(1_000_000).unwrap()[0].clone();
         let changed = store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Read")), 1_000_500)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Read")),
+                1_000_500,
+                &alive,
+            )
             .unwrap();
         assert!(changed);
         let after = store.agent_sessions(1_000_500).unwrap()[0].clone();
@@ -420,10 +547,14 @@ mod tests {
     fn a_real_state_change_bumps_seq_and_is_pet_visible() {
         let (_dir, mut store) = open_store();
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Working, None), 1_000_000)
+            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Working, None), 1_000_000, &alive)
             .unwrap();
         let changed = store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")), 1_000_100)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")),
+                1_000_100,
+                &alive,
+            )
             .unwrap();
         assert!(changed);
         let sessions = store.agent_sessions(1_000_100).unwrap();
@@ -432,10 +563,14 @@ mod tests {
     }
 
     #[test]
-    fn app_path_and_pid_survive_a_write_that_found_no_app() {
+    fn location_survives_a_write_that_found_none() {
         let (_dir, mut store) = open_store();
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")), 1_000_000)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")),
+                1_000_000,
+                &alive,
+            )
             .unwrap();
 
         // Later writes whose ancestry walk found no app pass no app info.
@@ -443,18 +578,19 @@ mod tests {
             agent: AgentKind::Claude,
             session_id: "s1".into(),
             state,
-            cwd: Some("/tmp/w".into()),
+            place: None,
             detail: detail.map(str::to_owned),
-            app_path: None,
-            app_pid: None,
+            location: AgentLocation::default(),
         };
-        store.record_agent_event(without_app(AgentState::Working, None), 1_000_100).unwrap();
-        store.record_agent_event(without_app(AgentState::Waiting, Some("Edit")), 1_000_200).unwrap();
+        store.record_agent_event(without_app(AgentState::Working, None), 1_000_100, &alive).unwrap();
+        store.record_agent_event(without_app(AgentState::Waiting, Some("Edit")), 1_000_200, &alive).unwrap();
 
         let sessions = store.agent_sessions(1_000_200).unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].app_path.as_deref(), Some("/Applications/Code.app"), "the earlier lookup is kept");
         assert_eq!(sessions[0].app_pid, Some(123));
+        assert_eq!(sessions[0].focus.as_deref(), Some("tty:/dev/ttys001"));
+        assert_eq!(sessions[0].place.as_deref(), Some("tmp/w"));
         assert_eq!(sessions[0].detail.as_deref(), Some("Edit"));
     }
 
@@ -462,15 +598,27 @@ mod tests {
     fn end_deletes_and_reports_whether_a_row_existed() {
         let (_dir, mut store) = open_store();
         let missing = store
-            .record_agent_event(AgentEvent::End { agent: AgentKind::Claude, session_id: "s1".into() }, 1_000_000)
+            .record_agent_event(
+                AgentEvent::End { agent: AgentKind::Claude, session_id: "s1".into() },
+                1_000_000,
+                &alive,
+            )
             .unwrap();
         assert!(!missing);
 
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")), 1_000_000)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")),
+                1_000_000,
+                &alive,
+            )
             .unwrap();
         let existed = store
-            .record_agent_event(AgentEvent::End { agent: AgentKind::Claude, session_id: "s1".into() }, 1_000_100)
+            .record_agent_event(
+                AgentEvent::End { agent: AgentKind::Claude, session_id: "s1".into() },
+                1_000_100,
+                &alive,
+            )
             .unwrap();
         assert!(existed);
         assert!(store.agent_sessions(1_000_100).unwrap().is_empty());
@@ -480,12 +628,20 @@ mod tests {
     fn stale_rows_are_pruned_on_every_write() {
         let (_dir, mut store) = open_store();
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "old", AgentState::Waiting, Some("Bash")), 1_000_000)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "old", AgentState::Waiting, Some("Bash")),
+                1_000_000,
+                &alive,
+            )
             .unwrap();
         let day_later = 1_000_000 + FRESH_WINDOW_MS + 1;
         // Any write prunes stale rows, even one for an unrelated session.
         store
-            .record_agent_event(set_state_event(AgentKind::Codex, "new", AgentState::Waiting, Some("Bash")), day_later)
+            .record_agent_event(
+                set_state_event(AgentKind::Codex, "new", AgentState::Waiting, Some("Bash")),
+                day_later,
+                &alive,
+            )
             .unwrap();
         let sessions = store.agent_sessions(day_later).unwrap();
         assert_eq!(sessions.len(), 1);
@@ -496,33 +652,54 @@ mod tests {
     fn only_waiting_rows_are_listed_most_recent_first() {
         let (_dir, mut store) = open_store();
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "done-old", AgentState::Done, None), 1_000_000)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "working-old", AgentState::Working, None),
+                1_000_000,
+                &alive,
+            )
             .unwrap();
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "done-new", AgentState::Done, None), 1_000_200)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "working-new", AgentState::Working, None),
+                1_000_200,
+                &alive,
+            )
             .unwrap();
         store
             .record_agent_event(
                 set_state_event(AgentKind::Codex, "waiting-old", AgentState::Waiting, Some("Bash")),
                 1_000_100,
+                &alive,
             )
             .unwrap();
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "waiting-new", AgentState::Waiting, None), 1_000_300)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "waiting-new", AgentState::Waiting, None),
+                1_000_300,
+                &alive,
+            )
             .unwrap();
         let sessions = store.agent_sessions(1_000_300).unwrap();
         let ids: Vec<&str> = sessions.iter().map(|s| s.session_id.as_str()).collect();
-        assert_eq!(ids, ["waiting-new", "waiting-old"], "done rows (no longer written) stay hidden");
+        assert_eq!(ids, ["waiting-new", "waiting-old"], "working rows stay hidden");
     }
 
     #[test]
     fn clear_removes_by_filter_and_reports_the_count() {
         let (_dir, mut store) = open_store();
         store
-            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")), 1_000_000)
+            .record_agent_event(
+                set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")),
+                1_000_000,
+                &alive,
+            )
             .unwrap();
         store
-            .record_agent_event(set_state_event(AgentKind::Codex, "s2", AgentState::Waiting, Some("Bash")), 1_000_000)
+            .record_agent_event(
+                set_state_event(AgentKind::Codex, "s2", AgentState::Waiting, Some("Bash")),
+                1_000_000,
+                &alive,
+            )
             .unwrap();
 
         assert_eq!(store.clear_agent_sessions(Some(AgentKind::Claude), None).unwrap(), 1);
@@ -532,6 +709,96 @@ mod tests {
 
         assert_eq!(store.clear_agent_sessions(None, None).unwrap(), 1);
         assert!(store.agent_sessions(1_000_000).unwrap().is_empty());
+    }
+
+    #[test]
+    fn rows_whose_agent_process_has_gone_are_pruned() {
+        let (_dir, mut store) = open_store();
+        let gone = AgentProcessId { pid: 41, started_us: 7 };
+        let live = AgentProcessId { pid: 42, started_us: 7 };
+        for (id, process) in [("gone", gone), ("live", live)] {
+            let event = AgentEvent::SetState {
+                agent: AgentKind::Claude,
+                session_id: id.into(),
+                state: AgentState::Waiting,
+                place: None,
+                detail: None,
+                location: located(None, Some(process)),
+            };
+            store.record_agent_event(event, 1_000_000, &alive).unwrap();
+        }
+        let is_alive = |p: AgentProcessId| p != gone;
+
+        let revision = store.change_revision().unwrap();
+        assert!(store.prune_agent_sessions(1_000_000, &is_alive).unwrap());
+        assert!(store.change_revision().unwrap() > revision, "the panel is told");
+        let ids: Vec<String> = store.agent_sessions(1_000_000).unwrap().into_iter().map(|s| s.session_id).collect();
+        assert_eq!(ids, ["live"]);
+        assert!(!store.prune_agent_sessions(1_000_000, &is_alive).unwrap(), "nothing left to prune");
+    }
+
+    #[test]
+    fn a_resumed_session_follows_its_new_process() {
+        let (_dir, mut store) = open_store();
+        let first = AgentProcessId { pid: 41, started_us: 7 };
+        let second = AgentProcessId { pid: 99, started_us: 8 };
+        let waiting = |process| AgentEvent::SetState {
+            agent: AgentKind::Claude,
+            session_id: "s1".into(),
+            state: AgentState::Waiting,
+            place: None,
+            detail: None,
+            location: located(None, Some(process)),
+        };
+        store.record_agent_event(waiting(first), 1_000_000, &alive).unwrap();
+        store.record_agent_event(waiting(second), 1_000_100, &alive).unwrap();
+        assert!(!store.prune_agent_sessions(1_000_100, &|p| p == second).unwrap());
+        assert_eq!(store.agent_sessions(1_000_100).unwrap()[0].process, Some(second));
+    }
+
+    #[test]
+    fn a_runtime_layout_from_another_version_is_recreated_and_seq_stays_monotonic() {
+        let dir = tempfile::tempdir().unwrap();
+        let seq = {
+            let mut store = Store::open(StoreOptions::new(dir.path())).unwrap();
+            store
+                .record_agent_event(
+                    set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, None),
+                    1_000_000,
+                    &alive,
+                )
+                .unwrap();
+            store.conn().execute_batch("PRAGMA runtime.user_version = 99").unwrap();
+            store.agent_sessions(1_000_000).unwrap()[0].state_seq
+        };
+        let mut store = Store::open(StoreOptions::new(dir.path())).unwrap();
+        assert!(store.agent_sessions(1_000_000).unwrap().is_empty(), "disposable rows are dropped");
+        store
+            .record_agent_event(set_state_event(AgentKind::Claude, "s2", AgentState::Waiting, None), 1_000_100, &alive)
+            .unwrap();
+        assert!(store.agent_sessions(1_000_100).unwrap()[0].state_seq > seq);
+    }
+
+    #[test]
+    fn sessions_live_outside_the_notes_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(StoreOptions::new(dir.path())).unwrap();
+        store
+            .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, None), 1_000_000, &alive)
+            .unwrap();
+        let main_has_table: bool = store
+            .conn()
+            .query_row("SELECT count(*) > 0 FROM main.sqlite_schema WHERE name = 'agent_sessions'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert!(!main_has_table);
+        assert!(
+            dir.path()
+                .join(crate::storage::database::RUNTIME_DIR)
+                .join(crate::storage::database::RUNTIME_FILE)
+                .exists()
+        );
     }
 
     #[test]

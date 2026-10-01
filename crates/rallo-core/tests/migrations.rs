@@ -29,7 +29,7 @@ fn v1_database_migrates_to_current_schema_keeps_data_and_backs_up() {
 
     let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
     assert_eq!(version, SCHEMA_VERSION);
-    assert_eq!(version, 3, "0002_reminders.sql and 0003_agent_sessions.sql must be registered");
+    assert_eq!(version, 4, "0002 through 0004 must be registered");
 
     let text: String =
         conn.query_row("SELECT text FROM items WHERE id = ?1", [id.to_string()], |row| row.get(0)).unwrap();
@@ -44,12 +44,11 @@ fn v1_database_migrates_to_current_schema_keeps_data_and_backs_up() {
     )
     .unwrap();
 
-    conn.execute(
-        "INSERT INTO agent_sessions (agent, session_id, state, state_seq, updated_at_ms)
-         VALUES ('claude', 's1', 'waiting', 1, 1000)",
-        [],
-    )
-    .unwrap();
+    // 0003 created agent_sessions; 0004 moved them to the runtime file (0009).
+    let agent_tables: u32 = conn
+        .query_row("SELECT count(*) FROM sqlite_schema WHERE name = 'agent_sessions'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(agent_tables, 0);
 
     let backups: Vec<_> = std::fs::read_dir(&backups_dir).unwrap().collect();
     assert_eq!(backups.len(), 1, "exactly one pre-migration backup file");

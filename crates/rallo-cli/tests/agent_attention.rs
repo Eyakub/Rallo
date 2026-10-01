@@ -60,6 +60,11 @@ impl Setup {
         self.data_dir.join("rallo.sqlite3")
     }
 
+    /// Agent sessions live in a throwaway runtime file (0009).
+    fn runtime_db_path(&self) -> PathBuf {
+        self.data_dir.join("runtime").join("agents.sqlite3")
+    }
+
     /// Runs `agent-event --agent <agent>` with `payload` piped to stdin.
     fn agent_event(&self, agent: &str, payload: &[u8]) -> Output {
         let mut child = self
@@ -128,13 +133,14 @@ fn codex_waiting_shows_and_stop_clears_it() {
     assert_eq!(list.len(), 1, "{doc}");
     assert_eq!(list[0]["agent"], "codex");
     assert_eq!(list[0]["state"], "waiting");
-    assert_eq!(list[0]["cwd"], "/tmp/w");
+    assert_eq!(list[0]["place"], "tmp/w", "only the last two folders of cwd are kept");
+    assert!(list[0].get("cwd").is_none());
 
     // A finished turn isn't a question: Stop removes the row, as SessionEnd does.
     setup.agent_event("codex", CODEX_STOP.as_bytes());
     let (_, doc) = setup.json(&["agents", "--json"]);
     assert!(sessions(&doc).is_empty(), "Stop deletes the row: {doc}");
-    let rows: i64 = rusqlite::Connection::open(setup.db_path())
+    let rows: i64 = rusqlite::Connection::open(setup.runtime_db_path())
         .unwrap()
         .query_row("SELECT COUNT(*) FROM agent_sessions", [], |row| row.get(0))
         .unwrap();
@@ -154,7 +160,10 @@ fn prompt_and_assistant_text_never_reach_the_database_file() {
     // Force a WAL checkpoint by reopening the CLI (`status` opens the store).
     setup.command(&["status", "--json"]).output().unwrap();
 
-    let bytes = fs::read(setup.db_path()).unwrap();
+    let mut bytes = fs::read(setup.db_path()).unwrap();
+    for path in [setup.runtime_db_path(), setup.runtime_db_path().with_extension("sqlite3-wal")] {
+        bytes.extend(fs::read(path).unwrap_or_default());
+    }
     let contains = |needle: &str| bytes.windows(needle.len()).any(|window| window == needle.as_bytes());
     assert!(!contains("secret prompt text"), "the prompt must never be stored");
     assert!(!contains("Hi there"), "the assistant message must never be stored");

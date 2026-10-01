@@ -34,6 +34,7 @@ final class AppCoordinator {
     private var agentSessions: [AgentSessionSnapshot] = []
     private var notifyLongWaitEnabled = false
     private var agentJumpState = AgentJumpState()
+    private var livenessTimer: Timer?
 
     init(dataDir: String, launchMode: LaunchOptions.Mode, options: LaunchOptions) {
         self.dataDir = dataDir
@@ -124,6 +125,7 @@ final class AppCoordinator {
         do {
             try await core.open()
             storageReady = true
+            excludeRuntimeFromBackups()
         } catch {
             log.record("storage_open_failed", ["error": "\(error)"])
             notificationSummary = "Storage unavailable — run `rallo doctor`"
@@ -230,6 +232,7 @@ final class AppCoordinator {
         }
         animationsPaused = (try? await core.petAnimationsPaused()) ?? false
         agentSessions = (try? await core.agentSessions()) ?? []
+        armLivenessTimer()
         notifyLongWaitEnabled = (try? await core.agentsNotifyLongWait()) ?? false
         statusMenu?.refreshAgents(agentSessions)
         if let reminderPrefix = try? await core.notificationIdentifierPrefix() {
@@ -288,13 +291,48 @@ final class AppCoordinator {
         }
     }
 
-    // MARK: Agent attention reach (0008)
+    // MARK: Agent attention reach (0008, 0009)
+
+    /// While an agent waits, looks every 30 s for one whose process has gone
+    /// (a terminal closed without a clean exit): reading sessions prunes it,
+    /// and the revision bump reloads every view.
+    private func armLivenessTimer() {
+        if agentSessions.isEmpty {
+            livenessTimer?.invalidate()
+            livenessTimer = nil
+        } else if livenessTimer == nil {
+            let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    Task {
+                        _ = try? await self.core.agentSessions()
+                        await self.checkForChanges()
+                    }
+                }
+            }
+            timer.tolerance = 5
+            RunLoop.main.add(timer, forMode: .common)
+            livenessTimer = timer
+        }
+    }
+
+    /// Agent sessions are runtime state (0009): keep them out of Time
+    /// Machine. The core creates the folder when it opens the store.
+    private func excludeRuntimeFromBackups() {
+        var url = URL(fileURLWithPath: dataDir).appendingPathComponent("runtime", isDirectory: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        do {
+            try url.setResourceValues(values)
+        } catch {
+            log.record("runtime_backup_exclusion_failed", ["error": "\(error)"])
+        }
+    }
 
     /// Brings a session's terminal forward from the menu's "Agents" section;
     /// a no-op if Rallo couldn't identify one (the row is disabled instead).
     private func activateAgent(_ session: AgentSessionSnapshot) {
-        guard let appPath = session.appPath else { return }
-        AgentSessionActivation.activate(appPath: appPath)
+        AgentSessionActivation.activate(session)
     }
 
     /// ⌃⌥⌘J and the menu's "Jump to Waiting Agent": longest-waiting first,
