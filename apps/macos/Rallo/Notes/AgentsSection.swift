@@ -24,8 +24,9 @@ final class AgentsClock: ObservableObject {
     }
 }
 
-/// The panel's "Agents" section, listed above the notes when Rallo is
-/// tracking any Claude Code/Codex session (docs/decisions/0007).
+/// The panel's agents section, above the notes while any Claude Code/Codex
+/// session waits on the user (docs/decisions/0007). Capped in height and
+/// scrollable, so the composer and notes always stay in view.
 struct AgentsSection: View {
     let sessions: [AgentSessionSnapshot]
     let now: Date
@@ -36,19 +37,16 @@ struct AgentsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Agents")
+            Text("Waiting for you")
                 .font(Theme.rounded(12, .semibold))
                 .foregroundStyle(Theme.bark)
                 .padding(.horizontal, 20)
-            VStack(spacing: 0) {
-                ForEach(Array(ordered.enumerated()), id: \.element.rowID) { index, session in
-                    if index > 0 {
-                        Rectangle().fill(Theme.divider).frame(height: 1).padding(.leading, 44).padding(.trailing, 10)
-                    }
-                    AgentRow(session: session, now: now, onActivate: { onActivate(session) },
-                             onDismiss: { onDismiss(session) })
-                }
+            // Natural height while it fits, a scroll view beyond that.
+            ViewThatFits(in: .vertical) {
+                rows
+                ScrollView { rows }
             }
+            .frame(maxHeight: 160)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.hover))
@@ -56,6 +54,18 @@ struct AgentsSection: View {
             .padding(.horizontal, 16)
         }
         .padding(.bottom, 10)
+    }
+
+    private var rows: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(ordered.enumerated()), id: \.element.rowID) { index, session in
+                if index > 0 {
+                    Rectangle().fill(Theme.divider).frame(height: 1).padding(.leading, 44).padding(.trailing, 10)
+                }
+                AgentRow(session: session, now: now, onActivate: { onActivate(session) },
+                         onDismiss: { onDismiss(session) })
+            }
+        }
     }
 }
 
@@ -67,7 +77,6 @@ private struct AgentRow: View {
     @State private var hovering = false
 
     private static let accent = Color(nsColor: NSColor(hex: 0x2F6FB0))
-    private var waiting: Bool { session.state == "waiting" }
     private var clickable: Bool { session.appPath != nil }
 
     var body: some View {
@@ -110,14 +119,7 @@ private struct AgentRow: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                if waiting {
-                    Circle().fill(Self.accent).frame(width: 6, height: 6).accessibilityHidden(true)
-                } else {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Theme.bark)
-                        .accessibilityHidden(true)
-                }
+                Circle().fill(Self.accent).frame(width: 6, height: 6).accessibilityHidden(true)
                 Text(AgentSessionFormatting.title(for: session))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Theme.ink)

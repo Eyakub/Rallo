@@ -4,6 +4,16 @@
   it keeps the plan's rules: local only, no network, no global input
   monitoring, the reducer decides *what*, Swift decides *how* (0006).
 - **Date:** 2026-10-01
+- **Amended 2026-10-01 (user):** only agents waiting on the user are shown.
+  Batches of headless `claude -p` runs filled the panel with identical
+  "Claude Code · raw — Finished" rows and pushed the notes out of view. Now
+  `Stop` and Claude Code's `idle_prompt`/`agent_completed` remove the row,
+  as `SessionEnd` does, so no `done` row is written; `rallo agents`, the
+  panel, and the menu list `waiting` rows only, and the pet no longer plays
+  `Acknowledge` for a finished agent (`agent_done_seq` never moves again;
+  that plumbing is inert). Rows name the last two folders of `cwd` and the
+  terminal app, and say what is asked; the panel section scrolls within a
+  fixed height.
 
 Coding agents (Claude Code, Codex) often sit idle waiting for a permission
 answer while the user is in another window. Both run hook commands at
@@ -24,7 +34,7 @@ CLI 0.158 (`~/.codex/hooks.json`, same schema as Claude Code's
 | `PermissionRequest` | both | `waiting` (detail: `tool_name`) |
 | `Notification` with `notification_type` `permission_prompt`, `elicitation_dialog`, `elicitation_url_dialog`, or `agent_needs_input` | Claude Code | `waiting` |
 | `PostToolUse`, `UserPromptSubmit` | both | `working` (clears waiting/done; written only on change) |
-| `Stop`; `Notification` `idle_prompt` or `agent_completed` | both / Claude Code | `done` (no-op if already done) |
+| `Stop`; `Notification` `idle_prompt` or `agent_completed` | both / Claude Code | row deleted (was `done` before the amendment) |
 | `SessionEnd`, `Interrupt` | both / Codex | row deleted |
 | anything else | — | ignored |
 

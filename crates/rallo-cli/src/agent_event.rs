@@ -78,7 +78,6 @@ fn map_event(agent: Agent, payload: &[u8]) -> Result<Option<(String, Mapped)>, &
         cwd: cwd.clone(),
         detail: detail.map(|detail| truncate_chars(detail, DETAIL_MAX_CHARS)),
     };
-    let done = || Mapped::SetState { state: AgentState::Done, cwd: cwd.clone(), detail: None };
     let working = || Mapped::SetState { state: AgentState::Working, cwd: cwd.clone(), detail: None };
 
     let mapped = match hook_event_name {
@@ -87,12 +86,14 @@ fn map_event(agent: Agent, payload: &[u8]) -> Result<Option<(String, Mapped)>, &
             Some("permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog" | "agent_needs_input") => {
                 Some(waiting(None))
             }
-            Some("idle_prompt" | "agent_completed") => Some(done()),
+            // A finished turn isn't a question for the user: the row goes, as
+            // on SessionEnd, so only agents waiting on an answer are listed
+            // (0007, amended 2026-10-01).
+            Some("idle_prompt" | "agent_completed") => Some(Mapped::End),
             _ => None,
         },
         "PostToolUse" | "UserPromptSubmit" => Some(working()),
-        "Stop" => Some(done()),
-        "SessionEnd" | "Interrupt" => Some(Mapped::End),
+        "Stop" | "SessionEnd" | "Interrupt" => Some(Mapped::End),
         _ => None,
     };
     Ok(mapped.map(|mapped| (session_id.to_owned(), mapped)))

@@ -12,9 +12,9 @@ fixes a keyboard gap (the panel had no keyboard route besides ⌃F8 → menu).
 
 - The status item shows the paw plus the number of waiting agents ("🐾 2"),
   paw only at 0. Its tooltip lists them, one line each:
-  "Claude Code · shop — Waiting for permission: Bash (4 min)".
+  "Claude Code · code/shop — Asks to use Bash · cmux (4 min)".
 - The status menu starts with an "Agents" section when any session is
-  waiting or done (same rows and order as the panel, 0007): choosing one
+  waiting (same rows and order as the panel, 0007): choosing one
   brings its terminal forward; nothing is dismissed from the menu.
 
 ## Long-wait notification (opt-in)
@@ -42,7 +42,7 @@ Carbon `RegisterEventHotKey` (no Accessibility or Input Monitoring
 permission; Rallo sees only its own two key combinations):
 
 - **⌃⌥⌘J** brings the longest-waiting agent's terminal forward; pressing it
-  again within 5 s moves to the next waiting one, then to finished ones.
+  again within 5 s moves to the next waiting one.
   With no sessions, nothing happens.
 - **⌃⌥⌘N** opens the notes panel with the new-note field focused, or closes
   it if open (same as clicking the pet).

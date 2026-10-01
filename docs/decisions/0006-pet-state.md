@@ -116,7 +116,8 @@ table without renumbering it:
   swallowed by the other already holding the pose.
 - Rows 3-4 (`Celebrate`/`Acknowledge`) gain a second `Acknowledge` source: a
   finished agent (`agent_done_seq` past its watermark), checked alongside
-  the existing save watermark. `Celebrate` still outranks both; the two
+  the existing save watermark. (Inert since 0007's amendment: no row
+  becomes `done`, so this source never fires.) `Celebrate` still outranks both; the two
   `Acknowledge` sources share the same event, so their relative order
   never changes what Swift plays.
 - The accessibility label appends `, N agent(s) waiting` when

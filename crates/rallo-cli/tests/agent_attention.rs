@@ -87,6 +87,7 @@ fn sessions(doc: &Value) -> &Vec<Value> {
 
 const CODEX_USER_PROMPT_SUBMIT: &str = r#"{"session_id":"01a0f386-3249-7ea0-b536-ac0ef629e13f","turn_id":"t1","transcript_path":null,"cwd":"/tmp/w","hook_event_name":"UserPromptSubmit","model":"m","permission_mode":"bypassPermissions","prompt":"secret prompt text"}"#;
 const CODEX_STOP: &str = r#"{"session_id":"01a0f386-3249-7ea0-b536-ac0ef629e13f","turn_id":"t1","transcript_path":null,"cwd":"/tmp/w","hook_event_name":"Stop","model":"m","permission_mode":"bypassPermissions","stop_hook_active":false,"last_assistant_message":"Hi there"}"#;
+const CODEX_PERMISSION_REQUEST: &str = r#"{"session_id":"01a0f386-3249-7ea0-b536-ac0ef629e13f","turn_id":"t1","transcript_path":null,"cwd":"/tmp/w","hook_event_name":"PermissionRequest","model":"m","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"ls"}}"#;
 const CODEX_SESSION_END: &str = r#"{"session_id":"01a0f386-3249-7ea0-b536-ac0ef629e13f","transcript_path":null,"cwd":"/tmp/w","hook_event_name":"SessionEnd","reason":"other"}"#;
 const CLAUDE_NOTIFICATION_PERMISSION_PROMPT: &str = r#"{"session_id":"s1","cwd":"/tmp/w","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}"#;
 const CLAUDE_PERMISSION_REQUEST_BASH: &str =
@@ -114,21 +115,32 @@ fn every_agent_event_call_exits_zero_and_writes_nothing_to_stdout() {
 }
 
 #[test]
-fn codex_user_prompt_submit_then_stop_then_session_end_tracks_and_clears_state() {
+fn codex_waiting_shows_and_stop_clears_it() {
     let setup = Setup::new();
     setup.agent_event("codex", CODEX_USER_PROMPT_SUBMIT.as_bytes());
     // `Working` is never pet-visible: not listed.
     let (_, doc) = setup.json(&["agents", "--json"]);
     assert!(sessions(&doc).is_empty(), "{doc}");
 
-    setup.agent_event("codex", CODEX_STOP.as_bytes());
+    setup.agent_event("codex", CODEX_PERMISSION_REQUEST.as_bytes());
     let (_, doc) = setup.json(&["agents", "--json"]);
     let list = sessions(&doc);
     assert_eq!(list.len(), 1, "{doc}");
     assert_eq!(list[0]["agent"], "codex");
-    assert_eq!(list[0]["state"], "done");
+    assert_eq!(list[0]["state"], "waiting");
     assert_eq!(list[0]["cwd"], "/tmp/w");
 
+    // A finished turn isn't a question: Stop removes the row, as SessionEnd does.
+    setup.agent_event("codex", CODEX_STOP.as_bytes());
+    let (_, doc) = setup.json(&["agents", "--json"]);
+    assert!(sessions(&doc).is_empty(), "Stop deletes the row: {doc}");
+    let rows: i64 = rusqlite::Connection::open(setup.db_path())
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM agent_sessions", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 0, "no finished row is kept behind the listing either");
+
+    setup.agent_event("codex", CODEX_PERMISSION_REQUEST.as_bytes());
     setup.agent_event("codex", CODEX_SESSION_END.as_bytes());
     let (_, doc) = setup.json(&["agents", "--json"]);
     assert!(sessions(&doc).is_empty(), "SessionEnd deletes the row: {doc}");

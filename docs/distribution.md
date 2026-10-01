@@ -92,7 +92,7 @@ installed.
 mechanism) goes further than the skill: it wires up the `agent-event` hook
 command so the pet notices *while an agent is running*, not just when it
 reads the skill. It waves when Claude Code or Codex is waiting on a
-permission answer and shows a check when one finishes, without any network
+permission answer, without any network
 call or global input monitoring -- `docs/decisions/0007-agent-attention.md`
 has the full design. It edits `~/.claude/settings.json` and/or
 `$CODEX_HOME/hooks.json` the same carefully-merged way `setup skill` edits
@@ -103,7 +103,7 @@ installed copy in `/Applications` or `~/Applications`, since the hook
 command needs an absolute path. Codex will ask you to trust the new hooks
 the next time it starts.
 
-A waiting or finished agent reaches further than the pet
+A waiting agent reaches further than the pet
 (`docs/decisions/0008-agent-attention-reach.md`): the menu bar's paw carries
 the waiting-agent count and a tooltip listing every session, and an "Agents"
 section at the top of the menu brings one forward without opening the

@@ -45,6 +45,9 @@ impl AgentKind {
 pub enum AgentState {
     Working,
     Waiting,
+    /// No longer written: a finished turn removes the row (0007, amended
+    /// 2026-10-01). Still parsed for rows written before that, which the
+    /// 24 h prune removes.
     Done,
 }
 
@@ -245,12 +248,10 @@ fn set_state(
                 }
             } else {
                 let seq = bump_state_seq(tx)?;
-                // `app_path`/`app_pid` use COALESCE: the CLI only re-walks
-                // process ancestry for a Waiting/Working write (0007), so a
-                // `Done` transition passes `None` for both and this keeps
-                // whatever terminal a nearby Working/Waiting event already
-                // found -- otherwise a click on a `done` panel row would have
-                // nothing to bring forward.
+                // `app_path`/`app_pid` use COALESCE: a write whose ancestry
+                // walk found no app (e.g. a hook run from a background
+                // process) keeps whatever terminal an earlier event found, so
+                // a waiting row stays clickable.
                 tx.execute(
                     "UPDATE agent_sessions SET state = ?3, cwd = ?4, detail = ?5,
                         app_path = COALESCE(?6, app_path), app_pid = COALESCE(?7, app_pid),
@@ -292,15 +293,15 @@ impl Store {
         Ok(changed)
     }
 
-    /// Fresh (≤24h) `waiting`/`done` rows, waiting first, then most recent
-    /// first: `rallo agents` and the panel's "Agents" section (0007).
-    /// `working` rows are never shown.
+    /// Fresh (≤24h) `waiting` rows, most recent first: `rallo agents` and
+    /// the panel's "Agents" section (0007). Only agents waiting on the user
+    /// are shown; `working` rows and legacy `done` rows never are.
     pub fn agent_sessions(&self, now_ms: i64) -> CoreResult<Vec<AgentSession>> {
         let since = now_ms - FRESH_WINDOW_MS;
         let mut statement = self.conn().prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM agent_sessions
-             WHERE updated_at_ms >= ?1 AND state IN ('waiting', 'done')
-             ORDER BY (state != 'waiting'), updated_at_ms DESC"
+             WHERE updated_at_ms >= ?1 AND state = 'waiting'
+             ORDER BY updated_at_ms DESC"
         ))?;
         let rows = statement.query_map([since], row_to_session)?.collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
@@ -431,30 +432,30 @@ mod tests {
     }
 
     #[test]
-    fn app_path_and_pid_survive_a_transition_that_does_not_recompute_them() {
+    fn app_path_and_pid_survive_a_write_that_found_no_app() {
         let (_dir, mut store) = open_store();
         store
             .record_agent_event(set_state_event(AgentKind::Claude, "s1", AgentState::Waiting, Some("Bash")), 1_000_000)
             .unwrap();
 
-        // `Done` (e.g. Stop) passes no app info, mirroring the CLI only
-        // walking process ancestry for a Waiting/Working write.
-        let done = AgentEvent::SetState {
+        // Later writes whose ancestry walk found no app pass no app info.
+        let without_app = |state, detail: Option<&str>| AgentEvent::SetState {
             agent: AgentKind::Claude,
             session_id: "s1".into(),
-            state: AgentState::Done,
+            state,
             cwd: Some("/tmp/w".into()),
-            detail: None,
+            detail: detail.map(str::to_owned),
             app_path: None,
             app_pid: None,
         };
-        store.record_agent_event(done, 1_000_100).unwrap();
+        store.record_agent_event(without_app(AgentState::Working, None), 1_000_100).unwrap();
+        store.record_agent_event(without_app(AgentState::Waiting, Some("Edit")), 1_000_200).unwrap();
 
-        let sessions = store.agent_sessions(1_000_100).unwrap();
+        let sessions = store.agent_sessions(1_000_200).unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].app_path.as_deref(), Some("/Applications/Code.app"), "the earlier lookup is kept");
         assert_eq!(sessions[0].app_pid, Some(123));
-        assert_eq!(sessions[0].detail, None, "done clears the stale tool-name detail");
+        assert_eq!(sessions[0].detail.as_deref(), Some("Edit"));
     }
 
     #[test]
@@ -492,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn waiting_rows_sort_before_done_then_most_recent_first() {
+    fn only_waiting_rows_are_listed_most_recent_first() {
         let (_dir, mut store) = open_store();
         store
             .record_agent_event(set_state_event(AgentKind::Claude, "done-old", AgentState::Done, None), 1_000_000)
@@ -506,9 +507,12 @@ mod tests {
                 1_000_100,
             )
             .unwrap();
-        let sessions = store.agent_sessions(1_000_200).unwrap();
+        store
+            .record_agent_event(set_state_event(AgentKind::Claude, "waiting-new", AgentState::Waiting, None), 1_000_300)
+            .unwrap();
+        let sessions = store.agent_sessions(1_000_300).unwrap();
         let ids: Vec<&str> = sessions.iter().map(|s| s.session_id.as_str()).collect();
-        assert_eq!(ids, ["waiting-old", "done-new", "done-old"]);
+        assert_eq!(ids, ["waiting-new", "waiting-old"], "done rows (no longer written) stay hidden");
     }
 
     #[test]
