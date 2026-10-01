@@ -11,6 +11,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         var selectAgentSession: (AgentSessionSnapshot) -> Void
         var enableNotifications: () -> Void
         var toggleNotifyLongWait: () -> Void
+        var toggleClickUp: () -> Void
         var exportBackup: () -> Void
         var exportSpreadsheet: () -> Void
         var importNotes: () -> Void
@@ -35,6 +36,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     var notificationsAuthorized: () -> Bool = { false }
     var jumpShortcutAvailable: () -> Bool = { true }
     var notesShortcutAvailable: () -> Bool = { true }
+    var clickUpConnected: () -> Bool = { false }
+    var clickUpStatus: () -> String? = { nil }
 
     init(
         actions: Actions,
@@ -119,25 +122,32 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             menu.addItem(note)
         }
         menu.addItem(.separator())
+        menu.addItem(item(clickUpConnected() ? "Disconnect ClickUp" : "Connect ClickUp…", #selector(toggleClickUp)))
+        if let status = clickUpStatus() {
+            let line = NSMenuItem(title: status, action: nil, keyEquivalent: "")
+            line.isEnabled = false
+            menu.addItem(line)
+        }
+        menu.addItem(.separator())
         let note = NSMenuItem(title: "Reminders already scheduled with macOS still arrive after quitting.", action: nil, keyEquivalent: "")
         note.isEnabled = false
         menu.addItem(note)
         menu.addItem(item("Quit Rallo", #selector(quit), key: "q"))
     }
 
-    /// "Agents" section above the rest of the menu, same rows and order as
-    /// the panel's (0007/0008): choosing one brings its terminal forward,
-    /// nothing here dismisses a session.
+    /// "Waiting for You" section above the rest of the menu, same rows and
+    /// order as the panel's (0007/0008/0010): choosing one brings its
+    /// terminal or ClickUp conversation forward, nothing here dismisses one.
     private func populateAgentsSection(_ menu: NSMenu) {
         let sessions = AgentSessionFormatting.sorted(agentSessions())
         guard !sessions.isEmpty else { return }
-        let header = NSMenuItem(title: "Agents", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Waiting for You", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         for session in sessions {
             let row = NSMenuItem(title: Self.agentMenuLine(for: session), action: #selector(selectAgentSession(_:)), keyEquivalent: "")
             row.target = self
-            row.isEnabled = session.appPath != nil
+            row.isEnabled = session.isActionable
             row.representedObject = session
             menu.addItem(row)
         }
@@ -193,6 +203,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
     @objc private func enableNotifications() { actions.enableNotifications() }
     @objc private func toggleNotifyLongWait() { actions.toggleNotifyLongWait() }
+    @objc private func toggleClickUp() { actions.toggleClickUp() }
     @objc private func exportBackup() { actions.exportBackup() }
     @objc private func exportSpreadsheet() { actions.exportSpreadsheet() }
     @objc private func importNotes() { actions.importNotes() }

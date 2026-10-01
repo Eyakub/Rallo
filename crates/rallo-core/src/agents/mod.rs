@@ -25,10 +25,10 @@ const STATE_SEQ_KEY: &str = "agents.state_seq";
 /// known agent process.
 pub(crate) const FRESH_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 
-const RUNTIME_SCHEMA_VERSION: i64 = 1;
+const RUNTIME_SCHEMA_VERSION: i64 = 2;
 const RUNTIME_SCHEMA: &str = "
 CREATE TABLE runtime.agent_sessions (
-  agent            TEXT NOT NULL CHECK (agent IN ('claude', 'codex')),
+  agent            TEXT NOT NULL CHECK (agent IN ('claude', 'codex', 'clickup')),
   session_id       TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 200),
   state            TEXT NOT NULL CHECK (state IN ('working', 'waiting')),
   place            TEXT CHECK (place IS NULL OR length(place) <= 300),
@@ -69,6 +69,7 @@ pub(crate) fn ensure_runtime_schema(conn: &mut Connection) -> CoreResult<()> {
 pub enum AgentKind {
     Claude,
     Codex,
+    ClickUp,
 }
 
 impl AgentKind {
@@ -76,6 +77,7 @@ impl AgentKind {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::ClickUp => "clickup",
         }
     }
 
@@ -83,6 +85,7 @@ impl AgentKind {
         match value {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
+            "clickup" => Some(Self::ClickUp),
             _ => None,
         }
     }
@@ -109,6 +112,22 @@ impl AgentState {
             _ => None,
         }
     }
+}
+
+/// One conversation in an external service waiting on the user (0010):
+/// the app polls the service and replaces that source's rows wholesale.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalWaiting {
+    /// Conversation id; becomes the row's `session_id`.
+    pub id: String,
+    /// Display name of whoever is waiting; becomes `place`.
+    pub who: String,
+    /// A group conversation (`detail` = "group"), else a direct one.
+    pub group: bool,
+    pub app_path: Option<String>,
+    pub focus: Option<String>,
+    /// Time of the latest message; becomes `updated_at_ms`.
+    pub latest_at_ms: i64,
 }
 
 /// An agent process: pid plus start time, which together tell a live agent
@@ -387,6 +406,81 @@ impl Store {
         }
         tx.commit()?;
         Ok(!dead.is_empty())
+    }
+
+    /// Replaces `agent`'s rows with the conversations now waiting on the
+    /// user (0010); an empty slice clears the source. A new conversation or
+    /// a newer message bumps the state seq (the pet waves); a mere change
+    /// of display fields does not. Other agents' rows are never touched.
+    /// Returns whether anything changed.
+    pub fn sync_external_waiting(&mut self, agent: AgentKind, items: &[ExternalWaiting]) -> CoreResult<bool> {
+        let tx = self.write_tx()?;
+        let mut changed = false;
+        let mut keep = Vec::new();
+        for item in items {
+            // Stay inside the table's CHECKs rather than fail the whole sync.
+            if item.id.is_empty() || item.id.chars().count() > 200 {
+                continue;
+            }
+            let place: String = item.who.chars().take(100).collect();
+            let detail = item.group.then_some("group");
+            let focus = item.focus.as_ref().filter(|f| f.chars().count() <= 200);
+            let app_path = item.app_path.as_ref().filter(|p| p.chars().count() <= 4096);
+            keep.push(item.id.as_str());
+            match fetch_row(&tx, agent, &item.id)? {
+                None => {
+                    let seq = bump_state_seq(&tx)?;
+                    tx.execute(
+                        &format!(
+                            "INSERT INTO runtime.agent_sessions ({SESSION_COLUMNS})
+                             VALUES (?1, ?2, 'waiting', ?3, ?4, ?5, NULL, ?6, NULL, NULL, ?7, ?8)"
+                        ),
+                        params![agent.as_str(), item.id, place, detail, app_path, focus, seq, item.latest_at_ms],
+                    )?;
+                    changed = true;
+                }
+                Some(existing) if item.latest_at_ms > existing.updated_at_ms => {
+                    let seq = bump_state_seq(&tx)?;
+                    tx.execute(
+                        "UPDATE runtime.agent_sessions SET state = 'waiting', place = ?3, detail = ?4, app_path = ?5,
+                            focus = ?6, state_seq = ?7, updated_at_ms = ?8 WHERE agent = ?1 AND session_id = ?2",
+                        params![agent.as_str(), item.id, place, detail, app_path, focus, seq, item.latest_at_ms],
+                    )?;
+                    changed = true;
+                }
+                Some(existing)
+                    if existing.place.as_deref() != Some(place.as_str())
+                        || existing.detail.as_deref() != detail
+                        || existing.app_path.as_ref() != app_path
+                        || existing.focus.as_ref() != focus =>
+                {
+                    tx.execute(
+                        "UPDATE runtime.agent_sessions SET place = ?3, detail = ?4, app_path = ?5, focus = ?6
+                         WHERE agent = ?1 AND session_id = ?2",
+                        params![agent.as_str(), item.id, place, detail, app_path, focus],
+                    )?;
+                    changed = true;
+                }
+                Some(_) => {}
+            }
+        }
+        let stale: Vec<String> = {
+            let mut statement = tx.prepare("SELECT session_id FROM runtime.agent_sessions WHERE agent = ?1")?;
+            let ids = statement.query_map([agent.as_str()], |row| row.get::<_, String>(0))?;
+            ids.collect::<Result<Vec<_>, _>>()?
+        };
+        for id in stale.iter().filter(|id| !keep.contains(&id.as_str())) {
+            tx.execute(
+                "DELETE FROM runtime.agent_sessions WHERE agent = ?1 AND session_id = ?2",
+                params![agent.as_str(), id],
+            )?;
+            changed = true;
+        }
+        if changed {
+            bump_revision(&tx)?;
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 
     /// Fresh (≤24h) `waiting` rows, most recent first: `rallo agents` and
@@ -817,5 +911,98 @@ mod tests {
         assert!(store.set_agents_notify_long_wait(false).unwrap());
         assert!(!store.agents_notify_long_wait().unwrap());
         assert_eq!(store.change_revision().unwrap(), 2);
+    }
+
+    fn waiting(id: &str, who: &str, group: bool, at: i64) -> ExternalWaiting {
+        ExternalWaiting {
+            id: id.to_owned(),
+            who: who.to_owned(),
+            group,
+            app_path: Some("/Applications/ClickUp.app".to_owned()),
+            focus: Some(format!("https://app.clickup.com/chat/{id}")),
+            latest_at_ms: at,
+        }
+    }
+
+    #[test]
+    fn external_sync_inserts_then_ignores_an_identical_resync() {
+        let (_dir, mut store) = open_store();
+        let items = [waiting("a", "Ann", false, 1_000_000), waiting("b", "Team", true, 1_000_100)];
+        assert!(store.sync_external_waiting(AgentKind::ClickUp, &items).unwrap());
+        let rows = store.agent_sessions(1_001_000).unwrap();
+        assert_eq!(rows.len(), 2);
+        let team = rows.iter().find(|r| r.session_id == "b").unwrap();
+        assert_eq!(team.agent, AgentKind::ClickUp);
+        assert_eq!(team.place.as_deref(), Some("Team"));
+        assert_eq!(team.detail.as_deref(), Some("group"));
+        assert_eq!(team.focus.as_deref(), Some("https://app.clickup.com/chat/b"));
+        let ann = rows.iter().find(|r| r.session_id == "a").unwrap();
+        assert_eq!(ann.detail, None);
+        let revision = store.change_revision().unwrap();
+        assert!(!store.sync_external_waiting(AgentKind::ClickUp, &items).unwrap());
+        assert_eq!(store.change_revision().unwrap(), revision);
+    }
+
+    #[test]
+    fn external_sync_bumps_the_seq_only_for_a_newer_message() {
+        let (_dir, mut store) = open_store();
+        store.sync_external_waiting(AgentKind::ClickUp, &[waiting("a", "Ann", false, 1_000_000)]).unwrap();
+        let first = store.agent_sessions(1_001_000).unwrap().remove(0);
+        // Display-only change: kept timestamp, no seq bump.
+        assert!(store.sync_external_waiting(AgentKind::ClickUp, &[waiting("a", "Ann B", false, 1_000_000)]).unwrap());
+        let renamed = store.agent_sessions(1_001_000).unwrap().remove(0);
+        assert_eq!((renamed.place.as_deref(), renamed.state_seq), (Some("Ann B"), first.state_seq));
+        assert_eq!(renamed.updated_at_ms, 1_000_000);
+        assert!(store.sync_external_waiting(AgentKind::ClickUp, &[waiting("a", "Ann B", false, 1_000_500)]).unwrap());
+        let newer = store.agent_sessions(1_001_000).unwrap().remove(0);
+        assert!(newer.state_seq > first.state_seq);
+        assert_eq!(newer.updated_at_ms, 1_000_500);
+    }
+
+    #[test]
+    fn external_sync_deletes_omitted_ids_and_an_empty_slice_clears() {
+        let (_dir, mut store) = open_store();
+        let both = [waiting("a", "Ann", false, 1_000_000), waiting("b", "Bo", false, 1_000_100)];
+        store.sync_external_waiting(AgentKind::ClickUp, &both).unwrap();
+        assert!(store.sync_external_waiting(AgentKind::ClickUp, &both[..1]).unwrap());
+        let rows = store.agent_sessions(1_001_000).unwrap();
+        assert_eq!(rows.iter().map(|r| r.session_id.as_str()).collect::<Vec<_>>(), ["a"]);
+        assert!(store.sync_external_waiting(AgentKind::ClickUp, &[]).unwrap());
+        assert!(store.agent_sessions(1_001_000).unwrap().is_empty());
+        assert!(!store.sync_external_waiting(AgentKind::ClickUp, &[]).unwrap());
+    }
+
+    #[test]
+    fn external_sync_leaves_other_agents_and_survives_a_dead_process_prune() {
+        let (_dir, mut store) = open_store();
+        let located = located(None, Some(AgentProcessId { pid: 9, started_us: 1 }));
+        let event = AgentEvent::SetState {
+            agent: AgentKind::Claude,
+            session_id: "c1".to_owned(),
+            state: AgentState::Waiting,
+            place: None,
+            detail: None,
+            location: located,
+        };
+        store.record_agent_event(event, 1_000_000, &alive).unwrap();
+        store.sync_external_waiting(AgentKind::ClickUp, &[waiting("a", "Ann", false, 1_000_000)]).unwrap();
+        store.sync_external_waiting(AgentKind::ClickUp, &[]).unwrap();
+        assert_eq!(store.agent_sessions(1_001_000).unwrap().len(), 1);
+        store.sync_external_waiting(AgentKind::ClickUp, &[waiting("a", "Ann", false, 1_000_000)]).unwrap();
+        // The Claude row's process is gone; the ClickUp row has none to lose.
+        assert!(store.prune_agent_sessions(1_001_000, &|_| false).unwrap());
+        let rows = store.agent_sessions(1_001_000).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].agent, AgentKind::ClickUp);
+    }
+
+    #[test]
+    fn external_sync_truncates_who_and_skips_bad_ids() {
+        let (_dir, mut store) = open_store();
+        let items = [waiting("a", &"x".repeat(150), false, 1_000_000), waiting("", "No id", false, 1_000_000)];
+        store.sync_external_waiting(AgentKind::ClickUp, &items).unwrap();
+        let rows = store.agent_sessions(1_001_000).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].place.as_ref().unwrap().chars().count(), 100);
     }
 }

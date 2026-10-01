@@ -19,6 +19,7 @@ final class AppCoordinator {
     private let terminalSetup: TerminalSetupController
     private let petState: PetStateDriver
     private let agentWaitNotifier: AgentWaitNotifier
+    private let clickUp: ClickUpWatcher
     private let globalShortcuts = GlobalShortcuts()
     private var animationsPaused = false
     private var statusMenu: StatusMenuController?
@@ -47,6 +48,7 @@ final class AppCoordinator {
         transfer = TransferController(core: core, log: log)
         terminalSetup = TerminalSetupController(log: log)
         petState = PetStateDriver(core: core, pet: pet, log: log)
+        clickUp = ClickUpWatcher(core: core, log: log)
         // The wait-threshold testing override (0008) only ever applies to a
         // scratch instance started with an explicit --data-dir.
         agentWaitNotifier = AgentWaitNotifier(adapter: notifications.adapter, log: log, allowThresholdOverride: options.dataDir != nil)
@@ -66,6 +68,7 @@ final class AppCoordinator {
                 selectAgentSession: { [weak self] session in self?.activateAgent(session) },
                 enableNotifications: { [weak self] in Task { await self?.enableNotifications() } },
                 toggleNotifyLongWait: { [weak self] in Task { await self?.toggleNotifyLongWait() } },
+                toggleClickUp: { [weak self] in self?.toggleClickUp() },
                 exportBackup: { [weak self] in self?.transfer.export(.json) },
                 exportSpreadsheet: { [weak self] in self?.transfer.export(.csv) },
                 importNotes: { [weak self] in self?.transfer.importFile() },
@@ -87,6 +90,8 @@ final class AppCoordinator {
         menu.notificationsAuthorized = { [weak self] in self?.notificationsAuthorized ?? false }
         menu.jumpShortcutAvailable = { [weak self] in self?.globalShortcuts.jumpRegistered ?? true }
         menu.notesShortcutAvailable = { [weak self] in self?.globalShortcuts.toggleNotesRegistered ?? true }
+        menu.clickUpConnected = { [weak self] in self?.clickUp.isConnected ?? false }
+        menu.clickUpStatus = { [weak self] in self?.clickUp.status }
         menu.install()
         statusMenu = menu
 
@@ -126,6 +131,8 @@ final class AppCoordinator {
             try await core.open()
             storageReady = true
             excludeRuntimeFromBackups()
+            clickUp.onChange = { [weak self] in Task { await self?.checkForChanges() } }
+            clickUp.start()
         } catch {
             log.record("storage_open_failed", ["error": "\(error)"])
             notificationSummary = "Storage unavailable — run `rallo doctor`"
@@ -236,7 +243,8 @@ final class AppCoordinator {
         notifyLongWaitEnabled = (try? await core.agentsNotifyLongWait()) ?? false
         statusMenu?.refreshAgents(agentSessions)
         if let reminderPrefix = try? await core.notificationIdentifierPrefix() {
-            agentWaitNotifier.reload(sessions: agentSessions, reminderPrefix: reminderPrefix)
+            // ClickUp sends its own banners (0010); the long wait is for agents.
+            agentWaitNotifier.reload(sessions: agentSessions.filter { !$0.isClickUp }, reminderPrefix: reminderPrefix)
         }
         petState.refresh()
     }
@@ -313,6 +321,46 @@ final class AppCoordinator {
             timer.tolerance = 5
             RunLoop.main.add(timer, forMode: .common)
             livenessTimer = timer
+        }
+    }
+
+    /// "Connect ClickUp…" asks for a personal API token and checks it with
+    /// ClickUp before keeping it in the Keychain; "Disconnect ClickUp"
+    /// forgets it and clears its rows (0010).
+    private func toggleClickUp() {
+        if clickUp.isConnected {
+            Task { await clickUp.disconnect() }
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Connect ClickUp"
+        alert.informativeText = """
+        Rallo checks ClickUp once a minute and lists direct messages waiting for your reply. \
+        Paste a personal API token from ClickUp → Settings → Apps. It stays in your Keychain; \
+        Rallo never stores message text.
+        """
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.placeholderString = "pk_…"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Connect")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let token = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return }
+        Task {
+            do {
+                try await clickUp.connect(token: token)
+            } catch {
+                let failure = NSAlert()
+                failure.messageText = "ClickUp didn’t accept that token"
+                failure.informativeText = error is ClickUpError
+                    ? "Check that you copied the whole token (it starts with pk_)."
+                    : "Rallo couldn’t reach ClickUp. Check your connection and try again."
+                NSApp.activate()
+                failure.runModal()
+            }
         }
     }
 

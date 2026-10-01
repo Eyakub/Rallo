@@ -4,6 +4,13 @@ extension AgentSessionSnapshot {
     /// Unique across agents: `sessionId` alone repeats between Claude Code
     /// and Codex.
     var rowID: String { "\(agent)#\(sessionId)" }
+
+    /// A ClickUp conversation (0010) rather than a coding agent.
+    var isClickUp: Bool { agent == "clickup" }
+
+    /// Whether a click can take the user there: an agent's terminal app, or
+    /// a ClickUp conversation's address.
+    var isActionable: Bool { appPath != nil || (isClickUp && focus?.hasPrefix("clickup:") == true) }
 }
 
 /// Formats an `AgentSessionSnapshot` for the panel's "Agents" section
@@ -25,6 +32,7 @@ enum AgentSessionFormatting {
         switch agent {
         case "claude": "Claude Code"
         case "codex": "Codex"
+        case "clickup": "ClickUp"
         default: agent
         }
     }
@@ -46,6 +54,7 @@ enum AgentSessionFormatting {
     /// "Claude Code · code/rallo", or "Claude Code" alone when the place is
     /// unknown.
     static func title(for session: AgentSessionSnapshot) -> String {
+        if session.isClickUp { return place(for: session) ?? "ClickUp" }
         let name = agentName(session.agent)
         guard let place = place(for: session) else { return name }
         return "\(name) · \(place)"
@@ -54,6 +63,7 @@ enum AgentSessionFormatting {
     /// What the agent is asking, plus its terminal when known: "Asks to use
     /// Bash · cmux", "Has a question for you", "Waiting for your answer".
     static func subtitle(for session: AgentSessionSnapshot) -> String {
+        if session.isClickUp { return session.detail == "group" ? "Group message on ClickUp" : "Messaged you on ClickUp" }
         let ask: String
         switch (session.state, session.detail ?? "") {
         case ("waiting", "AskUserQuestion"): ask = "Has a question for you"
@@ -76,6 +86,9 @@ enum AgentSessionFormatting {
     /// The row's single accessibility label, e.g. "Claude Code in rallo,
     /// waiting for permission: Bash, 2 minutes ago".
     static func accessibilityLabel(for session: AgentSessionSnapshot, now: Date = Date()) -> String {
+        if session.isClickUp {
+            return "\(waitingAnnouncement(for: session).dropLast()), \(accessibleTime(updatedAtMs: session.updatedAtMs, now: now))"
+        }
         let name = agentName(session.agent)
         let location = place(for: session).map { " in \($0)" } ?? ""
         return "\(name)\(location), \(accessibleState(for: session)), \(accessibleTime(updatedAtMs: session.updatedAtMs, now: now))"
@@ -92,6 +105,10 @@ enum AgentSessionFormatting {
     /// "Claude Code in shop is waiting for permission: Bash.", for the
     /// VoiceOver announcement when a session enters `waiting` (0008).
     static func waitingAnnouncement(for session: AgentSessionSnapshot) -> String {
+        if session.isClickUp {
+            let who = place(for: session) ?? "Someone"
+            return session.detail == "group" ? "\(who) wrote in a group message on ClickUp." : "\(who) messaged you on ClickUp."
+        }
         let name = agentName(session.agent)
         let location = place(for: session).map { " in \($0)" } ?? ""
         return "\(name)\(location) is \(accessibleState(for: session))."

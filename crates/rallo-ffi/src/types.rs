@@ -523,6 +523,31 @@ impl From<core_agents::AgentSession> for AgentSessionSnapshot {
     }
 }
 
+/// One ClickUp conversation waiting on the user, pushed by the app after it
+/// polls ClickUp (0010).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ExternalWaitingInput {
+    pub id: String,
+    pub who: String,
+    pub group: bool,
+    pub app_path: Option<String>,
+    pub focus: Option<String>,
+    pub latest_at_ms: i64,
+}
+
+impl From<ExternalWaitingInput> for core_agents::ExternalWaiting {
+    fn from(value: ExternalWaitingInput) -> Self {
+        Self {
+            id: value.id,
+            who: value.who,
+            group: value.group,
+            app_path: value.app_path,
+            focus: value.focus,
+            latest_at_ms: value.latest_at_ms,
+        }
+    }
+}
+
 // --- Pet reducer (plan §2; 0006) ------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]

@@ -12,6 +12,34 @@ final class AgentSessionFormattingTests: XCTestCase {
                              appPath: appPath, appPid: nil, focus: nil, updatedAtMs: updatedAtMs)
     }
 
+    // MARK: ClickUp (0010)
+
+    private func clickUp(who: String? = "Muhsin Ahmed", group: Bool = false, updatedAtMs: Int64 = 0) -> AgentSessionSnapshot {
+        AgentSessionSnapshot(agent: "clickup", sessionId: "2kyqzpv9-1", state: "waiting", place: who,
+                             detail: group ? "group" : nil, appPath: nil, appPid: nil,
+                             focus: "clickup:1:2kyqzpv9-1", updatedAtMs: updatedAtMs)
+    }
+
+    func testClickUpRowsNameThePerson() {
+        XCTAssertEqual(AgentSessionFormatting.title(for: clickUp()), "Muhsin Ahmed")
+        XCTAssertEqual(AgentSessionFormatting.subtitle(for: clickUp()), "Messaged you on ClickUp")
+        XCTAssertEqual(AgentSessionFormatting.subtitle(for: clickUp(group: true)), "Group message on ClickUp")
+        XCTAssertEqual(AgentSessionFormatting.title(for: clickUp(who: nil)), "ClickUp")
+    }
+
+    func testClickUpRowsAreClickableWithoutTheDesktopApp() {
+        XCTAssertTrue(clickUp().isActionable)
+        XCTAssertFalse(session(appPath: nil).isActionable)
+    }
+
+    func testClickUpSpokenText() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let row = clickUp(updatedAtMs: Int64(now.timeIntervalSince1970 * 1000) - 3 * 60_000)
+        XCTAssertEqual(AgentSessionFormatting.waitingAnnouncement(for: row), "Muhsin Ahmed messaged you on ClickUp.")
+        XCTAssertEqual(AgentSessionFormatting.accessibilityLabel(for: row, now: now),
+                       "Muhsin Ahmed messaged you on ClickUp, 3 minutes ago")
+    }
+
     // MARK: Title
 
     func testTitleUsesThePlaceAndAgentDisplayName() {

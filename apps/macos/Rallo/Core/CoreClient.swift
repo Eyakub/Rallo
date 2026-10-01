@@ -168,6 +168,12 @@ final class CoreClient {
         try await worker.perform { try $0.agentSessions() }
     }
 
+    /// Replaces the ClickUp rows with the conversations now waiting (0010).
+    @discardableResult
+    func syncClickupWaiting(_ items: [ExternalWaitingInput]) async throws -> Bool {
+        try await worker.perform { try $0.syncClickupWaiting(items: items) }
+    }
+
     @discardableResult
     func dismissAgentSession(_ session: AgentSessionSnapshot) async throws -> Bool {
         try await worker.perform { try $0.dismissAgentSession(agent: session.agent, sessionId: session.sessionId) }

@@ -184,10 +184,10 @@ fn an_already_seen_waiting_agent_is_silent_once_due_is_steady() {
 #[test]
 fn accessibility_label_appends_waiting_agents() {
     let with_one = PetSnapshot { agents_waiting: 1, ..snap(0, 0, None, 0, 0) };
-    assert_eq!(decide(&inputs(with_one)).accessibility_label, "Rallo, no open notes, 1 agent waiting");
+    assert_eq!(decide(&inputs(with_one)).accessibility_label, "Rallo, no open notes, 1 waiting for you");
 
     let with_two = PetSnapshot { agents_waiting: 2, ..snap(0, 1, None, 0, 0) };
-    assert_eq!(decide(&inputs(with_two)).accessibility_label, "Rallo, 1 reminder due, 2 agents waiting");
+    assert_eq!(decide(&inputs(with_two)).accessibility_label, "Rallo, 1 reminder due, 2 waiting for you");
 }
 
 #[test]

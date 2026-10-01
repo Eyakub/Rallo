@@ -271,6 +271,13 @@ impl RalloStore {
         Ok(store.agent_sessions(now_ms)?.into_iter().map(Into::into).collect())
     }
 
+    /// Replaces the ClickUp rows with the conversations now waiting on the
+    /// user (0010); `Ok(true)` when anything changed. An empty list clears them.
+    pub fn sync_clickup_waiting(&self, items: Vec<ExternalWaitingInput>) -> Result<bool, RalloError> {
+        let items: Vec<_> = items.into_iter().map(Into::into).collect();
+        Ok(self.store().sync_external_waiting(rallo_core::agents::AgentKind::ClickUp, &items)?)
+    }
+
     /// Removes one tracked session (the panel's ✕). `true` if it existed.
     pub fn dismiss_agent_session(&self, agent: String, session_id: String) -> Result<bool, RalloError> {
         let agent = rallo_core::agents::AgentKind::parse(&agent).ok_or_else(|| RalloError::InvalidInput {

@@ -77,11 +77,11 @@ private struct AgentRow: View {
     @State private var hovering = false
 
     private static let accent = Color(nsColor: NSColor(hex: 0x2F6FB0))
-    private var clickable: Bool { session.appPath != nil }
+    private var clickable: Bool { session.isActionable }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "terminal")
+            Image(systemName: session.isClickUp ? "bubble.left" : "terminal")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.bark)
                 .frame(width: 20, height: 20)

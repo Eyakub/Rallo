@@ -104,6 +104,14 @@ enum AgentFocusTarget: Equatable {
 /// is already in front.
 enum AgentSessionActivation {
     static func activate(_ session: AgentSessionSnapshot) {
+        if session.isClickUp {
+            // `clickup://` opens the conversation in the desktop app (0010);
+            // without it, the same page opens in the browser.
+            if let url = ClickUpWaiting.link(focus: session.focus, desktop: session.appPath != nil) {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
         guard let appPath = session.appPath else { return }
         let url = URL(fileURLWithPath: appPath).standardizedFileURL
         bringForward(url)

@@ -322,11 +322,21 @@ fn agent_kind_label(agent: AgentKind) -> &'static str {
     match agent {
         AgentKind::Claude => "Claude Code",
         AgentKind::Codex => "Codex",
+        AgentKind::ClickUp => "ClickUp",
     }
 }
 
 fn agent_line(session: &AgentSession, now_ms: i64) -> String {
     let label = agent_kind_label(session.agent);
+    if session.agent == AgentKind::ClickUp {
+        let what = if session.detail.as_deref() == Some("group") { "Group message" } else { "Messaged you" };
+        return format!(
+            "{}  {label} · {} — {what} · {}",
+            session.state.as_str(),
+            session.place.as_deref().unwrap_or("someone"),
+            agent_age(now_ms, session.updated_at_ms)
+        );
+    }
     let location = session.place.as_deref().unwrap_or("unknown directory");
     format!(
         "{}  {label} · {location} — {} · {}",

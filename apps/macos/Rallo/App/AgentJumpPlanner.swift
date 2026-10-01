@@ -22,7 +22,7 @@ enum AgentJumpPlanner {
     /// most-recent first. A session Rallo can't bring forward (no known
     /// terminal, `appPath` nil) is never in the cycle.
     static func order(_ sessions: [AgentSessionSnapshot]) -> [AgentSessionSnapshot] {
-        let actionable = sessions.filter { $0.appPath != nil }
+        let actionable = sessions.filter(\.isActionable)
         let waiting = actionable.filter { $0.state == "waiting" }.sorted { $0.updatedAtMs < $1.updatedAtMs }
         let done = actionable.filter { $0.state == "done" }.sorted { $0.updatedAtMs > $1.updatedAtMs }
         return waiting + done

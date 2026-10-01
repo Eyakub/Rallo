@@ -171,11 +171,7 @@ fn accessibility_label(snapshot: &PetSnapshot) -> String {
         "Rallo, no open notes".to_owned()
     };
     if snapshot.agents_waiting > 0 {
-        label.push_str(&format!(
-            ", {} agent{} waiting",
-            snapshot.agents_waiting,
-            if snapshot.agents_waiting == 1 { "" } else { "s" }
-        ));
+        label.push_str(&format!(", {} waiting for you", snapshot.agents_waiting));
     }
     label
 }
