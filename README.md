@@ -106,8 +106,8 @@ the same interface you do. `rallo --help` lists them all;
 |---|---|
 | **Notes panel** | Click the pet or press **⌃⌥⌘N**. Add, edit, complete, and snooze notes; a "Waiting for you" section lists agents and people who need you; swipe one sideways to dismiss it. |
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
-| **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, export and import, updates (including an opt-in daily check). |
-| **Voice typing (experimental)** | Turn it on in Settings → Voice, then press **⌃⌥⌘V**, talk, and Rallo types into whatever app has focus; press again to stop (it also stops after 10 s of silence). Pick Apple's built-in engine (macOS 26), Whisper large-v3 turbo (macOS 14+, a 1.6 GB download you start yourself), or a cloud engine that uses your own Groq, OpenAI or compatible API key (macOS 14+). Needs Microphone and Accessibility access. |
+| **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, voice typing, export and import, updates (including an opt-in daily check). |
+| **Voice typing (experimental)** | Turn it on in Settings → Voice, then press **⌃⌥⌘V**, talk, and Rallo types into whatever app has focus; press again to stop (it also stops after 10 s of silence). Pick Apple's built-in engine (macOS 26), Whisper large-v3 turbo (macOS 14+, a 1.6 GB download you start yourself), or a cloud engine that uses your own Groq, OpenAI or compatible API key (macOS 14+). It never presses Return, so a dictated command waits for you in the terminal. Add names it should know ("Rallo", your teammates) under Words to recognize; "um"s and stutters ("like like") are dropped. The pet cups an ear while it listens. Needs Microphone and Accessibility access. |
 | **Reminders** | Delivered by macOS Notification Center, even after Rallo quits. Up to 32 active at once. |
 
 <p align="center">
