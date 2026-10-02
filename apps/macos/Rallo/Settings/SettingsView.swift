@@ -83,6 +83,7 @@ private func line(_ text: String) -> some View {
 
 private struct GeneralTab: View {
     @ObservedObject var model: SettingsModel
+    @AppStorage(VoiceText.wordsKey) private var voiceWords = ""
 
     var body: some View {
         Page {
@@ -98,6 +99,9 @@ private struct GeneralTab: View {
             if model.voiceTypingAvailable {
                 caption("Experimental. Press ⌃⌥⌘V, talk, and Rallo types into whatever you’re using; press again to stop. Runs on your Mac; audio isn’t saved. Needs Microphone and Accessibility access.")
                 if model.voiceTypingEnabled {
+                    TextField("Words to recognize", text: $voiceWords, prompt: Text("Names and terms, separated by commas"))
+                        .textFieldStyle(.roundedBorder)
+                    caption("Helps with names it would otherwise mishear. Rallo, ClickUp, cmux, Claude and Codex are already included.")
                     caption(model.voicePermissions)
                     if model.voiceAccessibilityMissing {
                         Button("Open Accessibility Settings…") { model.openAccessibilitySettings() }

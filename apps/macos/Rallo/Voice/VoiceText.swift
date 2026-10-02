@@ -2,6 +2,23 @@ import Foundation
 
 /// Pure text rules for voice typing (0013). Nothing here touches AppKit.
 enum VoiceText {
+    /// UserDefaults key for the user's "Words to recognize" (Settings → General).
+    static let wordsKey = "voiceTypingWords"
+    /// Words the engine would otherwise mishear ("Rallo" became "Rao").
+    static let builtInWords = ["Rallo", "ClickUp", "cmux", "Claude", "Codex"]
+
+    /// Built-in words plus the user's comma- or newline-separated list,
+    /// trimmed, without duplicates (case-insensitive), at most 100.
+    static func contextWords(userList: String) -> [String] {
+        var seen = Set<String>()
+        var words: [String] = []
+        let user = userList.split(whereSeparator: { $0 == "," || $0.isNewline }).map { $0.trimmingCharacters(in: .whitespaces) }
+        for word in builtInWords + user where !word.isEmpty && seen.insert(word.lowercased()).inserted {
+            words.append(word)
+        }
+        return Array(words.prefix(100))
+    }
+
     /// Newlines, carriage returns, and tabs become spaces, and runs of spaces
     /// collapse, so typed text can never press Return or Tab in a terminal.
     static func sanitize(_ s: String) -> String {

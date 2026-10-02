@@ -27,4 +27,10 @@ final class VoiceTextTests: XCTestCase {
         XCTAssertEqual(VoiceText.chunks("😀😀😀", maxUTF16: 4), ["😀😀", "😀"])
         XCTAssertEqual(VoiceText.chunks(""), [])
     }
+
+    func testContextWords() {
+        let words = VoiceText.contextWords(userList: " Muhsin, rallo ,\nSDS Manager,, ")
+        XCTAssertEqual(words, VoiceText.builtInWords + ["Muhsin", "SDS Manager"])
+        XCTAssertEqual(VoiceText.contextWords(userList: ""), VoiceText.builtInWords)
+    }
 }

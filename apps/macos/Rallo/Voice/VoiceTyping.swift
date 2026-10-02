@@ -182,6 +182,11 @@ final class VoiceSession {
 
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         self.analyzer = analyzer
+        // Biases recognition toward names it doesn't know ("Rallo" → "Rao" without it).
+        let context = AnalysisContext()
+        context.contextualStrings[.general] = VoiceText.contextWords(
+            userList: UserDefaults.standard.string(forKey: VoiceText.wordsKey) ?? "")
+        try await analyzer.setContext(context)
         let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
         self.continuation = continuation
 
