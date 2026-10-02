@@ -58,9 +58,9 @@ old one if anything fails), and relaunches it in the background with your
 pet shown or hidden as before. Re-running the install script also updates.
 
 What carries over, measured on this Mac across many ad-hoc-signed
-reinstalls (with the release certificate, Keychain access and app
-permissions carry over too, after one last prompt when coming from an ad-hoc
-release): your notes and settings (they live in
+reinstalls (with the release certificate, app permissions carry over too,
+after one last prompt when coming from an ad-hoc release; Keychain access
+doesn't, see "Signing"): your notes and settings (they live in
 `~/Library/Application Support/Razlio/Rallo`, never inside the app), the
 terminal command, and notification permission. macOS drops Rallo's pending
 notification requests when the app is replaced; the app re-adds future
@@ -153,11 +153,17 @@ bash scripts/install.sh --uninstall --purge  # also deletes them, after a JSON e
 Releases are signed with "Rallo Self-Signed", a code-signing certificate whose
 private key lives only in the maintainer's login Keychain
 ([decision 0012](decisions/0012-self-signed-release-certificate.md)). macOS
-then recognises every release as the same app, so permissions and the
-Keychain's "Always Allow" survive updates, and `rallo update` and
+then recognises every release as the same app, so permissions survive
+updates, and `rallo update` and
 `scripts/install.sh` refuse downloads not signed with it (the pin is
 `SIGNING_REQUIREMENT` in both). It isn't trusted by Apple, so Gatekeeper
 behaves as for an ad-hoc app.
+
+The Keychain is the exception. Without an Apple Team ID, macOS remembers
+"Always Allow" per build, so after each update it asks once for each item
+Rallo reads: the ClickUp token, and a cloud voice key if you saved one. Click
+**Always Allow** and enter your login password; plain "Allow" covers that
+launch only. Rallo reads each item at most once per launch.
 
 `scripts/build-macos.sh` re-signs the Xcode build when the certificate is in
 the Keychain (`RALLO_SIGN_IDENTITY` overrides the name) and leaves it ad-hoc

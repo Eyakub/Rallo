@@ -78,7 +78,9 @@ app. Look for the paw in the menu bar.
 > Rallo is signed with its own certificate, not notarized: there's no paid Apple Developer
 > account behind it. Installs through the script or `rallo update` open normally and are
 > checked against that certificate. A zip downloaded in a browser
-> needs **System Settings → Privacy & Security → Open Anyway** once.
+> needs **System Settings → Privacy & Security → Open Anyway** once. After each update,
+> macOS asks once before Rallo reads your ClickUp token or cloud voice key: click
+> **Always Allow**.
 
 If the installer adds `~/.local/bin` to your PATH, open a new terminal window before using
 `rallo`. Requirements: an Apple Silicon Mac with macOS 14 or later.
