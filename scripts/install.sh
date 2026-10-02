@@ -19,6 +19,9 @@ set -euo pipefail
 
 REPO="${RALLO_REPO:-Eyakub/Rallo}"
 BUNDLE_ID="com.razlio.rallo"
+# Rallo's self-signed release certificate (SHA-1 of the leaf), also pinned in
+# crates/rallo-platform-macos/src/update.rs; scripts/release.sh checks both match.
+SIGNING_REQUIREMENT='identifier "com.razlio.rallo" and certificate leaf = H"E380B07850CFC4E2CFB79A48DD00F42FD9C4D30E"'
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 version=""
@@ -135,6 +138,13 @@ new="$stage/unpacked/Rallo.app"
 [ -d "$new" ] || fail "the release doesn't contain Rallo.app"
 [ "$(plutil -extract CFBundleIdentifier raw "$new/Contents/Info.plist")" = "$BUNDLE_ID" ] || fail "unexpected bundle identifier"
 codesign --verify --deep --strict "$new" 2>/dev/null || fail "the app's signature doesn't verify; nothing was changed"
+# Downloads must be signed with Rallo's own certificate (docs/distribution.md,
+# "Signing"), so a replaced zip and checksum alone can't install anything.
+# `--from` is a local copy you chose; it only needs a valid signature.
+if [ -z "$from" ]; then
+  codesign --verify -R="$SIGNING_REQUIREMENT" "$new" 2>/dev/null ||
+    fail "the app isn't signed with Rallo's certificate (releases before 0.7.2 weren't); nothing was changed"
+fi
 new_version="$(plutil -extract CFBundleShortVersionString raw "$new/Contents/Info.plist")"
 xattr -dr com.apple.quarantine "$new" 2>/dev/null || true
 

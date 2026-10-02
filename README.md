@@ -75,8 +75,9 @@ The script downloads the latest release, checks its SHA-256 and signature, insta
 app. Look for the paw in the menu bar.
 
 > [!NOTE]
-> Rallo is ad-hoc signed, not notarized: there's no paid Apple Developer account behind it.
-> Installs through the script or `rallo update` open normally. A zip downloaded in a browser
+> Rallo is signed with its own certificate, not notarized: there's no paid Apple Developer
+> account behind it. Installs through the script or `rallo update` open normally and are
+> checked against that certificate. A zip downloaded in a browser
 > needs **System Settings → Privacy & Security → Open Anyway** once.
 
 If the installer adds `~/.local/bin` to your PATH, open a new terminal window before using

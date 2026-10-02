@@ -13,6 +13,21 @@ xcodebuild -project "$REPO_ROOT/apps/macos/Rallo.xcodeproj" -scheme Rallo -confi
   -derivedDataPath "$REPO_ROOT/build/DerivedData" -quiet build
 
 app="$REPO_ROOT/build/DerivedData/Build/Products/Release/Rallo.app"
+
+# Xcode signs ad-hoc. With Rallo's own certificate in the Keychain, re-sign
+# (helper first, then the app) so macOS keeps permissions and Keychain access
+# across updates (docs/distribution.md, "Signing"). Without it the build
+# stays ad-hoc, which is fine for development; scripts/release.sh refuses it.
+identity="${RALLO_SIGN_IDENTITY:-Rallo Self-Signed}"
+if security find-certificate -c "$identity" >/dev/null 2>&1; then
+  for code in "$app/Contents/Helpers/rallo" "$app"; do
+    codesign --force --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none \
+      --sign "$identity" "$code" 2>/dev/null
+  done
+  echo "signed: $identity"
+else
+  echo "note: no \"$identity\" certificate in the Keychain; the build stays ad-hoc signed" >&2
+fi
 echo "built: $app"
 
 if [ "${1:-}" = "--install" ]; then

@@ -1,8 +1,10 @@
 # Distribution without an Apple Developer ID
 
-Rallo ships as GitHub Releases of an **ad-hoc-signed, non-notarized** app for
-Apple Silicon (macOS 14+). There is no paid Apple Developer Program account,
-so there is no Developer ID signature and no notarization. That is fine for
+Rallo ships as GitHub Releases of an app signed with **Rallo's own
+self-signed certificate** (0.7.2 and later; earlier releases were ad-hoc
+signed), **not notarized**, for Apple Silicon (macOS 14+). There is no paid
+Apple Developer Program account, so there is no Developer ID signature and no
+notarization (see "Signing" below). That is fine for
 installs made by `rallo update`, `scripts/install.sh`, `gh`, or `curl`:
 those downloads are not quarantined, so Gatekeeper never blocks the app.
 
@@ -56,7 +58,9 @@ old one if anything fails), and relaunches it in the background with your
 pet shown or hidden as before. Re-running the install script also updates.
 
 What carries over, measured on this Mac across many ad-hoc-signed
-reinstalls: your notes and settings (they live in
+reinstalls (with the release certificate, Keychain access and app
+permissions carry over too, after one last prompt when coming from an ad-hoc
+release): your notes and settings (they live in
 `~/Library/Application Support/Razlio/Rallo`, never inside the app), the
 terminal command, and notification permission. macOS drops Rallo's pending
 notification requests when the app is replaced; the app re-adds future
@@ -144,6 +148,26 @@ bash scripts/install.sh --uninstall          # keeps your notes
 bash scripts/install.sh --uninstall --purge  # also deletes them, after a JSON export to ~/Downloads
 ```
 
+## Signing
+
+Releases are signed with "Rallo Self-Signed", a code-signing certificate whose
+private key lives only in the maintainer's login Keychain
+([decision 0012](decisions/0012-self-signed-release-certificate.md)). macOS
+then recognises every release as the same app, so permissions and the
+Keychain's "Always Allow" survive updates, and `rallo update` and
+`scripts/install.sh` refuse downloads not signed with it (the pin is
+`SIGNING_REQUIREMENT` in both). It isn't trusted by Apple, so Gatekeeper
+behaves as for an ad-hoc app.
+
+`scripts/build-macos.sh` re-signs the Xcode build when the certificate is in
+the Keychain (`RALLO_SIGN_IDENTITY` overrides the name) and leaves it ad-hoc
+otherwise; `scripts/release.sh` refuses an ad-hoc build.
+
+Back up the key: Keychain Access → login → My Certificates → "Rallo
+Self-Signed" → Export as a password-protected `.p12`, kept somewhere other
+than this Mac. Without it, a new certificate means new pins, and existing
+installs would have to reinstall with the install script once.
+
 ## Making a release (maintainer, on this Mac)
 
 ```sh
@@ -156,8 +180,8 @@ scripts/release.sh 0.2.0 --publish   # tag v0.2.0, push the tag, create the GitH
 `release.sh` refuses to run off `master`, with uncommitted tracked changes,
 with mismatched versions, or for an existing tag. It runs `cargo fmt`,
 clippy, the Rust and Swift tests, builds the Release app, and checks the
-bundle identifier, versions, signature, and that no binary links anything
-outside the OS. Assets:
+bundle identifier, versions, the release certificate (and that both pins
+match it), and that no binary links anything outside the OS. Assets:
 
 | Asset | Contents |
 |---|---|

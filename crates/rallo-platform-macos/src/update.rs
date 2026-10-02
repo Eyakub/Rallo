@@ -431,14 +431,25 @@ fn plist_string(app: &Path, key: &str) -> Result<String, UpdateError> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
+/// Rallo's self-signed release certificate (SHA-1 of the leaf), also pinned
+/// in scripts/install.sh; scripts/release.sh checks both match the build.
+/// An update must be signed with it, so a replaced zip and `SHA256SUMS`
+/// alone can't install anything (docs/distribution.md, "Signing").
+pub const SIGNING_REQUIREMENT: &str =
+    r#"identifier "com.razlio.rallo" and certificate leaf = H"E380B07850CFC4E2CFB79A48DD00F42FD9C4D30E""#;
+
 fn verify_codesign(app: &Path) -> Result<(), UpdateError> {
     let status = Command::new("/usr/bin/codesign")
         .args(["--verify", "--deep", "--strict"])
+        .arg(format!("-R={SIGNING_REQUIREMENT}"))
         .arg(app)
+        .stderr(Stdio::null())
         .status()
         .map_err(|error| UpdateError::Verification(format!("could not run codesign: {error}")))?;
     if !status.success() {
-        return Err(UpdateError::Verification("codesign could not verify the downloaded update".to_owned()));
+        return Err(UpdateError::Verification(
+            "the downloaded update isn't signed with Rallo's certificate".to_owned(),
+        ));
     }
     Ok(())
 }

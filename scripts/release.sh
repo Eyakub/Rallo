@@ -62,6 +62,13 @@ scripts/build-macos.sh >/dev/null
 [[ "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" == com.razlio.rallo ]] || fail "bundle id mismatch"
 "$app/Contents/Helpers/rallo" --version --json | grep -q "\"cli_version\":\"$version\"" || fail "CLI version mismatch"
 codesign --verify --deep --strict "$app" || fail "codesign verification failed"
+# Signed with Rallo's certificate, and the pins that updates check match it.
+requirement="$(sed -nE "s/^SIGNING_REQUIREMENT='(.*)'$/\1/p" scripts/install.sh)"
+[[ -n "$requirement" ]] || fail "no SIGNING_REQUIREMENT in scripts/install.sh"
+grep -qF "$requirement" crates/rallo-platform-macos/src/update.rs ||
+  fail "scripts/install.sh and update.rs pin different certificates"
+codesign --verify -R="$requirement" "$app" ||
+  fail "not signed with Rallo's certificate (is \"Rallo Self-Signed\" in the Keychain?)"
 if otool -L "$app/Contents/MacOS/Rallo" "$app/Contents/Helpers/rallo" | tail -n +2 | awk '{print $1}' |
   grep -vE '^(/usr/lib/|/System/Library/|.*:$)' | grep -q .; then
   fail "a binary links something outside the OS"
