@@ -30,6 +30,7 @@ final class WhisperVoiceSession: VoiceEngineSession {
     var onStatus: (String) -> Void = { _ in }
     var onResult: (String, Bool) -> Void = { _, _ in }
     var onFailure: (Error) -> Void = { _ in }
+    var onActivity: () -> Void = {}
 
     typealias Prepare = (_ status: (String) -> Void) async throws -> any SpeechTranscribing
 
@@ -39,6 +40,9 @@ final class WhisperVoiceSession: VoiceEngineSession {
     private let engine = AVAudioEngine()
     private let buffer = SampleBuffer()
     private var driver: Task<Void, Never>?
+    /// Set by `stop`: the driver flushes and delivers what is left, then ends.
+    /// Not task cancellation, which would cancel those last requests too.
+    private var stopRequested = false
     private let language = UserDefaults.standard.string(forKey: "voiceLanguage") ?? "auto"
     private let prompt = VoiceText.contextWords(userList: UserDefaults.standard.string(forKey: VoiceText.wordsKey) ?? "")
         .joined(separator: ", ")
@@ -55,7 +59,11 @@ final class WhisperVoiceSession: VoiceEngineSession {
             guard let path = await WhisperModel().locate() else {
                 throw VoiceMessage(text: "Download the Whisper model in Settings → Voice")
             }
-            try await WhisperEngine.shared.load(path: path.path)
+            do {
+                try await WhisperEngine.shared.load(path: path.path)
+            } catch {
+                throw VoiceMessage(text: "Couldn’t load the Whisper model. Delete it and download it again in Settings → Voice")
+            }
             return WhisperEngine.shared
         }
     }
@@ -88,13 +96,21 @@ final class WhisperVoiceSession: VoiceEngineSession {
         driver = Task { [weak self] in await self?.drive() }
     }
 
-    /// Stops the mic; the driver flushes, transcribes and delivers what is left.
+    /// Stops the mic; the driver flushes, transcribes and delivers what is
+    /// left. A drain stuck on the network is dropped after 15 s, so the next
+    /// start isn't held up.
     func stop() async {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        driver?.cancel()
+        stopRequested = true
+        let driver = self.driver
+        let limit = Task {
+            try await Task.sleep(for: .seconds(15))
+            driver?.cancel()
+        }
         await driver?.value
-        driver = nil
+        limit.cancel()
+        self.driver = nil
     }
 
     private func drive() async {
@@ -104,16 +120,18 @@ final class WhisperVoiceSession: VoiceEngineSession {
         var lastPreview = ContinuousClock.now
         do {
             while true {
-                let cancelled = Task.isCancelled
-                if !cancelled { try? await Task.sleep(for: .milliseconds(100)) }
+                // Read once: a stop during a delivery below is flushed next time round.
+                let stopping = stopRequested
+                if !stopping { try? await Task.sleep(for: .milliseconds(100)) }
                 let new = buffer.drain()
                 samples += new
                 var ranges = segmenter.append(new)
                 // ponytail: the last segment is flushed only on stop.
-                if cancelled || Task.isCancelled, let last = segmenter.flush() { ranges.append(last) }
+                if stopping, let last = segmenter.flush() { ranges.append(last) }
                 for range in ranges { try await deliver(range, from: samples, base: base, isFinal: true) }
-                if cancelled || Task.isCancelled { return }
-                if previews, let current = segmenter.current, current.count >= 8000, ContinuousClock.now - lastPreview >= .milliseconds(1200) {
+                if stopping { return }
+                if segmenter.current != nil { onActivity() }
+                if previews, !stopRequested, let current = segmenter.current, current.count >= 8000, ContinuousClock.now - lastPreview >= .milliseconds(1200) {
                     try await deliver(current, from: samples, base: base, isFinal: false)
                     lastPreview = .now
                 }
@@ -125,7 +143,7 @@ final class WhisperVoiceSession: VoiceEngineSession {
                 }
             }
         } catch {
-            onFailure(error)
+            if !Task.isCancelled { onFailure(error) }
         }
     }
 
@@ -133,6 +151,7 @@ final class WhisperVoiceSession: VoiceEngineSession {
         let lower = max(0, range.lowerBound - base)
         let upper = min(samples.count, range.upperBound - base)
         guard upper > lower, let transcriber else { return }
+        try Task.checkCancellation()
         let raw = try await transcriber.transcribe(samples: Array(samples[lower..<upper]), language: language, prompt: prompt)
         let text = WhisperText.clean(raw)
         if !text.isEmpty { onResult(text, isFinal) }

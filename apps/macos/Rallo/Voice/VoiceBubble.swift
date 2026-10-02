@@ -76,6 +76,9 @@ final class VoiceBubble {
 
     func hide() { panel.orderOut(nil) }
 
+    /// The mic is off; the text stays while the last phrase finishes.
+    func stopListening() { model.listening = false }
+
     private func origin(for size: NSSize) -> NSPoint {
         if let pet = petFrame() {
             let screen = NSScreen.screens.first { $0.frame.intersects(pet) } ?? NSScreen.main

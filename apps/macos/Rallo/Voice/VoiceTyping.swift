@@ -29,6 +29,8 @@ protocol VoiceEngineSession: AnyObject {
     var onStatus: (String) -> Void { get set }
     var onResult: (String, Bool) -> Void { get set }
     var onFailure: (Error) -> Void { get set }
+    /// Someone is still speaking (no text yet): keeps the silence stop away.
+    var onActivity: () -> Void { get set }
     func start() async throws
     func stop() async
 }
@@ -42,11 +44,18 @@ final class VoiceTyping {
 
     private let log: DiagnosticsLog
     private let bubble = VoiceBubble()
+    /// Set once a session has started; `stop` drains it.
     private var session: (any VoiceEngineSession)?
     private var startTask: Task<Void, Never>?
+    /// Bumped by every start. A slower, older start that finishes later sees
+    /// it changed and stops its own session instead of touching the new one.
+    private var attempt = 0
     private var silenceTimer: Timer?
+    private var heardAt = ContinuousClock.now
     private var hideTask: Task<Void, Never>?
     private var lastTyped: String?
+    /// Shown once the drain is done, instead of hiding the bubble.
+    private var failure: String?
     private(set) var isListening = false
     /// The pet's listening pose (on once the mic is live) and its nod per typed phrase.
     var onListening: (Bool) -> Void = { _ in }
@@ -67,38 +76,58 @@ final class VoiceTyping {
     func start() {
         guard !isListening, !stopping else { return }
         isListening = true
+        attempt += 1
+        let id = attempt
         lastTyped = nil
+        failure = nil
         hideTask?.cancel()
         bubble.show("Listening…", listening: true)
         startTask = Task { [weak self] in
             guard let self else { return }
-            guard await VoicePermissions.requestMicrophone() else { return fail(message: "Allow Rallo under Privacy & Security → Microphone") }
+            guard await VoicePermissions.requestMicrophone() else {
+                return fail(message: "Allow Rallo under Privacy & Security → Microphone", attempt: id)
+            }
             guard VoicePermissions.accessibilityAllowed(prompt: true) else {
-                return fail(message: "Allow Rallo under Privacy & Security → Accessibility")
+                return fail(message: "Allow Rallo under Privacy & Security → Accessibility", attempt: id)
             }
-            guard isListening else { return }
+            guard isCurrent(id) else { return }
             let session = Self.makeSession()
-            session.onStatus = { [weak self] in self?.bubble.show($0, listening: false) }
-            session.onResult = { [weak self] text, isFinal in self?.handle(text, isFinal: isFinal) }
-            session.onFailure = { [weak self] error in
-                guard let self, isListening else { return }
-                log.record("voice_failed", ["error": String(describing: type(of: error))])
-                stop(reason: .error)
+            session.onStatus = { [weak self] in
+                guard let self, isCurrent(id) else { return }
+                bubble.show($0, listening: false)
             }
-            self.session = session
+            // Not isCurrent: a stopped session's drain still types its last phrase.
+            session.onResult = { [weak self] text, isFinal in
+                guard let self, attempt == id else { return }
+                handle(text, isFinal: isFinal)
+            }
+            session.onActivity = { [weak self] in
+                guard let self, isCurrent(id) else { return }
+                heardAt = .now
+            }
+            session.onFailure = { [weak self] error in
+                guard let self, attempt == id else { return }
+                failed(error)
+            }
             do {
                 try await session.start()
-                guard isListening else { return await session.stop() }
-                log.record("voice_started")
-                onListening(true)
-                bubble.show("Listening…", listening: true)
-                armSilenceTimer()
             } catch {
-                self.session = nil
                 await session.stop()
-                if let message = error as? VoiceMessage, isListening { return fail(message: message.text) }
-                if isListening { log.record("voice_failed", ["error": String(describing: type(of: error))]) }
-                if isListening { stop(reason: .error) }
+                guard isCurrent(id) else { return }
+                if let message = error as? VoiceMessage { return fail(message: message.text, attempt: id) }
+                return failed(error)
+            }
+            guard isCurrent(id) else { return await session.stop() }
+            self.session = session
+            log.record("voice_started")
+            onListening(true)
+            bubble.show("Listening…", listening: true)
+            heardAt = .now
+            silenceTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, ContinuousClock.now - self.heardAt >= .seconds(10) else { return }
+                    self.stop(reason: .silence)
+                }
             }
         }
     }
@@ -112,14 +141,30 @@ final class VoiceTyping {
         silenceTimer = nil
         startTask?.cancel()
         log.record("voice_stopped", ["reason": reason.rawValue])
+        bubble.stopListening()
         let session = self.session
         self.session = nil
         Task { [weak self] in
             // Draining lets the last phrase finalize and get typed.
             await session?.stop()
-            self?.stopping = false
-            self?.bubble.hide()
+            guard let self else { return }
+            stopping = false
+            if let failure {
+                bubble.show(failure, listening: false)
+                flashThenHide()
+            } else {
+                bubble.hide()
+            }
         }
+    }
+
+    private func isCurrent(_ id: Int) -> Bool { attempt == id && isListening }
+
+    /// A session failed, listening or draining: log it, stop, and say why.
+    private func failed(_ error: Error) {
+        log.record("voice_failed", ["error": String(describing: type(of: error))])
+        failure = (error as? VoiceMessage)?.text ?? "Voice typing stopped after an error"
+        stop(reason: .error)
     }
 
     /// Whisper or cloud on request, and Whisper on macOS 14–25 where Apple's engine isn't there.
@@ -130,8 +175,9 @@ final class VoiceTyping {
         return WhisperVoiceSession.local()
     }
 
-    /// Permission problems: say so for a few seconds and don't start.
-    private func fail(message: String) {
+    /// Before a session runs (permissions, setup): say so for a few seconds and don't start.
+    private func fail(message: String, attempt id: Int) {
+        guard isCurrent(id) else { return }
         isListening = false
         onListening(false)
         bubble.show(message, listening: false)
@@ -147,15 +193,8 @@ final class VoiceTyping {
         }
     }
 
-    private func armSilenceTimer() {
-        silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.stop(reason: .silence) }
-        }
-    }
-
     private func handle(_ raw: String, isFinal: Bool) {
-        if isListening { armSilenceTimer() }
+        if isListening { heardAt = .now }
         var text = VoiceText.sanitize(raw).trimmingCharacters(in: .whitespaces)
         if UserDefaults.standard.object(forKey: VoiceText.tidyKey) as? Bool ?? true {
             text = VoiceText.tidy(text, after: isFinal ? lastTyped : nil)
@@ -183,6 +222,8 @@ final class VoiceSession: VoiceEngineSession {
     var onStatus: (String) -> Void = { _ in }
     var onResult: (String, Bool) -> Void = { _, _ in }
     var onFailure: (Error) -> Void = { _ in }
+    /// Unused: volatile results arrive while someone speaks.
+    var onActivity: () -> Void = {}
 
     private let engine = AVAudioEngine()
     private var analyzer: SpeechAnalyzer?
