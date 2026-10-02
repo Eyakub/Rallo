@@ -19,7 +19,7 @@
   process, store the last two folders instead of `cwd`, and a click jumps
   to the exact cmux pane or Terminal/iTerm2 tab. `agent_done_seq` is gone.
 
-Coding agents (Claude Code, Codex) often sit idle waiting for a permission
+Coding agents (Claude Code, Codex, Grok) often sit idle waiting for a permission
 answer while the user is in another window. Both run hook commands at
 lifecycle events. Rallo installs one hook command; the pet waves when an
 agent waits for the user, shows a ✓ when one finishes, and the notes panel
@@ -36,14 +36,31 @@ CLI 0.158 (`~/.codex/hooks.json`, same schema as Claude Code's
 | Hook event | Agent | Rallo state |
 |---|---|---|
 | `PermissionRequest` | both | `waiting` (detail: `tool_name`) |
-| `Notification` with `notification_type` `permission_prompt`, `elicitation_dialog`, `elicitation_url_dialog`, or `agent_needs_input` | Claude Code | `waiting` |
+| `Notification` with `notification_type` `permission_prompt`, `elicitation_dialog`, `elicitation_url_dialog`, or `agent_needs_input` | Claude Code, Grok (`permission_prompt`) | `waiting` |
 | `PostToolUse`, `UserPromptSubmit` | both | `working` (clears waiting/done; written only on change) |
-| `Stop`; `Notification` `idle_prompt` or `agent_completed` | both / Claude Code | row deleted (was `done` before the amendment) |
+| `Stop`; `Notification` `idle_prompt`, `agent_completed`, or `task_complete`; `StopCancelled`, `StopFailure` | all / Claude Code and Grok / Grok | row deleted (was `done` before the amendment) |
 | `SessionEnd`, `Interrupt` | both / Codex | row deleted |
 | anything else | — | ignored |
 
-Only `hook_event_name`, `session_id`, `cwd`, `notification_type`, and
-`tool_name` are read; everything else in the payload is ignored, so field
+**Grok** (xAI's CLI; amended 2026-10-02) reads every `$GROK_HOME/hooks/*.json`
+(default `~/.grok`; always trusted, same `hooks` schema) and also runs the
+hooks in `~/.claude/settings.json`. Its payload is a hybrid: `hook_event_name`
+holds Claude's PascalCase event name, but the other fields are camelCase
+(`sessionId`, `notificationType`, `toolName`; `cwd` is unchanged), so each
+snake_case field falls back to its camelCase twin. Grok has no
+`PermissionRequest`; it reports `Notification` instead: `permission_prompt`
+is `waiting`, `idle_prompt` and `task_complete` delete the row, as Claude's
+do. It also adds `StopCancelled` (interrupt, declined permission, max turns)
+and `StopFailure`, both deleting the row. Rallo installs
+`$GROK_HOME/hooks/rallo.json` for `Notification`, `PostToolUse`,
+`UserPromptSubmit`, `Stop`, `StopCancelled`, `StopFailure`, `SessionEnd`.
+Grok sets `GROK_HOOK_EVENT` on every hook process; if it is present the event
+is Grok's whatever `--agent` says, which covers the Claude hooks Grok runs
+too. With both installed one Grok event arrives twice; the second write is a
+no-op (same state, or no row to delete), so duplicates are harmless.
+
+Only `hook_event_name`, `session_id` (`sessionId`), `cwd`, `notification_type`
+(`notificationType`), and `tool_name` (`toolName`) are read; everything else in the payload is ignored, so field
 additions in either agent don't matter. Claude Code documents that exit 2
 blocks `Stop` and `UserPromptSubmit`, that `SessionEnd` hooks share a 1.5 s
 budget, and that plain stdout of these events is not added to the model's
@@ -93,16 +110,17 @@ Automation permission.
 
 ## CLI
 
-- `rallo agent-event --agent claude|codex` reads the hook JSON from stdin.
+- `rallo agent-event --agent claude|codex|grok` reads the hook JSON from stdin.
   **Always exits 0 and prints nothing to stdout** (Claude Code adds some
   hooks' stdout to the model's context; a failing hook can block the
   agent). Problems go to stderr. Payload fields are length-checked; unknown
   events are ignored. Target: ≤ 50 ms p95.
 - `rallo agents [--json]` lists current sessions; `rallo agents clear
   [--agent A] [--session ID]` removes rows.
-- `rallo setup hooks [--agent claude|codex]… [--remove] [--print]`:
+- `rallo setup hooks [--agent claude|codex|grok]… [--remove] [--print]`:
   - Claude Code: merges into `~/.claude/settings.json` `hooks`; Codex:
-    `$CODEX_HOME/hooks.json` (default `~/.codex`). Default: every detected
+    `$CODEX_HOME/hooks.json` (default `~/.codex`); Grok:
+    `$GROK_HOME/hooks/rallo.json` (default `~/.grok`, a Rallo-owned file). Default: every detected
     agent, as `setup skill` does.
   - The command is the installed app's CLI by absolute path
     (`"…/Rallo.app/Contents/Helpers/rallo" agent-event --agent X || true`:
