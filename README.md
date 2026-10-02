@@ -55,7 +55,8 @@ Everything lives on your Mac. No account, no server, no telemetry.
 <table align="center">
   <tr>
     <td align="center"><img src="assets/pet/rallo/pet-idle@2x.png" width="120" alt="Rallo sitting, eyes open"><br><sub><b>Notes open</b></sub></td>
-    <td align="center"><img src="assets/pet/rallo/pet-nudge@2x.png" width="120" alt="Rallo raising a paw"><br><sub><b>Something needs you</b></sub></td>
+    <td align="center"><img src="assets/pet/rallo/pet-nudge@2x.png" width="120" alt="Rallo raising a paw"><br><sub><b>Needs you</b></sub></td>
+    <td align="center"><img src="assets/pet/rallo/pet-listening@2x.png" width="120" alt="Rallo cupping a paw to its ear"><br><sub><b>Listening</b></sub></td>
     <td align="center"><img src="assets/pet/rallo/pet-happy@2x.png" width="120" alt="Rallo smiling"><br><sub><b>Saved</b></sub></td>
     <td align="center"><img src="assets/pet/rallo/pet-celebrate@2x.png" width="120" alt="Rallo cheering"><br><sub><b>Done!</b></sub></td>
     <td align="center"><img src="assets/pet/rallo/pet-sleep@2x.png" width="120" alt="Rallo asleep"><br><sub><b>Nothing open</b></sub></td>
