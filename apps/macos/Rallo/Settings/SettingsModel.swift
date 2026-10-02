@@ -24,6 +24,8 @@ final class SettingsModel: ObservableObject {
     @Published var updateCheckAllowed = true
     @Published var voiceTypingEnabled = false
     @Published var voiceAccessibilityMissing = false
+    /// Voice typing is on but another app owns ⌃⌥⌘V.
+    @Published var voiceShortcutTaken = false
     var dataPath = ""
 
     enum WhisperModelState: Equatable {

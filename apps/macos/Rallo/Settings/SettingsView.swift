@@ -235,6 +235,13 @@ private struct VoiceTab: View {
                 if model.voiceTypingEnabled, model.voiceAccessibilityMissing {
                     permissionRow("Accessibility", pane: "Privacy_Accessibility")
                 }
+                if model.voiceTypingEnabled, model.voiceShortcutTaken {
+                    // macOS refused it (another app has it); Try Again once that app lets go.
+                    LabeledContent("⌃⌥⌘V") {
+                        Text("Shortcut in use").foregroundStyle(Theme.error)
+                        Button("Try Again") { model.setVoiceTyping(true) }
+                    }
+                }
             } footer: {
                 footnote("Experimental. Audio is never saved.")
             }

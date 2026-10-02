@@ -412,6 +412,7 @@ final class AppCoordinator {
             model.updateCheckAllowed = updateChecker.allowed
             model.voiceTypingEnabled = Self.voiceTypingEnabled
             model.voiceAccessibilityMissing = !VoicePermissions.accessibilityAllowed(prompt: false)
+            model.voiceShortcutTaken = Self.voiceTypingEnabled && !globalShortcuts.voiceRegistered
         }
         model.toggleLoginItem = { [weak self] in
             guard let self else { return }
