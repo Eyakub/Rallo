@@ -34,6 +34,8 @@ targets:
         INFOPLIST_FILE: Rallo/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: Rallo/Resources/Rallo.entitlements
+        # No get-task-allow in shipped builds (it lets same-user processes attach).
+        CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
         # whisper.cpp is linked statically (0014).
         SWIFT_INCLUDE_PATHS: $(inherited) $(PROJECT_DIR)/../../build/whisper/v1.9.4/include
         HEADER_SEARCH_PATHS: $(PROJECT_DIR)/../../build/whisper/v1.9.4/include

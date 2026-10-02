@@ -69,6 +69,11 @@ grep -qF "$requirement" crates/rallo-platform-macos/src/update.rs ||
   fail "scripts/install.sh and update.rs pin different certificates"
 codesign --verify -R="$requirement" "$app" ||
   fail "not signed with Rallo's certificate (is \"Rallo Self-Signed\" in the Keychain?)"
+# get-task-allow would let any same-user process attach and use Rallo's grants.
+for bin in "$app" "$app/Contents/Helpers/rallo"; do
+  entitlements=$(codesign -d --entitlements - --xml "$bin" 2>/dev/null) || fail "can't read $bin's entitlements"
+  case $entitlements in *get-task-allow*) fail "$bin carries get-task-allow" ;; esac
+done
 if otool -L "$app/Contents/MacOS/Rallo" "$app/Contents/Helpers/rallo" | tail -n +2 | awk '{print $1}' |
   grep -vE '^(/usr/lib/|/System/Library/|.*:$)' | grep -q .; then
   fail "a binary links something outside the OS"
