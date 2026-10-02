@@ -222,7 +222,7 @@ private struct VoiceTab: View {
     var body: some View {
         Page {
             Toggle("Voice typing (⌃⌥⌘V)", isOn: Binding(get: { model.voiceTypingEnabled }, set: { model.setVoiceTyping($0) }))
-            caption("Experimental. Press ⌃⌥⌘V, talk, and Rallo types into whatever you’re using; press again to stop. Runs on your Mac; audio isn’t saved. Needs Microphone and Accessibility access.")
+            caption("Experimental. Press ⌃⌥⌘V, talk, and Rallo types into whatever you’re using; press again to stop. Audio isn’t saved; Apple’s and Whisper’s engines run on your Mac. Needs Microphone and Accessibility access.")
             if model.voiceTypingEnabled {
                 caption(model.voicePermissions)
                 if model.voiceAccessibilityMissing {
@@ -232,9 +232,11 @@ private struct VoiceTab: View {
             Picker("Engine", selection: Binding(get: { engine }, set: { storedEngine = $0 })) {
                 if appleAvailable { Text("Apple (built in)").tag("apple") }
                 Text("Whisper large-v3 turbo").tag("whisper")
+                Text("Cloud (your API key)").tag("cloud")
             }
-            if engine == "whisper" {
-                modelRow
+            if engine == "whisper" { modelRow }
+            if engine == "cloud" { CloudVoiceSection() }
+            if engine == "whisper" || engine == "cloud" {
                 Picker("Language", selection: $language) {
                     Text("Auto").tag("auto")
                     Text("English").tag("en")
@@ -243,7 +245,7 @@ private struct VoiceTab: View {
             }
             TextField("Words to recognize", text: $voiceWords, prompt: Text("Names and terms, separated by commas"))
                 .textFieldStyle(.roundedBorder)
-            caption("Helps with names it would otherwise mishear; both engines use them. Rallo, ClickUp, cmux, Claude and Codex are already included.")
+            caption("Helps with names it would otherwise mishear; every engine uses them. Rallo, ClickUp, cmux, Claude and Codex are already included.")
             Toggle("Clean up stutters and fillers", isOn: $tidy)
             caption("Drops “um” and “uh” and a word said twice in a row (“like like”). Turn off to type exactly what was heard.")
         }
@@ -288,6 +290,102 @@ private struct VoiceTab: View {
             }
         }
         caption("Saved in the shared Hugging Face cache, so other tools can use it too — for example “whisper-cli -m <path> -f audio.wav” (brew install whisper-cpp).")
+    }
+}
+
+/// Provider, model and API key for the cloud engine (0015). The key is never shown.
+private struct CloudVoiceSection: View {
+    @AppStorage(CloudVoiceProvider.providerKey) private var providerID = "groq"
+    @AppStorage(CloudVoiceProvider.baseURLKey) private var customBase = ""
+    @State private var keyText = ""
+    @State private var saved = false
+    @State private var keyError = false
+
+    private var provider: CloudVoiceProvider { CloudVoiceProvider(rawValue: providerID) ?? .groq }
+
+    private var secret: KeychainSecret {
+        KeychainSecret(service: CloudVoiceProvider.keychainService, account: provider.rawValue, label: provider.keychainLabel)
+    }
+
+    var body: some View {
+        Picker("Provider", selection: $providerID) {
+            ForEach(CloudVoiceProvider.allCases, id: \.rawValue) { Text($0.name).tag($0.rawValue) }
+        }
+        if provider == .custom {
+            fieldRow("Base URL") {
+                TextField("Base URL", text: $customBase, prompt: Text("https://example.com/v1")).textFieldStyle(.roundedBorder)
+            }
+            if !customBase.isEmpty, CloudVoiceProvider.endpoint(base: customBase) == nil {
+                Text("Use an https address (http only for localhost).")
+                    .font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.error)
+            }
+        }
+        fieldRow("Model") { CloudModelField(provider: provider).id(provider) }
+        fieldRow("API key") {
+            SecureField("API key", text: $keyText, prompt: Text(saved ? "Saved in your Keychain" : "Paste your key"))
+                .textFieldStyle(.roundedBorder)
+            Button("Save") { save() }.disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if saved { Button("Remove") { remove() } }
+        }
+        if keyError {
+            Text("Couldn’t use the Keychain.").font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.error)
+        } else if saved {
+            caption("Saved in your Keychain")
+        }
+        if let url = provider.helpURL {
+            Link(destination: url) { Text(provider == .groq ? "Get a free key →" : "Get a key →").underline() }
+                .foregroundStyle(Theme.rust)
+        }
+        caption("Each phrase you dictate is sent to \(provider.name) to be transcribed. The key stays in your Keychain. Free Groq keys allow about 20 phrases a minute.")
+            .task(id: providerID) {
+                keyText = ""
+                keyError = false
+                let secret = secret
+                saved = await Task.detached { secret.read() != nil }.value
+            }
+    }
+
+    private func save() {
+        let secret = secret
+        let key = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            let ok = await Task.detached { secret.save(key) }.value
+            keyError = !ok
+            saved = ok
+            if ok { keyText = "" }
+        }
+    }
+
+    private func remove() {
+        let secret = secret
+        Task {
+            let status = await Task.detached { secret.delete() }.value
+            keyError = status != errSecSuccess && status != errSecItemNotFound
+            saved = keyError ? saved : false
+        }
+    }
+}
+
+/// A fixed-width label in front of a field, so cloud settings line up.
+private func fieldRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    HStack(spacing: 10) {
+        Text(title).font(Theme.rounded(13)).frame(width: 64, alignment: .leading)
+        content()
+    }
+}
+
+private struct CloudModelField: View {
+    let provider: CloudVoiceProvider
+    @AppStorage private var model: String
+
+    init(provider: CloudVoiceProvider) {
+        self.provider = provider
+        _model = AppStorage(wrappedValue: "", provider.modelKey)
+    }
+
+    var body: some View {
+        TextField("Model", text: $model, prompt: Text(provider.defaultModel.isEmpty ? "whisper-1" : provider.defaultModel))
+            .textFieldStyle(.roundedBorder)
     }
 }
 
@@ -384,7 +482,7 @@ private struct AboutTab: View {
                         Button("Uninstall and Delete My Notes", role: .destructive) { model.uninstall(deleteNotes: true) }
                         Button("Cancel", role: .cancel) {}
                     } message: {
-                        Text("Rallo quits and removes the app, its terminal command, agent hooks and skill, Open at Login, scheduled reminders, and the ClickUp token. Deleting your notes saves a final export to Downloads first.")
+                        Text("Rallo quits and removes the app, its terminal command, agent hooks and skill, Open at Login, scheduled reminders, the ClickUp token, and voice API keys. Deleting your notes saves a final export to Downloads first.")
                     }
             }
             if let message = model.uninstallMessage { line(message).foregroundStyle(Theme.error) }

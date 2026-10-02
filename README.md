@@ -107,7 +107,7 @@ the same interface you do. `rallo --help` lists them all;
 | **Notes panel** | Click the pet or press **⌃⌥⌘N**. Add, edit, complete, and snooze notes; a "Waiting for you" section lists agents and people who need you; swipe one sideways to dismiss it. |
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
 | **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, export and import, updates (including an opt-in daily check). |
-| **Voice typing (experimental)** | Turn it on in Settings → Voice, then press **⌃⌥⌘V**, talk, and Rallo types into whatever app has focus; press again to stop (it also stops after 10 s of silence). Pick Apple's built-in engine (macOS 26) or Whisper large-v3 turbo (macOS 14+, a 1.6 GB download you start yourself). Needs Microphone and Accessibility access. |
+| **Voice typing (experimental)** | Turn it on in Settings → Voice, then press **⌃⌥⌘V**, talk, and Rallo types into whatever app has focus; press again to stop (it also stops after 10 s of silence). Pick Apple's built-in engine (macOS 26), Whisper large-v3 turbo (macOS 14+, a 1.6 GB download you start yourself), or a cloud engine that uses your own Groq, OpenAI or compatible API key (macOS 14+). Needs Microphone and Accessibility access. |
 | **Reminders** | Delivered by macOS Notification Center, even after Rallo quits. Up to 32 active at once. |
 
 <p align="center">
@@ -158,6 +158,9 @@ message text. Channel @mentions and task comments aren't covered yet
   Whisper. Audio and the text are never stored or logged; macOS may download Apple's speech
   model the first time you use it. The Whisper model is downloaded from Hugging Face only when
   you click Download, and is stored in `~/.cache/huggingface/hub`, where other tools can use it.
+- **Cloud voice engine.** Only if you choose it and add your own API key, each dictated phrase is
+  sent to that provider (Groq, OpenAI or the address you set) to be transcribed. The key stays in
+  your Keychain. Nothing else sends audio anywhere.
 - **Agent and ClickUp rows** live in a separate throwaway file that is never backed up,
   exported, or included in Time Machine, and is cleared as soon as nobody is waiting.
 - **Backups.** Rallo snapshots your notes before every schema change and every update;
@@ -179,7 +182,7 @@ installing still waits for you.
 
 `rallo uninstall` (or Settings → About → Uninstall Rallo…) removes the app, the
 `rallo` command, the agent hooks and skill, Open at Login, scheduled reminders,
-and the ClickUp token. If the `rallo` command is already gone, use the install
+the ClickUp token, and voice API keys. If the `rallo` command is already gone, use the install
 script instead:
 
 ```sh

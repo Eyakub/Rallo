@@ -26,7 +26,7 @@ enum VoicePermissions {
     }
 }
 
-/// A listening engine: Apple's (macOS 26+) or Whisper (0014).
+/// A listening engine: Apple's (macOS 26+), Whisper (0014) or cloud (0015).
 @MainActor
 protocol VoiceEngineSession: AnyObject {
     var onStatus: (String) -> Void { get set }
@@ -120,10 +120,12 @@ final class VoiceTyping {
         }
     }
 
-    /// Whisper on request, and on macOS 14–25 where Apple's engine isn't there.
+    /// Whisper or cloud on request, and Whisper on macOS 14–25 where Apple's engine isn't there.
     private static func makeSession() -> any VoiceEngineSession {
-        if #available(macOS 26, *), UserDefaults.standard.string(forKey: "voiceEngine") != "whisper" { return VoiceSession() }
-        return WhisperVoiceSession()
+        let engine = UserDefaults.standard.string(forKey: "voiceEngine")
+        if engine == "cloud" { return WhisperVoiceSession.cloud() }
+        if #available(macOS 26, *), engine != "whisper" { return VoiceSession() }
+        return WhisperVoiceSession.local()
     }
 
     /// Permission problems: say so for a few seconds and don't start.

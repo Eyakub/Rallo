@@ -135,7 +135,7 @@ rallo uninstall --purge  # also deletes them, after a JSON export to ~/Downloads
 
 Also available as Settings → About → Uninstall Rallo…. It removes the app, the
 `rallo` command, Rallo's agent hooks and skill, Open at Login, scheduled
-reminders, and the ClickUp token. `--purge` removes nothing if it can't save
+reminders, the ClickUp token, and voice API keys. `--purge` removes nothing if it can't save
 that export first. The PATH line Rallo may have added to your login profile is
 left in place (other tools may use `~/.local/bin`).
 

@@ -1,42 +1,56 @@
 import AppKit
 import Security
 
-/// The ClickUp personal API token, in the login Keychain (0010): never in
-/// the database, the logs, or a file.
-enum ClickUpToken {
-    static let service = "rallo-clickup-token"
+/// A generic-password Keychain item: `read` and `delete` match the service
+/// (and the account when given); `save` replaces it.
+struct KeychainSecret {
+    let service: String
+    var account: String?
+    let label: String
 
-    static func read() -> String? {
-        var result: AnyObject?
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data, let token = String(data: data, encoding: .utf8), !token.isEmpty
-        else { return nil }
-        return token
+    private var match: [String: Any] {
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
+        if let account { query[kSecAttrAccount as String] = account }
+        return query
     }
 
-    static func save(_ token: String) -> Bool {
+    func read() -> String? {
+        var result: AnyObject?
+        let query = match.merging([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]) { $1 }
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data, let value = String(data: data, encoding: .utf8), !value.isEmpty
+        else { return nil }
+        return value
+    }
+
+    func save(_ value: String) -> Bool {
         delete()
         let item: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: NSUserName(),
-            kSecAttrLabel as String: "Rallo: ClickUp API token",
-            kSecValueData as String: Data(token.utf8),
+            kSecAttrAccount as String: account ?? NSUserName(),
+            kSecAttrLabel as String: label,
+            kSecValueData as String: Data(value.utf8),
         ]
         return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
     @discardableResult
-    static func delete() -> OSStatus {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
-        return SecItemDelete(query as CFDictionary)
-    }
+    func delete() -> OSStatus { SecItemDelete(match as CFDictionary) }
+}
+
+/// The ClickUp personal API token, in the login Keychain (0010): never in
+/// the database, the logs, or a file.
+enum ClickUpToken {
+    static let service = "rallo-clickup-token"
+    private static let secret = KeychainSecret(service: service, label: "Rallo: ClickUp API token")
+
+    static func read() -> String? { secret.read() }
+
+    static func save(_ token: String) -> Bool { secret.save(token) }
+
+    @discardableResult
+    static func delete() -> OSStatus { secret.delete() }
 }
 
 enum ClickUpError: Error {
