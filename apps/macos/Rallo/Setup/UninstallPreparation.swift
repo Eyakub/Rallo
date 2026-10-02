@@ -49,11 +49,13 @@ enum UninstallPreparation {
         case errSecItemNotFound: token = "none"
         default: token = "failed"
         }
-        let voiceKeys: String
-        switch KeychainSecret(service: CloudVoiceProvider.keychainService, label: "").delete() {
-        case errSecSuccess: voiceKeys = "removed"
-        case errSecItemNotFound: voiceKeys = "none"
-        default: voiceKeys = "failed"
+        // The file-based keychain may remove only one match per delete.
+        var voiceKeys = "none"
+        for _ in 0..<16 {
+            let status = KeychainSecret(service: CloudVoiceProvider.keychainService, label: "").delete()
+            if status == errSecItemNotFound { break }
+            if status != errSecSuccess { voiceKeys = "failed"; break }
+            voiceKeys = "removed"
         }
         return ["login_item": loginItem, "notifications_removed": pending, "clickup_token": token, "voice_api_keys": voiceKeys]
     }

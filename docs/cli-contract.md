@@ -150,10 +150,10 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   `setup hooks`'s per-target array; `skills_removed` lists every skill file and
   the rules file removed; `prepared` is the app's cleanup report
   (`{"login_item": "removed"|"not_registered"|"failed", "notifications_removed",
-  "clickup_token": "removed"|"none"|"failed"}`) or `null` when skipped;
+  "clickup_token": "removed"|"none"|"failed", "voice_api_keys": "removed"|"none"|"failed"}`) or `null` when skipped;
   `export_path` is `null` unless `--purge` exported; `data` is `kept` or
   `deleted`; `path_line_kept` is the profile still holding Rallo's PATH line, or
-  `null`. A `failed` Login Item or token cleanup is a `warnings` entry.
+  `null`. A `failed` Login Item, token or voice key cleanup is a `warnings` entry.
 - `backup` JSON: success is `{"backup": {"path", "bytes"}}`. `FILE_EXISTS`
   (exit 4) mirrors `export`.
 - `update` JSON: `--check`, and a non-`--check` run that finds nothing newer,

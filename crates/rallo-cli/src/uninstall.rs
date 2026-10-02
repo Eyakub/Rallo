@@ -174,8 +174,8 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>, purge: bool, yes: bool) ->
     let prepared = if run_prepare { Some(prepare(&app)?) } else { None };
     if prepared.is_none() {
         warnings.push(
-            "left Open at Login, scheduled reminders and the ClickUp token alone: they belong to the app, not to \
-             --data-dir"
+            "left Open at Login, scheduled reminders, the ClickUp token and voice API keys alone: they belong to the \
+             app, not to --data-dir"
                 .to_owned(),
         );
     }
@@ -185,6 +185,9 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>, purge: bool, yes: bool) ->
         }
         if report["clickup_token"] == "failed" {
             warnings.push("Delete “Rallo: ClickUp API token” in Keychain Access.".to_owned());
+        }
+        if report["voice_api_keys"] == "failed" {
+            warnings.push("Delete the “Rallo: … API key” items in Keychain Access.".to_owned());
         }
     }
 
@@ -262,6 +265,9 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>, purge: bool, yes: bool) ->
             }
             if report["clickup_token"] == "removed" {
                 parts.push("removed the ClickUp token".to_owned());
+            }
+            if report["voice_api_keys"] == "removed" {
+                parts.push("removed the voice API keys".to_owned());
             }
             if !parts.is_empty() {
                 let mut text = parts.join(", ");
