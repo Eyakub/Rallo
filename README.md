@@ -107,6 +107,7 @@ the same interface you do. `rallo --help` lists them all;
 | **Notes panel** | Click the pet or press **⌃⌥⌘N**. Add, edit, complete, and snooze notes; a "Waiting for you" section lists agents and people who need you; swipe one sideways to dismiss it. |
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
 | **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, export and import, updates (including an opt-in daily check). |
+| **Voice typing (experimental)** | Turn it on in Settings → General, then press **⌃⌥⌘V**, talk, and Rallo types into whatever app has focus; press again to stop (it also stops after 10 s of silence). Needs macOS 26, plus Microphone and Accessibility access. |
 | **Reminders** | Delivered by macOS Notification Center, even after Rallo quits. Up to 32 active at once. |
 
 <p align="center">
@@ -153,6 +154,9 @@ message text. Channel @mentions and task comments aren't covered yet
   no account and no telemetry.
 - **Network.** Only `rallo update`, when you run it, ClickUp, if you connect it, and a daily check
   for new releases, if you turn it on in Settings → General.
+- **Voice typing** is off by default and runs on your Mac with Apple's speech engine. Audio
+  and the text are never stored or logged; macOS may download Apple's speech model the first
+  time you use it.
 - **Agent and ClickUp rows** live in a separate throwaway file that is never backed up,
   exported, or included in Time Machine, and is cleared as soon as nobody is waiting.
 - **Backups.** Rallo snapshots your notes before every schema change and every update;

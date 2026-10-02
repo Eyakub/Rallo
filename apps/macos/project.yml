@@ -61,6 +61,7 @@ targets:
       - path: Rallo/App/AgentJumpPlanner.swift
       - path: Rallo/App/LaunchOptions.swift
       - path: Rallo/Settings/CLIReports.swift
+      - path: Rallo/Voice/VoiceText.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo.tests

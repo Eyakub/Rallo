@@ -93,6 +93,19 @@ private struct GeneralTab: View {
             Toggle("Check for updates daily", isOn: Binding(get: { model.updateCheckEnabled }, set: { model.setUpdateCheck($0) }))
                 .disabled(!model.updateCheckAllowed)
             caption("Asks GitHub once a day whether a newer Rallo is out, then tells you in the menu and with a notification. Nothing about you or your notes is sent; installing still waits for you.")
+            Toggle("Voice typing (⌃⌥⌘V)", isOn: Binding(get: { model.voiceTypingEnabled }, set: { model.setVoiceTyping($0) }))
+                .disabled(!model.voiceTypingAvailable)
+            if model.voiceTypingAvailable {
+                caption("Experimental. Press ⌃⌥⌘V, talk, and Rallo types into whatever you’re using; press again to stop. Runs on your Mac; audio isn’t saved. Needs Microphone and Accessibility access.")
+                if model.voiceTypingEnabled {
+                    caption(model.voicePermissions)
+                    if model.voiceAccessibilityMissing {
+                        Button("Open Accessibility Settings…") { model.openAccessibilitySettings() }
+                    }
+                }
+            } else {
+                caption("Needs macOS 26 or later.")
+            }
             Divider()
             Text("Terminal command").font(Theme.rounded(13, .semibold))
             HStack {

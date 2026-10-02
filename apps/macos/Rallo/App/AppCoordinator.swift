@@ -24,6 +24,7 @@ final class AppCoordinator {
     private let settingsModel = SettingsModel()
     private lazy var settings = SettingsWindowController(model: settingsModel)
     private let globalShortcuts = GlobalShortcuts()
+    private let voice: VoiceTyping
     private var animationsPaused = false
     private var statusMenu: StatusMenuController?
     private var systemObservers: [NSObjectProtocol] = []
@@ -68,6 +69,7 @@ final class AppCoordinator {
         petState = PetStateDriver(core: core, pet: pet, log: log)
         clickUp = ClickUpWatcher(core: core, log: log)
         updateChecker = UpdateChecker(log: log)
+        voice = VoiceTyping(log: log)
         updateChecker.allowed = !isScratch
         if isScratch {
             clickUp.disabledReason = "ClickUp is off in instances started with --data-dir."
@@ -134,7 +136,13 @@ final class AppCoordinator {
             guard let self else { return }
             if notes.isOpen { notes.close() } else { openNotes(highlighting: nil) }
         }
+        globalShortcuts.onVoice = { [weak self] in self?.voice.toggle() }
+        voice.petFrame = { [weak self] in
+            guard let self, pet.isVisible else { return nil }
+            return pet.frame
+        }
         globalShortcuts.register()
+        globalShortcuts.setVoice(enabled: Self.voiceTypingEnabled)
         observer.onPossibleChange = { [weak self] in Task { await self?.checkForChanges() } }
         observer.onShowRequest = { [weak self] in Task { await self?.handleShowRequest() } }
         observer.onDiagnosticsRequest = { [weak self] in self?.writeWindowReport() }
@@ -388,6 +396,10 @@ final class AppCoordinator {
             model.clickUpStatus = clickUp.status
             model.updateCheckEnabled = updateChecker.isEnabled
             model.updateCheckAllowed = updateChecker.allowed
+            model.voiceTypingEnabled = Self.voiceTypingEnabled
+            if #available(macOS 26, *) { model.voiceTypingAvailable = true }
+            model.voicePermissions = VoicePermissions.summary
+            model.voiceAccessibilityMissing = !VoicePermissions.accessibilityAllowed(prompt: false)
         }
         model.toggleLoginItem = { [weak self] in
             guard let self else { return }
@@ -407,11 +419,28 @@ final class AppCoordinator {
         model.exportBackup = { [weak self] in self?.transfer.export(.json) }
         model.exportSpreadsheet = { [weak self] in self?.transfer.export(.csv) }
         model.importNotes = { [weak self] in self?.transfer.importFile() }
+        model.setVoiceTyping = { [weak self] enabled in
+            guard let self else { return }
+            UserDefaults.standard.set(enabled, forKey: "voiceTypingEnabled")
+            globalShortcuts.setVoice(enabled: enabled)
+            if enabled {
+                Task {
+                    _ = await VoicePermissions.requestMicrophone()
+                    _ = VoicePermissions.accessibilityAllowed(prompt: true)
+                    self.settingsModel.refresh()
+                }
+            } else {
+                voice.stop(reason: .shortcut)
+            }
+            settingsModel.refresh()
+        }
         model.setUpdateCheck = { [weak self] enabled in
             self?.updateChecker.setEnabled(enabled)
             self?.settingsModel.refresh()
         }
     }
+
+    private static var voiceTypingEnabled: Bool { UserDefaults.standard.bool(forKey: "voiceTypingEnabled") }
 
     /// Agent sessions are runtime state (0009): keep them out of Time
     /// Machine. The core creates the folder when it opens the store.

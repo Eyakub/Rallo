@@ -22,6 +22,10 @@ final class SettingsModel: ObservableObject {
     @Published var clickUpStatus: String?
     @Published var updateCheckEnabled = false
     @Published var updateCheckAllowed = true
+    @Published var voiceTypingEnabled = false
+    @Published var voiceTypingAvailable = false
+    @Published var voicePermissions = ""
+    @Published var voiceAccessibilityMissing = false
     var dataPath = ""
 
     // Own state.
@@ -53,6 +57,13 @@ final class SettingsModel: ObservableObject {
     var exportSpreadsheet: () -> Void = {}
     var importNotes: () -> Void = {}
     var setUpdateCheck: (Bool) -> Void = { _ in }
+    var setVoiceTyping: (Bool) -> Void = { _ in }
+
+    func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
 
     var version: String {
         let info = Bundle.main.infoDictionary

@@ -32,6 +32,10 @@
 	<string>Rallo brings the Terminal or iTerm2 tab where an agent is waiting for you to the front.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Razlio</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Rallo listens only while you voice-type (⌃⌥⌘V). Audio stays on your Mac and isn’t saved.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Rallo turns your speech into text on your Mac while you voice-type.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>
