@@ -56,6 +56,7 @@ impl Fixture {
             .env("RALLO_DATA_DIR", &self.data_dir)
             .env_remove("RALLO_APP_PATH")
             .env_remove("CODEX_HOME")
+            .env_remove("GROK_HOME")
             .env_remove("RALLO_UNINSTALL_TEST_PREPARE")
             .stdin(Stdio::null());
         command

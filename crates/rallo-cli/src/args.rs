@@ -256,7 +256,7 @@ pub enum Command {
         #[arg(long)]
         yes: bool,
     },
-    /// Records one Claude Code/Codex hook payload from stdin (0007). Not
+    /// Records one Claude Code/Codex/Grok hook payload from stdin (0007). Not
     /// meant to be run by hand: `rallo setup hooks` wires this up. Always
     /// exits 0 and writes nothing to stdout.
     #[command(hide = true)]
@@ -264,7 +264,7 @@ pub enum Command {
         #[arg(long)]
         agent: Agent,
     },
-    /// Lists current Claude Code/Codex sessions the pet is tracking (0007).
+    /// Lists current Claude Code/Codex/Grok sessions the pet is tracking (0007).
     Agents {
         #[command(subcommand)]
         command: Option<AgentsCommand>,
@@ -292,7 +292,7 @@ pub enum SetupCommand {
     /// Rallo's own link, and never starts the app.
     Terminal,
     /// Install the agent skill for this version for every detected agent
-    /// (Claude Code, Cursor, and Codex; Codex also gets a `rallo.rules`
+    /// (Claude Code, Cursor, Codex, and Grok; Codex also gets a `rallo.rules`
     /// execpolicy file); updates an older copy. Never replaces a skill, or
     /// rules file, that isn't Rallo's.
     Skill {
@@ -308,8 +308,9 @@ pub enum SetupCommand {
     },
     /// Installs the `agent-event` hook command for every detected agent
     /// (0007): merges into Claude Code's `~/.claude/settings.json` and/or
-    /// Codex's `$CODEX_HOME/hooks.json`. Never replaces a hook entry that
-    /// isn't Rallo's own.
+    /// Codex's `$CODEX_HOME/hooks.json`, and/or Grok's
+    /// `$GROK_HOME/hooks/rallo.json`. Never replaces a hook entry that isn't
+    /// Rallo's own.
     Hooks {
         /// Install only for these agents (repeatable). Default: every
         /// detected agent, or Claude Code if none is detected.

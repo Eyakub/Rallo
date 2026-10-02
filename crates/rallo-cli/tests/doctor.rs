@@ -42,7 +42,8 @@ impl Cli {
             .env_remove("RALLO_APP_PATH")
             // So a real $CODEX_HOME on the machine running the tests never
             // leaks into agent_skill's Codex detection.
-            .env_remove("CODEX_HOME");
+            .env_remove("CODEX_HOME")
+            .env_remove("GROK_HOME");
         command
     }
 

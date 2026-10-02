@@ -113,7 +113,7 @@ final class RowSwipe: ObservableObject {
     }
 }
 
-/// The panel's agents section, above the notes while any Claude Code/Codex
+/// The panel's agents section, above the notes while any Claude Code/Codex/Grok
 /// session waits on the user (docs/decisions/0007). Capped in height and
 /// scrollable, so the composer and notes always stay in view.
 struct AgentsSection: View {

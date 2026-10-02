@@ -47,7 +47,8 @@ impl Setup {
             .env("HOME", &self.home)
             .env_remove("RALLO_APP_PATH")
             .env_remove("RALLO_DATA_DIR")
-            .env_remove("CODEX_HOME");
+            .env_remove("CODEX_HOME")
+            .env_remove("GROK_HOME");
         command
     }
 
@@ -242,6 +243,25 @@ fn codex_home_env_var_selects_the_hooks_json_location() {
     assert_eq!(code, 0, "{doc}");
     assert_eq!(install(&doc, "codex")["path"], codex_home.path().join("hooks.json").to_str().unwrap());
     assert!(codex_home.path().join("hooks.json").is_file());
+}
+
+#[test]
+fn grok_hooks_install_into_a_rallo_owned_file_and_remove_cleanly() {
+    let setup = Setup::new();
+    let grok_home = setup.home.join(".grok");
+    let (code, doc) = setup.json(&["setup", "hooks", "--agent", "grok", "--json"]);
+    assert_eq!(code, 0, "{doc}");
+    let path = grok_home.join("hooks/rallo.json");
+    assert_eq!(install(&doc, "grok")["path"], path.to_str().unwrap());
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("agent-event --agent grok || true") && text.contains("StopCancelled"), "{text}");
+
+    let (code, doc) = setup.json(&["setup", "hooks", "--agent", "grok", "--remove", "--json"]);
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(install(&doc, "grok")["status"], "removed");
+    assert!(!path.exists(), "an emptied Rallo-owned file is deleted");
+    let left: Vec<_> = fs::read_dir(grok_home.join("hooks")).unwrap().collect();
+    assert!(left.is_empty(), "no backup of Rallo's own file: {left:?}");
 }
 
 #[test]

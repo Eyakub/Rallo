@@ -1,8 +1,8 @@
 import Foundation
 
 extension AgentSessionSnapshot {
-    /// Unique across agents: `sessionId` alone repeats between Claude Code
-    /// and Codex.
+    /// Unique across agents: `sessionId` alone repeats between Claude Code,
+    /// Codex, and Grok.
     var rowID: String { "\(agent)#\(sessionId)" }
 
     /// A ClickUp conversation (0010) rather than a coding agent.
@@ -26,12 +26,13 @@ enum AgentSessionFormatting {
         }
     }
 
-    /// "Claude Code" / "Codex"; anything else shows as-is rather than crash,
+    /// "Claude Code" / "Codex" / "Grok"; anything else shows as-is rather than crash,
     /// in case a future agent lands before this switch does.
     static func agentName(_ agent: String) -> String {
         switch agent {
         case "claude": "Claude Code"
         case "codex": "Codex"
+        case "grok": "Grok"
         case "clickup": "ClickUp"
         default: agent
         }

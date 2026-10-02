@@ -1,6 +1,7 @@
 //! `rallo setup hooks` (0007): installs the `agent-event` hook command into
 //! Claude Code's `~/.claude/settings.json` `hooks` and Codex's
-//! `$CODEX_HOME/hooks.json` `hooks`.
+//! `$CODEX_HOME/hooks.json` `hooks`, plus Grok's own Rallo-owned
+//! `$GROK_HOME/hooks/rallo.json`.
 //!
 //! Both files are arbitrary JSON a person (or another tool) may already have
 //! populated, and 0007 requires preserving everything Rallo doesn't own,
@@ -34,11 +35,14 @@ const CLAUDE_EVENTS: [&str; 6] =
     ["PermissionRequest", "Notification", "PostToolUse", "UserPromptSubmit", "Stop", "SessionEnd"];
 const CODEX_EVENTS: [&str; 6] =
     ["PermissionRequest", "PostToolUse", "UserPromptSubmit", "Stop", "SessionEnd", "Interrupt"];
+const GROK_EVENTS: [&str; 7] =
+    ["Notification", "PostToolUse", "UserPromptSubmit", "Stop", "StopCancelled", "StopFailure", "SessionEnd"];
 
 fn events_for(agent: Agent) -> &'static [&'static str] {
     match agent {
         Agent::Claude => &CLAUDE_EVENTS,
         Agent::Codex => &CODEX_EVENTS,
+        Agent::Grok => &GROK_EVENTS,
     }
 }
 
@@ -49,6 +53,7 @@ pub(crate) fn hook_label(agent: Agent) -> &'static str {
     match agent {
         Agent::Claude => "Claude Code",
         Agent::Codex => "Codex",
+        Agent::Grok => "Grok",
     }
 }
 
@@ -56,6 +61,7 @@ pub(crate) fn hooks_path(agent: Agent, home: &Path) -> PathBuf {
     match agent {
         Agent::Claude => skill::claude_home(home).join("settings.json"),
         Agent::Codex => skill::codex_home(home).join("hooks.json"),
+        Agent::Grok => skill::grok_home(home).join("hooks/rallo.json"),
     }
 }
 
@@ -115,7 +121,7 @@ impl OrderedValue {
     }
 }
 
-/// `"<abs cli path>" agent-event --agent <claude|codex> || true` (0007): the
+/// `"<abs cli path>" agent-event --agent <claude|codex|grok> || true` (0007): the
 /// path is quoted because a `Home With Spaces` install path is real (other
 /// setup commands are tested against one). Both agents run hook commands
 /// through a shell, and `|| true` keeps a missing or older CLI (one without
@@ -155,7 +161,9 @@ fn one_hook_group(command: &str) -> OrderedValue {
 fn default_content(agent: Agent) -> OrderedValue {
     match agent {
         Agent::Claude => OrderedValue::object(),
-        Agent::Codex => OrderedValue::Object(IndexMap::from([("hooks".to_owned(), OrderedValue::object())])),
+        Agent::Codex | Agent::Grok => {
+            OrderedValue::Object(IndexMap::from([("hooks".to_owned(), OrderedValue::object())]))
+        }
     }
 }
 
@@ -411,7 +419,7 @@ fn print_groups(out: &Output, agents: Vec<Agent>) -> CommandResult {
     Ok(())
 }
 
-/// `rallo setup hooks [--agent claude|codex]... [--remove] [--print]` (0007).
+/// `rallo setup hooks [--agent claude|codex|grok]... [--remove] [--print]` (0007).
 pub fn run(out: &Output, agents: Vec<Agent>, remove: bool, print: bool) -> CommandResult {
     if print {
         return print_groups(out, agents);
@@ -480,11 +488,16 @@ pub(crate) fn apply(
             "installed"
         };
 
+        // Grok's file is Rallo's own: no backup, and it goes once it's empty.
+        let owned = target.agent == Agent::Grok;
+        let failed = |error: io::Error| Failure::new(Exit::InvalidInput, "HOOKS_SETUP_FAILED", error.to_string());
         let backup_path = if unchanged {
             None
+        } else if owned && remove && (proposed == OrderedValue::object() || proposed == default_content(target.agent)) {
+            fs::remove_file(&target.path).map_err(failed)?;
+            None
         } else {
-            write_target(&target.path, &proposed, target.existed)
-                .map_err(|error| Failure::new(Exit::InvalidInput, "HOOKS_SETUP_FAILED", error.to_string()))?
+            write_target(&target.path, &proposed, target.existed && !owned).map_err(failed)?
         };
 
         results.push((

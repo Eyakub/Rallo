@@ -385,7 +385,7 @@ fn not_installed_check() -> Check {
     Check::new(
         "agent_skill",
         CheckStatus::Ok,
-        "Not installed (optional): `rallo setup skill` teaches Claude Code, Cursor, and Codex to use Rallo.",
+        "Not installed (optional): `rallo setup skill` teaches Claude Code, Cursor, Codex, and Grok to use Rallo.",
         None,
     )
 }
@@ -422,7 +422,7 @@ fn check_agent_hooks(home: Option<&Path>, app: Option<&Path>) -> Check {
             "agent_hooks",
             CheckStatus::Ok,
             format!(
-                "Not installed (optional): `rallo setup hooks` lets the pet tell you when Claude Code or Codex \
+                "Not installed (optional): `rallo setup hooks` lets the pet tell you when Claude Code, Codex, or Grok \
                  needs you.{invalid_note}"
             ),
             None,

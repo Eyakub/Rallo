@@ -43,7 +43,8 @@ impl Home {
             .env("HOME", self.home())
             .env("PATH", "/usr/bin:/bin")
             .env_remove("RALLO_DATA_DIR")
-            .env_remove("CODEX_HOME");
+            .env_remove("CODEX_HOME")
+            .env_remove("GROK_HOME");
         command
     }
 
@@ -181,6 +182,18 @@ fn agent_codex_alone_installs_only_codex_and_creates_its_dirs() {
     assert!(home.codex_skill().is_file());
     assert!(home.codex_rules().is_file());
     assert!(!home.home().join(".claude").exists(), "claude was not requested");
+}
+
+#[test]
+fn grok_home_env_var_is_honoured() {
+    let home = Home::new();
+    let custom = tempfile::tempdir().unwrap();
+    let mut command = home.command(&["--agent", "grok"]);
+    command.env("GROK_HOME", custom.path());
+    let (code, doc) = run(&mut command);
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(install(&doc, "grok")["path"], custom.path().join("skills/rallo/SKILL.md").to_str().unwrap());
+    assert!(!home.home().join(".grok").exists(), "the $HOME/.grok fallback must not be used");
 }
 
 #[test]

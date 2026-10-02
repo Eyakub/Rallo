@@ -1,4 +1,4 @@
-//! Agent attention (0007, 0009): sessions Claude Code/Codex hooks report
+//! Agent attention (0007, 0009): sessions Claude Code/Codex/Grok hooks report
 //! through `rallo agent-event`, and the read paths the pet reducer
 //! (`pet::mod`) and `rallo agents` build on.
 //!
@@ -25,10 +25,10 @@ const STATE_SEQ_KEY: &str = "agents.state_seq";
 /// known agent process.
 pub(crate) const FRESH_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 
-const RUNTIME_SCHEMA_VERSION: i64 = 3;
+const RUNTIME_SCHEMA_VERSION: i64 = 4;
 const RUNTIME_SCHEMA: &str = "
 CREATE TABLE runtime.agent_sessions (
-  agent            TEXT NOT NULL CHECK (agent IN ('claude', 'codex', 'clickup')),
+  agent            TEXT NOT NULL CHECK (agent IN ('claude', 'codex', 'clickup', 'grok')),
   session_id       TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 200),
   state            TEXT NOT NULL CHECK (state IN ('working', 'waiting', 'dismissed')),
   place            TEXT CHECK (place IS NULL OR length(place) <= 300),
@@ -69,6 +69,7 @@ pub(crate) fn ensure_runtime_schema(conn: &mut Connection) -> CoreResult<()> {
 pub enum AgentKind {
     Claude,
     Codex,
+    Grok,
     ClickUp,
 }
 
@@ -77,6 +78,7 @@ impl AgentKind {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Grok => "grok",
             Self::ClickUp => "clickup",
         }
     }
@@ -85,6 +87,7 @@ impl AgentKind {
         match value {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
+            "grok" => Some(Self::Grok),
             "clickup" => Some(Self::ClickUp),
             _ => None,
         }

@@ -1,4 +1,4 @@
-//! `rallo agent-event --agent claude|codex` (0007): reads one hook payload
+//! `rallo agent-event --agent claude|codex|grok` (0007): reads one hook payload
 //! from stdin and records the mapped state. **Always exits 0 and never
 //! writes to stdout** -- Claude Code adds a nonzero-exit hook's stderr to the
 //! model's context and can block `Stop`/`UserPromptSubmit`, so a failure here
@@ -6,8 +6,9 @@
 //! missing/invalid `session_id`, a busy or unavailable store) is one line on
 //! stderr instead.
 //!
-//! Only `hook_event_name`, `session_id`, `cwd`, `notification_type`, and
-//! `tool_name` are ever read from the payload: no prompt or model text
+//! Only `hook_event_name`, `session_id` (Grok: `sessionId`), `cwd`,
+//! `notification_type` (`notificationType`), and `tool_name` (`toolName`) are
+//! ever read from the payload: no prompt or model text
 //! (`prompt`, `last_assistant_message`) is read, stored, or logged. Of `cwd`
 //! only the last two folders are kept (0009).
 
@@ -37,6 +38,7 @@ fn to_core_agent(agent: Agent) -> AgentKind {
     match agent {
         Agent::Claude => AgentKind::Claude,
         Agent::Codex => AgentKind::Codex,
+        Agent::Grok => AgentKind::Grok,
     }
 }
 
@@ -79,14 +81,17 @@ enum Mapped {
 /// Maps a raw hook payload to `(session_id, Mapped)` per 0007's event table.
 /// `Ok(None)` covers every "ignore" case documented there: a
 /// `hook_event_name` this build doesn't map (including a Codex payload's
-/// unrelated `Notification`, which the table reserves for Claude Code only),
+/// unrelated `Notification`, which the table reserves for Claude Code and Grok),
 /// or one absent altogether. Only a malformed payload -- not valid JSON, not
 /// a JSON object, or missing/invalid `session_id` -- is an `Err`.
 fn map_event(agent: Agent, payload: &[u8]) -> Result<Option<(String, Mapped)>, &'static str> {
     let value: Value = serde_json::from_slice(payload).map_err(|_| "invalid JSON on stdin")?;
     let object = value.as_object().ok_or("payload is not a JSON object")?;
 
-    let session_id = object.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+    // Grok's payload is a hybrid: Claude's `hook_event_name`, camelCase the rest.
+    let text = |snake: &str, camel: &str| object.get(snake).or_else(|| object.get(camel)).and_then(Value::as_str);
+
+    let session_id = text("session_id", "sessionId").ok_or("missing session_id")?;
     if session_id.is_empty() || session_id.chars().count() > SESSION_ID_MAX_CHARS {
         return Err("session_id is empty or too long");
     }
@@ -96,8 +101,8 @@ fn map_event(agent: Agent, payload: &[u8]) -> Result<Option<(String, Mapped)>, &
     };
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     let place = object.get("cwd").and_then(Value::as_str).and_then(|cwd| place(cwd, home.as_deref()));
-    let notification_type = object.get("notification_type").and_then(Value::as_str);
-    let tool_name = object.get("tool_name").and_then(Value::as_str);
+    let notification_type = text("notification_type", "notificationType");
+    let tool_name = text("tool_name", "toolName");
 
     let waiting = |detail: Option<&str>| Mapped::SetState {
         state: AgentState::Waiting,
@@ -108,18 +113,18 @@ fn map_event(agent: Agent, payload: &[u8]) -> Result<Option<(String, Mapped)>, &
 
     let mapped = match hook_event_name {
         "PermissionRequest" => Some(waiting(tool_name)),
-        "Notification" if agent == Agent::Claude => match notification_type {
+        "Notification" if agent != Agent::Codex => match notification_type {
             Some("permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog" | "agent_needs_input") => {
                 Some(waiting(None))
             }
             // A finished turn isn't a question for the user: the row goes, as
             // on SessionEnd, so only agents waiting on an answer are listed
             // (0007, amended 2026-10-01).
-            Some("idle_prompt" | "agent_completed") => Some(Mapped::End),
+            Some("idle_prompt" | "agent_completed" | "task_complete") => Some(Mapped::End),
             _ => None,
         },
         "PostToolUse" | "UserPromptSubmit" => Some(working()),
-        "Stop" | "SessionEnd" | "Interrupt" => Some(Mapped::End),
+        "Stop" | "StopCancelled" | "StopFailure" | "SessionEnd" | "Interrupt" => Some(Mapped::End),
         _ => None,
     };
     Ok(mapped.map(|mapped| (session_id.to_owned(), mapped)))
@@ -168,8 +173,15 @@ fn apply(data_dir_arg: Option<&Path>, agent: Agent, session_id: String, mapped: 
     Ok(())
 }
 
+/// Grok also runs the Claude-compat hooks in `~/.claude/settings.json`, so
+/// `GROK_HOOK_EVENT` (set on every Grok hook process) overrides `--agent`.
+fn effective_agent(agent: Agent, grok_env: bool) -> Agent {
+    if grok_env { Agent::Grok } else { agent }
+}
+
 /// Never returns an error: every failure is already reported to stderr here.
 pub fn run(data_dir_arg: Option<&Path>, agent: Agent) {
+    let agent = effective_agent(agent, std::env::var_os("GROK_HOOK_EVENT").is_some());
     let payload = read_stdin_capped();
     match map_event(agent, &payload) {
         Err(reason) => eprintln!("agent-event: {reason}"),
@@ -185,6 +197,35 @@ pub fn run(data_dir_arg: Option<&Path>, agent: Agent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn map_one(agent: Agent, payload: &str) -> Option<Mapped> {
+        map_event(agent, payload.as_bytes()).unwrap().map(|(_, mapped)| mapped)
+    }
+
+    fn grok_notification(kind: &str) -> String {
+        format!(
+            r#"{{"hook_event_name":"Notification","hookEventName":"notification","notificationType":"{kind}","sessionId":"s1","cwd":"/tmp/a/b","workspaceRoot":"/tmp/a/b"}}"#
+        )
+    }
+
+    #[test]
+    fn grok_payload_maps_by_camel_case_fields() {
+        let (id, mapped) = map_event(Agent::Grok, grok_notification("permission_prompt").as_bytes()).unwrap().unwrap();
+        assert_eq!(id, "s1");
+        assert!(matches!(mapped, Mapped::SetState { state: AgentState::Waiting, place: Some(p), .. } if p == "a/b"));
+        for kind in ["idle_prompt", "task_complete"] {
+            assert!(matches!(map_one(Agent::Grok, &grok_notification(kind)), Some(Mapped::End)), "{kind}");
+        }
+        let cancelled = r#"{"hook_event_name":"StopCancelled","sessionId":"s1"}"#;
+        assert!(matches!(map_one(Agent::Grok, cancelled), Some(Mapped::End)));
+        assert!(map_one(Agent::Codex, &grok_notification("permission_prompt")).is_none(), "Codex ignores Notification");
+    }
+
+    #[test]
+    fn grok_env_overrides_the_agent() {
+        assert_eq!(effective_agent(Agent::Claude, true), Agent::Grok);
+        assert_eq!(effective_agent(Agent::Claude, false), Agent::Claude);
+    }
 
     #[test]
     fn place_keeps_the_last_two_folders() {

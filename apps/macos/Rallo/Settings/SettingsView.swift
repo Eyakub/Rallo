@@ -155,7 +155,7 @@ private struct AgentsTab: View {
 
     var body: some View {
         Page {
-            line("Hooks let the pet wave when Claude Code or Codex waits for you. The skill teaches agents to use rallo.")
+            line("Hooks let the pet wave when Claude Code, Codex, or Grok waits for you. The skill teaches agents to use rallo.")
             statusRow("Hooks", check: hooks)
             statusRow("Skill", check: skill)
             HStack {
@@ -267,7 +267,7 @@ private struct VoiceTab: View {
 
             Section {
                 TextField("Words to recognize", text: $voiceWords, prompt: Text("Names, terms"))
-                    .help("Separate with commas. Rallo, ClickUp, cmux, Claude and Codex are built in.")
+                    .help("Separate with commas. Rallo, ClickUp, cmux, Claude, Codex and Grok are built in.")
                 Toggle("Remove “um”s and repeated words", isOn: $tidy)
                     .help("Turn off to type exactly what was heard.")
             }

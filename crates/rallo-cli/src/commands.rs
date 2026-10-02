@@ -226,13 +226,13 @@ pub fn setup_skill(out: &Output, print: bool, agents: Vec<skill::Agent>) -> Comm
 
     let mut installs = Vec::new();
     let mut lines = Vec::new();
-    let mut has_claude = false;
-    let mut has_codex = false;
+    let mut names: Vec<&str> = Vec::new();
     for target in plan {
-        match target.agent {
-            skill::Agent::Claude => has_claude = true,
-            skill::Agent::Codex => has_codex = true,
-        }
+        names.extend(match target.agent {
+            skill::Agent::Claude => ["Claude Code", "Cursor"].as_slice(),
+            skill::Agent::Codex => ["Codex"].as_slice(),
+            skill::Agent::Grok => ["Grok"].as_slice(),
+        });
         let status = match target.skill_state {
             skill::State::Current => "already_installed",
             skill::State::Missing => "installed",
@@ -289,17 +289,15 @@ pub fn setup_skill(out: &Output, print: bool, agents: Vec<skill::Agent>) -> Comm
     };
 
     out.success(json!({ "skill": { "installs": installs } }), &warnings, || {
-        let hint = match (has_claude, has_codex) {
-            (true, true) => {
-                "Claude Code, Cursor, and Codex pick it up from there; ask one to \"note that …\" or \"remind me …\"."
-            }
-            (true, false) => {
-                "Claude Code and Cursor pick it up from there; ask one to \"note that …\" or \"remind me …\"."
-            }
-            (false, true) => "Codex picks it up from there; ask it to \"note that …\" or \"remind me …\".",
-            (false, false) => unreachable!("at least one agent is always targeted"),
+        let (last, rest) = names.split_last().expect("at least one agent is always targeted");
+        let who = if rest.is_empty() {
+            last.to_string()
+        } else {
+            format!("{}{} and {last}", rest.join(", "), if rest.len() > 1 { "," } else { "" })
         };
-        lines.push(hint.to_owned());
+        let (verb, pronoun) = if rest.is_empty() { ("picks", "it") } else { ("pick", "one") };
+        let hint = format!("{who} {verb} it up from there; ask {pronoun} to \"note that …\" or \"remind me …\".");
+        lines.push(hint);
         lines.join("\n")
     });
     Ok(())
@@ -309,6 +307,7 @@ fn to_core_agent(agent: skill::Agent) -> AgentKind {
     match agent {
         skill::Agent::Claude => AgentKind::Claude,
         skill::Agent::Codex => AgentKind::Codex,
+        skill::Agent::Grok => AgentKind::Grok,
     }
 }
 
@@ -341,6 +340,7 @@ fn agent_kind_label(agent: AgentKind) -> &'static str {
     match agent {
         AgentKind::Claude => "Claude Code",
         AgentKind::Codex => "Codex",
+        AgentKind::Grok => "Grok",
         AgentKind::ClickUp => "ClickUp",
     }
 }
