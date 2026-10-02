@@ -90,10 +90,12 @@ previous="$(git describe --tags --abbrev=0 2>/dev/null || true)"
   echo
   echo "Install or update: see docs/distribution.md. Already installed? Run \`rallo update\`."
   echo
-  echo "This build is ad-hoc signed, not notarized. Installed with \`rallo update\` or"
+  echo "Signed with Rallo's own certificate, not notarized. Installed with \`rallo update\` or"
   echo "scripts/install.sh it opens normally; a zip downloaded in a browser needs"
   echo "System Settings → Privacy & Security → Open Anyway once."
   echo
+  # Hand-written highlights, if this version has them.
+  if [ -f "docs/releases/$version.md" ]; then cat "docs/releases/$version.md"; echo; fi
   echo "## Changes"
   git log --no-merges --format='- %s' ${previous:+"$previous..HEAD"}
 } > "$dist/NOTES.md"
