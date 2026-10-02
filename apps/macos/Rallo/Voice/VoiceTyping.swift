@@ -48,6 +48,9 @@ final class VoiceTyping {
     private var hideTask: Task<Void, Never>?
     private var lastTyped: String?
     private(set) var isListening = false
+    /// The pet's listening pose (on once the mic is live) and its nod per typed phrase.
+    var onListening: (Bool) -> Void = { _ in }
+    var onTyped: () -> Void = {}
     private var stopping = false
 
     var petFrame: () -> NSRect? {
@@ -87,6 +90,7 @@ final class VoiceTyping {
                 try await session.start()
                 guard isListening else { return await session.stop() }
                 log.record("voice_started")
+                onListening(true)
                 bubble.show("Listening…", listening: true)
                 armSilenceTimer()
             } catch {
@@ -102,6 +106,7 @@ final class VoiceTyping {
     func stop(reason: StopReason) {
         guard isListening else { return }
         isListening = false
+        onListening(false)
         stopping = true
         silenceTimer?.invalidate()
         silenceTimer = nil
@@ -128,6 +133,7 @@ final class VoiceTyping {
     /// Permission problems: say so for a few seconds and don't start.
     private func fail(message: String) {
         isListening = false
+        onListening(false)
         bubble.show(message, listening: false)
         flashThenHide()
     }
@@ -164,6 +170,7 @@ final class VoiceTyping {
             return
         }
         TextTyper.type(VoiceText.joined(previous: lastTyped, next: text))
+        onTyped()
         lastTyped = text
         if isListening { bubble.show(text, listening: true) }
     }

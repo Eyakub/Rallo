@@ -87,6 +87,10 @@ final class PetController {
                       agentsWaiting: agentsWaiting, label: label, done: done)
     }
 
+    /// Voice typing (0013): the listening pose while dictating, a nod per phrase.
+    func setListening(_ on: Bool) { petView.setListening(on) }
+    func heard() { petView.heard() }
+
     private func updateCanAnimate() {
         petView.canAnimate = panel.isVisible && panel.occlusionState.contains(.visible) && !displaysAsleep
     }

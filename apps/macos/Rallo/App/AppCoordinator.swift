@@ -137,6 +137,8 @@ final class AppCoordinator {
             if notes.isOpen { notes.close() } else { openNotes(highlighting: nil) }
         }
         globalShortcuts.onVoice = { [weak self] in self?.voice.toggle() }
+        voice.onListening = { [weak self] in self?.pet.setListening($0) }
+        voice.onTyped = { [weak self] in self?.pet.heard() }
         voice.petFrame = { [weak self] in
             guard let self, pet.isVisible else { return nil }
             return pet.frame
@@ -175,6 +177,18 @@ final class AppCoordinator {
             switch demoOpen.split(separator: ":").first {
             case "notes": openNotes(highlighting: nil)
             case "menu": statusMenu?.openMenu()
+            case "listening":
+                // The voice-typing pose (0013): 8 s listening with a nod every
+                // 2.5 s, 4 s back at rest, repeating.
+                let start = Date()
+                pet.setListening(true)
+                Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        let phase = Int(Date().timeIntervalSince(start) * 2) % 24
+                        self?.pet.setListening(phase < 16)
+                        if phase < 16, phase % 5 == 0 { self?.pet.heard() }
+                    }
+                }
             case "settings":
                 if let tab = demoOpen.split(separator: ":").dropFirst().first { settingsModel.tab = String(tab) }
                 openSettings()

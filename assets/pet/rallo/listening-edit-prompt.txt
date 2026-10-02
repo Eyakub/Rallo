@@ -1,0 +1,9 @@
+Mode: built-in image_gen
+Source: pet-idle@2x.png
+Use case: precise-object-edit. Edit the supplied existing Rallo sitting red panda sprite. Preserve the original illustration: same sitting pose, body, tail, fur texture, colours, line style, relative size and position, and original canvas aspect ratio 286:236. Preserve the silhouette except where the explicitly requested ear, head tilt and raised paw edits require a local change. Do not redesign or redraw the body or tail. Replace transparency with a plain uniform flat cream background #FCF8EF. No text, no sound waves, no musical notes, no microphone, no extra objects.
+Change only these details to show attentive listening:
+- One ear perked fully upright and turned slightly forward, the other ear relaxed as in the original.
+- One front paw raised and gently cupped behind the perked ear, as if listening closely. The other paw stays where it is. Anatomically coherent: move the existing paw, do not add a third front paw.
+- Eyes open, bright and attentive, looking slightly up and to the side, with the head tilted a few degrees toward the cupped ear.
+- A small, curious closed-mouth smile.
+The mood is calm, friendly concentration, as if hearing someone speak. Keep it cute, not surprised or startled. Keep every non-edited detail as close to the source as possible.

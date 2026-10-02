@@ -108,11 +108,12 @@ Made on 2026-09-30 by editing an existing @2x sprite in an image generator
 | `grumpy` | `rallo_grumpy.png` | `idle` | tickling it again once it's up |
 | `happy` | `rallo_happy.png` | `idle` | a save (with the hop and ✓) |
 | `wave2` | `rallo_wave2.png` | `nudge` | second frame of the due wave |
+| `listening` | `rallo_listening.png` | `idle` | voice typing is on (paw cupped to the perked ear; added 2026-10-02, prompt in `listening-edit-prompt.txt`) |
 
 `scripts/fit-pet-pose.py` cuts each one out with this pipeline's matte and
 places it at the scale and offset where its silhouette overlaps the pose it
 was edited from most, so switching between them doesn't jump (overlap:
-drowsy 99.1 %, content 98.9 %, happy 96.6 %, wave2 95.4 %, grumpy 94.6 %;
+drowsy 99.1 %, content 98.9 %, happy 96.6 %, wave2 95.4 %, grumpy 94.6 %, listening 94.0 %;
 the rest is the changed ears, face, or paw):
 
 ```
@@ -121,7 +122,8 @@ scripts/fit-pet-pose.py \
     content=assets/pet/rallo/rallo_content.png:assets/pet/rallo/pet-sleep@2x.png \
     grumpy=assets/pet/rallo/rallo_grumpy.png:assets/pet/rallo/pet-idle@2x.png \
     happy=assets/pet/rallo/rallo_happy.png:assets/pet/rallo/pet-idle@2x.png \
-    wave2=assets/pet/rallo/rallo_wave2.png:assets/pet/rallo/pet-nudge@2x.png
+    wave2=assets/pet/rallo/rallo_wave2.png:assets/pet/rallo/pet-nudge@2x.png \
+    listening=assets/pet/rallo/rallo_listening.png:assets/pet/rallo/pet-idle@2x.png
 ```
 
 `pet-idle-base` / `pet-idle-eyes` split the idle pose's eyes onto their own

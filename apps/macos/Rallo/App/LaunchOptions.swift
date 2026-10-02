@@ -21,7 +21,7 @@ struct LaunchOptions {
     var prepareUninstall = false
     /// Screenshot mode (scripts/screenshots.sh), honoured only with an
     /// explicit `--data-dir`: `light`/`dark` for this instance, and what to
-    /// open once it's up (`notes`, `menu`, `settings` or `settings:<tab>`).
+    /// open once it's up (`notes`, `menu`, `listening`, `settings` or `settings:<tab>`).
     var demoAppearance: String?
     var demoOpen: String?
 

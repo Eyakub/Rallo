@@ -40,7 +40,17 @@ default**, and disabled before macOS 26.
 
 See [0014](0014-whisper-engine.md) for the Whisper engine and the Voice tab.
 
+## The pet listens
+
+Once the microphone is live the pet cross-fades into `pet-listening` (paw
+cupped to a perked ear) and loops a slow lean toward that ear with a soft
+breath; each typed phrase gets a small upward bob. A wave or hop already in
+progress finishes first. On stop it fades back to whatever it would show
+otherwise. Play reactions and ambient poses pause while it listens, and
+Reduce Motion, Pause Animations or an occluded pet keep the pose but drop
+the motion.
+
 ## Not done yet
 
-AI cleanup of the text, per-app rules, a configurable
-shortcut, and a listening pose for the pet.
+AI cleanup of the text, per-app rules and a configurable
+shortcut.

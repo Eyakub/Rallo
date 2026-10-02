@@ -152,8 +152,9 @@ message text. Channel @mentions and task comments aren't covered yet
 
 - **Local.** Notes live in SQLite at `~/Library/Application Support/Razlio/Rallo`. There is
   no account and no telemetry.
-- **Network.** Only `rallo update`, when you run it, ClickUp, if you connect it, and a daily check
-  for new releases, if you turn it on in Settings → General.
+- **Network.** Only `rallo update`, when you run it, ClickUp, if you connect it, a daily check
+  for new releases, if you turn it on in Settings → General, and voice typing's Whisper model
+  download or cloud engine, if you choose them (below).
 - **Voice typing** is off by default and runs on your Mac, with Apple's speech engine or
   Whisper. Audio and the text are never stored or logged; macOS may download Apple's speech
   model the first time you use it. The Whisper model is downloaded from Hugging Face only when

@@ -21,6 +21,8 @@ final class PetView: NSView {
         case happy = "pet-happy"
         /// The other end of the nudge's wave (nudge's body).
         case wave = "pet-wave2"
+        /// Voice typing (0013): ear perked, paw cupped behind it (idle's body).
+        case listening = "pet-listening"
     }
 
     /// One-off motion answering something that just happened.
@@ -62,6 +64,14 @@ final class PetView: NSView {
     private var momentWork: DispatchWorkItem?
     private var steadyPose: Pose = .idle
     private var ambientPose: Pose?
+    /// Whether the reducer asked for ambient motion (kept so it can resume
+    /// when listening ends).
+    private var ambientRequested = false
+    /// Voice typing is listening: the listening pose replaces the steady
+    /// one until it ends; moments still play, then return to it.
+    private var listening = false
+    private var momentActive = false
+    private var restPose: Pose { listening ? .listening : steadyPose }
     private var motionAllowed = false
     private var leanAngle: CGFloat = 0
     private var lookOffset = CGSize.zero
@@ -84,7 +94,7 @@ final class PetView: NSView {
         didSet {
             guard canAnimate != oldValue else { return }
             rescheduleAmbient()
-            if !canAnimate { resetLean() }
+            if canAnimate { startListeningMotion() } else { resetLean(); stopListeningMotion() }
         }
     }
 
@@ -197,12 +207,14 @@ final class PetView: NSView {
         setBadge(dueCount)
         setAgentBadge(agentsWaiting)
         steadyPose = pose
-        ambientPose = ambient ? pose : nil
+        ambientRequested = ambient
+        ambientPose = ambient && !listening ? pose : nil
         motionAllowed = animate
+        momentActive = false
         if !animate || pose == .sleep { resetLean() }
 
         let (momentPose, duration): (Pose, TimeInterval) = switch moment {
-        case .none: (pose, 0)
+        case .none: (restPose, 0)
         case .attention: (.nudge, 2.4)
         case .celebrate: (.celebrate, 1.6)
         case .acknowledge: (.happy, 1.2)
@@ -212,15 +224,19 @@ final class PetView: NSView {
         if moment == .acknowledge { showSavedMark(popping: animate) }
         guard duration > 0 else {
             rescheduleAmbient()
+            startListeningMotion()
             done()
             return
         }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.show(self.steadyPose, fade: animate)
+            self.momentActive = false
+            self.show(self.restPose, fade: animate)
             self.rescheduleAmbient()
+            self.startListeningMotion()
             done()
         }
+        momentActive = true
         momentWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
@@ -232,6 +248,57 @@ final class PetView: NSView {
         ambientTimer = nil
         sprite.removeAllAnimations()
         resetLean()
+    }
+
+    /// Voice typing started or stopped (0013). Cross-fades into the
+    /// listening pose and loops a slow lean toward the cupped ear with a
+    /// soft breath; on stop, back to the resting pose. A moment in progress
+    /// finishes first and then lands on the right pose by itself.
+    func setListening(_ on: Bool) {
+        guard on != listening else { return }
+        listening = on
+        endPlay()
+        ambientPose = ambientRequested && !on ? steadyPose : nil
+        if !momentActive { show(restPose, fade: motionAllowed && canAnimate) }
+        if on {
+            ambientTimer?.invalidate()
+            ambientTimer = nil
+            startListeningMotion()
+        } else {
+            stopListeningMotion()
+            rescheduleAmbient()
+        }
+    }
+
+    /// A phrase was just typed: a small bob, as if to say "got it". Up, so
+    /// the feet never dip below the baseline; translation, so it doesn't
+    /// fight the looped lean and breath.
+    func heard() {
+        guard listening, !momentActive, motionAllowed, canAnimate else { return }
+        add(keyframes: "transform.translation.y", values: [0, 3, 0], duration: 0.32)
+    }
+
+    private func startListeningMotion() {
+        guard listening, !momentActive, motionAllowed, canAnimate else { return }
+        loop("transform.rotation.z", values: [0, -0.035, -0.035, 0, 0.012, 0],
+             keyTimes: [0, 0.25, 0.5, 0.7, 0.85, 1], duration: 3.6, key: "listen-lean")
+        loop("transform.scale.y", values: [1, 1.022, 1], keyTimes: nil, duration: 2.8, key: "listen-breath")
+    }
+
+    private func stopListeningMotion() {
+        sprite.removeAnimation(forKey: "listen-lean")
+        sprite.removeAnimation(forKey: "listen-breath")
+    }
+
+    private func loop(_ keyPath: String, values: [Double], keyTimes: [Double]?, duration: TimeInterval, key: String) {
+        let animation = CAKeyframeAnimation(keyPath: keyPath)
+        animation.values = values
+        animation.duration = duration
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        if let keyTimes { animation.keyTimes = keyTimes.map { NSNumber(value: $0) } }
+        animation.preferredFrameRateRange = Self.frameRate
+        sprite.add(animation, forKey: key)
     }
 
     private func show(_ pose: Pose, fade: Bool) {
@@ -457,7 +524,7 @@ final class PetView: NSView {
     /// and tickling it again while it's up makes it grumpy. Presentation
     /// only: the reducer's pose is untouched (0006).
     private func play(with event: NSEvent) {
-        guard playAllowed, steadyPose == .sleep else { return }
+        guard playAllowed, steadyPose == .sleep, !listening else { return }
         let x = convert(event.locationInWindow, from: nil).x
         guard let turn = stroke.add(x: x, at: event.timestamp) else { return }
         if stroke.turns(fasterThan: 500, within: 1.2, now: turn) >= 3 {
@@ -487,7 +554,7 @@ final class PetView: NSView {
             self.endPlay()
             self.lean(to: 0)
             self.look(toward: .zero)
-            self.show(self.steadyPose, fade: true)
+            self.show(self.restPose, fade: true)
             self.add(keyframes: "transform.scale.y", values: [1, 0.95, 1], duration: 0.5)
         }
         playWork = work
