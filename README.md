@@ -33,7 +33,8 @@ Rallo is a small Mac app for the thoughts you'd otherwise lose: "call the dentis
 "check the CI flake", "stretch in 20 minutes". You save them from the terminal in a
 second, and a red panda sitting on your desktop keeps them quietly in view. When
 something needs you, a reminder coming due, an agent asking for permission, or a
-teammate's message, it waves.
+teammate's message, it waves. And when typing is slower than talking, press **⌃⌥⌘V**
+and speak: Rallo types for you in any app, from the terminal to the browser.
 
 Everything lives on your Mac. No account, no server, no telemetry.
 
