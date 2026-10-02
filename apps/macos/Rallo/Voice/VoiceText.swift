@@ -7,6 +7,35 @@ enum VoiceText {
     /// Words the engine would otherwise mishear ("Rallo" became "Rao").
     static let builtInWords = ["Rallo", "ClickUp", "cmux", "Claude", "Codex"]
 
+    /// UserDefaults key for "Clean up stutters and fillers" (on unless set false).
+    static let tidyKey = "voiceTidy"
+    private static let fillers: Set<String> = ["um", "umm", "uh", "uhm", "er", "erm", "hmm", "mm", "mhm"]
+
+    /// Drops filler sounds ("um", "uh") and collapses a word said twice in a
+    /// row ("like like", "I I think"), also across the boundary with the text
+    /// typed before (`previous`). Words with digits are never collapsed, so
+    /// "5 5 5" stays. A filler used as a real word ("like" in "it was, like,
+    /// fine") needs understanding and is left to AI cleanup.
+    static func tidy(_ text: String, after previous: String? = nil) -> String {
+        func word(_ token: Substring) -> String {
+            token.trimmingCharacters(in: .punctuationCharacters).lowercased()
+        }
+        var out: [Substring] = []
+        var last = previous?.split(separator: " ").last.map(word)
+        for token in text.split(separator: " ") {
+            let current = word(token)
+            if fillers.contains(current) { continue }
+            if !current.isEmpty, current == last, !current.contains(where: \.isNumber) {
+                // Keep the later token's punctuation ("like like," → "like,").
+                if !out.isEmpty { out[out.count - 1] = token }
+                continue
+            }
+            out.append(token)
+            last = current
+        }
+        return out.joined(separator: " ")
+    }
+
     /// Built-in words plus the user's comma- or newline-separated list,
     /// trimmed, without duplicates (case-insensitive), at most 100.
     static func contextWords(userList: String) -> [String] {

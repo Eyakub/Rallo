@@ -38,7 +38,9 @@ default**, and disabled before macOS 26.
   diagnostics log records only `voice_started`, `voice_stopped` (with a
   reason), and `voice_failed` (error type).
 
+See [0014](0014-whisper-engine.md) for the Whisper engine and the Voice tab.
+
 ## Not done yet
 
-A Whisper engine, AI cleanup of the text, per-app rules, a configurable
+AI cleanup of the text, per-app rules, a configurable
 shortcut, and a listening pose for the pet.

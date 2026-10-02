@@ -397,7 +397,6 @@ final class AppCoordinator {
             model.updateCheckEnabled = updateChecker.isEnabled
             model.updateCheckAllowed = updateChecker.allowed
             model.voiceTypingEnabled = Self.voiceTypingEnabled
-            if #available(macOS 26, *) { model.voiceTypingAvailable = true }
             model.voicePermissions = VoicePermissions.summary
             model.voiceAccessibilityMissing = !VoicePermissions.accessibilityAllowed(prompt: false)
         }

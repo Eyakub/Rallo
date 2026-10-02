@@ -23,17 +23,25 @@ final class SettingsModel: ObservableObject {
     @Published var updateCheckEnabled = false
     @Published var updateCheckAllowed = true
     @Published var voiceTypingEnabled = false
-    @Published var voiceTypingAvailable = false
     @Published var voicePermissions = ""
     @Published var voiceAccessibilityMissing = false
     var dataPath = ""
 
+    enum WhisperModelState: Equatable {
+        case checking, missing
+        case downloading(Double)
+        case ready(String)
+        case failed(String)
+    }
+
     // Own state.
-    /// The selected tab's tag: general, notifications, agents, clickup, data, about.
+    /// The selected tab's tag: general, notifications, agents, voice, clickup, data, about.
     @Published var tab = "general"
     @Published var token = ""
     @Published var clickUpBusy = false
     @Published var clickUpMessage: String?
+    @Published var whisperModel = WhisperModelState.checking
+    private var whisperDownload: Task<Void, Never>?
     @Published var agents = AgentsStatus.checking
     @Published var agentsBusy = false
     @Published var agentsMessage: String?
@@ -78,6 +86,7 @@ final class SettingsModel: ObservableObject {
     func opened() {
         refresh()
         clickUpMessage = nil
+        checkWhisperModel()
         Task { await loadAgents() }
     }
 
@@ -98,6 +107,55 @@ final class SettingsModel: ObservableObject {
 
     func showDataFolder() {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: dataPath)])
+    }
+
+    // MARK: Whisper model (0014)
+
+    func checkWhisperModel() {
+        if case .downloading = whisperModel { return }
+        Task {
+            guard let path = await WhisperModel().locate() else {
+                if case .downloading = whisperModel { return }
+                whisperModel = .missing
+                return
+            }
+            if case .downloading = whisperModel { return }
+            whisperModel = .ready(path.path)
+        }
+    }
+
+    func downloadWhisperModel() {
+        guard whisperDownload == nil else { return }
+        whisperModel = .downloading(0)
+        whisperDownload = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await WhisperModel().download { [weak self] fraction in
+                    Task { @MainActor in
+                        if case .downloading = self?.whisperModel { self?.whisperModel = .downloading(fraction) }
+                    }
+                }
+                whisperDownload = nil
+                whisperModel = .checking
+                checkWhisperModel()
+            } catch {
+                whisperDownload = nil
+                let cancelled = error is CancellationError || (error as? URLError)?.code == .cancelled
+                whisperModel = cancelled ? .missing : .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func cancelWhisperDownload() { whisperDownload?.cancel() }
+
+    func deleteWhisperModel() {
+        WhisperModel().delete()
+        Task { await WhisperEngine.shared.unload() }
+        whisperModel = .missing
+    }
+
+    func showWhisperModel() {
+        if case let .ready(path) = whisperModel { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
     }
 
     // MARK: ClickUp (0010)

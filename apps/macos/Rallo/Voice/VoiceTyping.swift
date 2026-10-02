@@ -26,6 +26,16 @@ enum VoicePermissions {
     }
 }
 
+/// A listening engine: Apple's (macOS 26+) or Whisper (0014).
+@MainActor
+protocol VoiceEngineSession: AnyObject {
+    var onStatus: (String) -> Void { get set }
+    var onResult: (String, Bool) -> Void { get set }
+    var onFailure: (Error) -> Void { get set }
+    func start() async throws
+    func stop() async
+}
+
 /// Voice typing (0013): ⌃⌥⌘V toggles listening; finalized phrases are typed
 /// into the focused app, live words show in a bubble. Audio and text are
 /// never stored or logged.
@@ -35,7 +45,7 @@ final class VoiceTyping {
 
     private let log: DiagnosticsLog
     private let bubble = VoiceBubble()
-    private var session: AnyObject?
+    private var session: (any VoiceEngineSession)?
     private var startTask: Task<Void, Never>?
     private var silenceTimer: Timer?
     private var hideTask: Task<Void, Never>?
@@ -55,7 +65,7 @@ final class VoiceTyping {
     }
 
     func start() {
-        guard !isListening, !stopping, #available(macOS 26, *) else { return }
+        guard !isListening, !stopping else { return }
         isListening = true
         lastTyped = nil
         hideTask?.cancel()
@@ -67,7 +77,7 @@ final class VoiceTyping {
                 return fail(message: "Allow Rallo under Privacy & Security → Accessibility")
             }
             guard isListening else { return }
-            let session = VoiceSession()
+            let session = Self.makeSession()
             session.onStatus = { [weak self] in self?.bubble.show($0, listening: false) }
             session.onResult = { [weak self] text, isFinal in self?.handle(text, isFinal: isFinal) }
             session.onFailure = { [weak self] error in
@@ -83,23 +93,24 @@ final class VoiceTyping {
                 bubble.show("Listening…", listening: true)
                 armSilenceTimer()
             } catch {
-                if isListening { log.record("voice_failed", ["error": String(describing: type(of: error))]) }
                 self.session = nil
                 await session.stop()
+                if let message = error as? VoiceMessage, isListening { return fail(message: message.text) }
+                if isListening { log.record("voice_failed", ["error": String(describing: type(of: error))]) }
                 if isListening { stop(reason: .error) }
             }
         }
     }
 
     func stop(reason: StopReason) {
-        guard isListening, #available(macOS 26, *) else { return }
+        guard isListening else { return }
         isListening = false
         stopping = true
         silenceTimer?.invalidate()
         silenceTimer = nil
         startTask?.cancel()
         log.record("voice_stopped", ["reason": reason.rawValue])
-        let session = self.session as? VoiceSession
+        let session = self.session
         self.session = nil
         Task { [weak self] in
             // Draining lets the last phrase finalize and get typed.
@@ -107,6 +118,12 @@ final class VoiceTyping {
             self?.stopping = false
             self?.bubble.hide()
         }
+    }
+
+    /// Whisper on request, and on macOS 14–25 where Apple's engine isn't there.
+    private static func makeSession() -> any VoiceEngineSession {
+        if #available(macOS 26, *), UserDefaults.standard.string(forKey: "voiceEngine") != "whisper" { return VoiceSession() }
+        return WhisperVoiceSession()
     }
 
     /// Permission problems: say so for a few seconds and don't start.
@@ -134,7 +151,10 @@ final class VoiceTyping {
 
     private func handle(_ raw: String, isFinal: Bool) {
         if isListening { armSilenceTimer() }
-        let text = VoiceText.sanitize(raw).trimmingCharacters(in: .whitespaces)
+        var text = VoiceText.sanitize(raw).trimmingCharacters(in: .whitespaces)
+        if UserDefaults.standard.object(forKey: VoiceText.tidyKey) as? Bool ?? true {
+            text = VoiceText.tidy(text, after: isFinal ? lastTyped : nil)
+        }
         guard !text.isEmpty else { return }
         guard isFinal else {
             if isListening { bubble.show(text, listening: true) }
@@ -153,7 +173,7 @@ final class VoiceTyping {
 /// One listening session on Apple's on-device DictationTranscriber.
 @available(macOS 26, *)
 @MainActor
-final class VoiceSession {
+final class VoiceSession: VoiceEngineSession {
     var onStatus: (String) -> Void = { _ in }
     var onResult: (String, Bool) -> Void = { _, _ in }
     var onFailure: (Error) -> Void = { _ in }

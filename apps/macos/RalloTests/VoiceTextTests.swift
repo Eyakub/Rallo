@@ -33,4 +33,13 @@ final class VoiceTextTests: XCTestCase {
         XCTAssertEqual(words, VoiceText.builtInWords + ["Muhsin", "SDS Manager"])
         XCTAssertEqual(VoiceText.contextWords(userList: ""), VoiceText.builtInWords)
     }
+
+    func testTidy() {
+        XCTAssertEqual(VoiceText.tidy("set it up like like we said"), "set it up like we said")
+        XCTAssertEqual(VoiceText.tidy("Um, I I think, uh, it works"), "I think, it works")
+        XCTAssertEqual(VoiceText.tidy("it was like, like fine"), "it was like fine")
+        XCTAssertEqual(VoiceText.tidy("call 5 5 5 now"), "call 5 5 5 now")
+        XCTAssertEqual(VoiceText.tidy("like we said", after: "set it up like"), "we said")
+        XCTAssertEqual(VoiceText.tidy("um"), "")
+    }
 }

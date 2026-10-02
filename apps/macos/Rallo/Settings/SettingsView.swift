@@ -6,7 +6,7 @@ import SwiftUI
 /// its tabs into the toolbar's overflow menu on macOS 26). The raw value is
 /// `SettingsModel.tab`.
 enum SettingsTab: String, CaseIterable {
-    case general, notifications, agents, clickup, data, about
+    case general, notifications, agents, voice, clickup, data, about
 
     static let size = CGSize(width: 540, height: 400)
 
@@ -15,6 +15,7 @@ enum SettingsTab: String, CaseIterable {
         case .general: "General"
         case .notifications: "Notifications"
         case .agents: "Agents"
+        case .voice: "Voice"
         case .clickup: "ClickUp"
         case .data: "Data"
         case .about: "About"
@@ -26,6 +27,7 @@ enum SettingsTab: String, CaseIterable {
         case .general: "gearshape"
         case .notifications: "bell"
         case .agents: "terminal"
+        case .voice: "waveform"
         case .clickup: "bubble.left.and.bubble.right"
         case .data: "externaldrive"
         case .about: "info.circle"
@@ -39,6 +41,7 @@ enum SettingsTab: String, CaseIterable {
             case .general: GeneralTab(model: model)
             case .notifications: NotificationsTab(model: model)
             case .agents: AgentsTab(model: model)
+            case .voice: VoiceTab(model: model)
             case .clickup: ClickUpTab(model: model)
             case .data: DataTab(model: model)
             case .about: AboutTab(model: model)
@@ -83,7 +86,6 @@ private func line(_ text: String) -> some View {
 
 private struct GeneralTab: View {
     @ObservedObject var model: SettingsModel
-    @AppStorage(VoiceText.wordsKey) private var voiceWords = ""
 
     var body: some View {
         Page {
@@ -94,22 +96,6 @@ private struct GeneralTab: View {
             Toggle("Check for updates daily", isOn: Binding(get: { model.updateCheckEnabled }, set: { model.setUpdateCheck($0) }))
                 .disabled(!model.updateCheckAllowed)
             caption("Asks GitHub once a day whether a newer Rallo is out, then tells you in the menu and with a notification. Nothing about you or your notes is sent; installing still waits for you.")
-            Toggle("Voice typing (⌃⌥⌘V)", isOn: Binding(get: { model.voiceTypingEnabled }, set: { model.setVoiceTyping($0) }))
-                .disabled(!model.voiceTypingAvailable)
-            if model.voiceTypingAvailable {
-                caption("Experimental. Press ⌃⌥⌘V, talk, and Rallo types into whatever you’re using; press again to stop. Runs on your Mac; audio isn’t saved. Needs Microphone and Accessibility access.")
-                if model.voiceTypingEnabled {
-                    TextField("Words to recognize", text: $voiceWords, prompt: Text("Names and terms, separated by commas"))
-                        .textFieldStyle(.roundedBorder)
-                    caption("Helps with names it would otherwise mishear. Rallo, ClickUp, cmux, Claude and Codex are already included.")
-                    caption(model.voicePermissions)
-                    if model.voiceAccessibilityMissing {
-                        Button("Open Accessibility Settings…") { model.openAccessibilitySettings() }
-                    }
-                }
-            } else {
-                caption("Needs macOS 26 or later.")
-            }
             Divider()
             Text("Terminal command").font(Theme.rounded(13, .semibold))
             HStack {
@@ -211,6 +197,97 @@ private struct AgentsTab: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: Voice (0013, 0014)
+
+private struct VoiceTab: View {
+    @ObservedObject var model: SettingsModel
+    @AppStorage(VoiceText.wordsKey) private var voiceWords = ""
+    @AppStorage("voiceEngine") private var storedEngine = "apple"
+    @AppStorage("voiceLanguage") private var language = "auto"
+    @AppStorage(VoiceText.tidyKey) private var tidy = true
+    @State private var confirmDelete = false
+
+    /// Apple's engine needs macOS 26; before that only Whisper exists.
+    private var engine: String {
+        if #available(macOS 26, *) { storedEngine } else { "whisper" }
+    }
+
+    private var appleAvailable: Bool {
+        if #available(macOS 26, *) { true } else { false }
+    }
+
+    var body: some View {
+        Page {
+            Toggle("Voice typing (⌃⌥⌘V)", isOn: Binding(get: { model.voiceTypingEnabled }, set: { model.setVoiceTyping($0) }))
+            caption("Experimental. Press ⌃⌥⌘V, talk, and Rallo types into whatever you’re using; press again to stop. Runs on your Mac; audio isn’t saved. Needs Microphone and Accessibility access.")
+            if model.voiceTypingEnabled {
+                caption(model.voicePermissions)
+                if model.voiceAccessibilityMissing {
+                    Button("Open Accessibility Settings…") { model.openAccessibilitySettings() }
+                }
+            }
+            Picker("Engine", selection: Binding(get: { engine }, set: { storedEngine = $0 })) {
+                if appleAvailable { Text("Apple (built in)").tag("apple") }
+                Text("Whisper large-v3 turbo").tag("whisper")
+            }
+            if engine == "whisper" {
+                modelRow
+                Picker("Language", selection: $language) {
+                    Text("Auto").tag("auto")
+                    Text("English").tag("en")
+                    Text("Bangla").tag("bn")
+                }
+            }
+            TextField("Words to recognize", text: $voiceWords, prompt: Text("Names and terms, separated by commas"))
+                .textFieldStyle(.roundedBorder)
+            caption("Helps with names it would otherwise mishear; both engines use them. Rallo, ClickUp, cmux, Claude and Codex are already included.")
+            Toggle("Clean up stutters and fillers", isOn: $tidy)
+            caption("Drops “um” and “uh” and a word said twice in a row (“like like”). Turn off to type exactly what was heard.")
+        }
+    }
+
+    @ViewBuilder
+    private var modelRow: some View {
+        switch model.whisperModel {
+        case .checking:
+            ProgressView().controlSize(.small)
+        case .missing, .failed:
+            HStack {
+                if case let .failed(message) = model.whisperModel {
+                    Text(message).font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.error)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button("Download Model (1.6 GB)") { model.downloadWhisperModel() }
+            }
+        case let .downloading(fraction):
+            HStack {
+                ProgressView(value: fraction)
+                Text("\(Int(fraction * 100))%").font(Theme.rounded(12)).monospacedDigit()
+                Button("Cancel") { model.cancelWhisperDownload() }
+            }
+        case let .ready(path):
+            HStack {
+                Text((path as NSString).abbreviatingWithTildeInPath)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(Theme.bark)
+                    .textSelection(.enabled)
+                    .lineLimit(3)
+                Spacer()
+                Button("Show in Finder") { model.showWhisperModel() }
+                Button("Delete Model…") { confirmDelete = true }
+                    .confirmationDialog("Delete the Whisper model?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                        Button("Delete Model", role: .destructive) { model.deleteWhisperModel() }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Other apps that use this file will need to download it again.")
+                    }
+            }
+        }
+        caption("Saved in the shared Hugging Face cache, so other tools can use it too — for example “whisper-cli -m <path> -f audio.wav” (brew install whisper-cpp).")
     }
 }
 

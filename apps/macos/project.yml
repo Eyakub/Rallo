@@ -34,7 +34,15 @@ targets:
         INFOPLIST_FILE: Rallo/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: Rallo/Resources/Rallo.entitlements
+        # whisper.cpp is linked statically (0014).
+        SWIFT_INCLUDE_PATHS: $(inherited) $(PROJECT_DIR)/../../build/whisper/v1.9.4/include
+        HEADER_SEARCH_PATHS: $(PROJECT_DIR)/../../build/whisper/v1.9.4/include
+        LIBRARY_SEARCH_PATHS: $(inherited) $(PROJECT_DIR)/../../build/whisper/v1.9.4/lib
+        OTHER_LDFLAGS: $(inherited) -lwhisper -lggml -lggml-base -lggml-cpu -lggml-metal -lggml-blas -lc++ -framework Accelerate -framework Metal -framework MetalKit -framework Foundation
     preBuildScripts:
+      - name: Build whisper.cpp
+        script: '"$PROJECT_DIR/../../scripts/build-whisper.sh"'
+        basedOnDependencyAnalysis: false
       - name: Build Rust core, bindings, and CLI
         script: '"$PROJECT_DIR/../../scripts/build-rust.sh"'
         basedOnDependencyAnalysis: false
@@ -62,6 +70,9 @@ targets:
       - path: Rallo/App/LaunchOptions.swift
       - path: Rallo/Settings/CLIReports.swift
       - path: Rallo/Voice/VoiceText.swift
+      - path: Rallo/Voice/WhisperText.swift
+      - path: Rallo/Voice/SpeechSegmenter.swift
+      - path: Rallo/Voice/WhisperModelStore.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo.tests
