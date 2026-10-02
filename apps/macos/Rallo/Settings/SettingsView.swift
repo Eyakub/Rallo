@@ -508,6 +508,14 @@ private struct AboutTab: View {
                     Text("Rallo").font(Theme.rounded(20, .semibold))
                     Text("Version \(model.version)").font(Theme.rounded(12)).foregroundStyle(Theme.bark)
                     HStack(spacing: 4) {
+                        Text("Made by").foregroundStyle(Theme.bark)
+                        Link("Eyakub", destination: URL(string: "https://eyakub.github.io")!)
+                        if let copyright = Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String {
+                            Text("· \(copyright)").foregroundStyle(Theme.bark)
+                        }
+                    }
+                    .font(Theme.rounded(12))
+                    HStack(spacing: 4) {
                         Link("github.com/Eyakub/Rallo", destination: URL(string: "https://github.com/Eyakub/Rallo")!)
                         Text("· MIT License").foregroundStyle(Theme.bark)
                     }

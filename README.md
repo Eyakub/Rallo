@@ -9,6 +9,8 @@
   that waves when Claude Code, Codex, or a ClickUp teammate is waiting on you.
 </p>
 
+<p align="center"><sub>Made by <a href="https://eyakub.github.io">Eyakub</a> · © Razlio</sub></p>
+
 <p align="center">
   <a href="https://github.com/Eyakub/Rallo/releases/latest"><img src="https://img.shields.io/github/v/release/Eyakub/Rallo?label=release" alt="Latest release"></a>
   <a href="https://github.com/Eyakub/Rallo/actions/workflows/ci.yml"><img src="https://github.com/Eyakub/Rallo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -238,4 +240,4 @@ larger changes usually start with one.
 
 ## License
 
-[MIT](LICENSE) © 2026 Razlio
+Made by [Eyakub](https://eyakub.github.io). [MIT](LICENSE) © 2026 Razlio.
