@@ -200,8 +200,11 @@ private struct AgentsTab: View {
     }
 }
 
-// MARK: Voice (0013, 0014)
+// MARK: Voice (0013, 0014, 0015)
 
+/// A native grouped form (System Settings style): labels left, controls
+/// right, one short footer per section. Details live in tooltips, and
+/// permission rows appear only when something is missing.
 private struct VoiceTab: View {
     @ObservedObject var model: SettingsModel
     @AppStorage(VoiceText.wordsKey) private var voiceWords = ""
@@ -220,34 +223,71 @@ private struct VoiceTab: View {
     }
 
     var body: some View {
-        Page {
-            Toggle("Voice typing (⌃⌥⌘V)", isOn: Binding(get: { model.voiceTypingEnabled }, set: { model.setVoiceTyping($0) }))
-            caption("Experimental. Press ⌃⌥⌘V, talk, and Rallo types into whatever you’re using; press again to stop. Audio isn’t saved; Apple’s and Whisper’s engines run on your Mac. Needs Microphone and Accessibility access.")
-            if model.voiceTypingEnabled {
-                caption(model.voicePermissions)
-                if model.voiceAccessibilityMissing {
-                    Button("Open Accessibility Settings…") { model.openAccessibilitySettings() }
+        Form {
+            Section {
+                Toggle(isOn: Binding(get: { model.voiceTypingEnabled }, set: { model.setVoiceTyping($0) })) {
+                    Text("Voice typing")
+                    Text("Press ⌃⌥⌘V anywhere and talk; press it again to stop.")
+                }
+                if model.voiceTypingEnabled, !VoicePermissions.microphoneAllowed {
+                    permissionRow("Microphone", pane: "Privacy_Microphone")
+                }
+                if model.voiceTypingEnabled, model.voiceAccessibilityMissing {
+                    permissionRow("Accessibility", pane: "Privacy_Accessibility")
+                }
+            } footer: {
+                footnote("Experimental. Audio is never saved.")
+            }
+
+            Section {
+                Picker("Engine", selection: Binding(get: { engine }, set: { storedEngine = $0 })) {
+                    if appleAvailable { Text("Apple, on this Mac").tag("apple") }
+                    Text("Whisper, on this Mac").tag("whisper")
+                    Text("Cloud, with your API key").tag("cloud")
+                }
+                if engine == "whisper" { modelRow }
+                if engine == "cloud" { CloudVoiceRows() }
+                if engine != "apple" {
+                    Picker("Language", selection: $language) {
+                        Text("Automatic").tag("auto")
+                        Text("English").tag("en")
+                        Text("Bangla").tag("bn")
+                    }
+                }
+            } footer: {
+                engineFooter
+            }
+
+            Section {
+                TextField("Words to recognize", text: $voiceWords, prompt: Text("Names, terms"))
+                    .help("Separate with commas. Rallo, ClickUp, cmux, Claude and Codex are built in.")
+                Toggle("Remove “um”s and repeated words", isOn: $tidy)
+                    .help("Turn off to type exactly what was heard.")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.rust)
+    }
+
+    @ViewBuilder
+    private var engineFooter: some View {
+        switch engine {
+        case "whisper": footnote("Large-v3 turbo, kept in the shared Hugging Face cache so other Whisper tools can use it.")
+        case "cloud": CloudVoiceFooter()
+        default: footnote("Built into macOS. Nothing to download.")
+        }
+    }
+
+    private func permissionRow(_ title: String, pane: String) -> some View {
+        LabeledContent(title) {
+            Text("Not allowed").foregroundStyle(Theme.error)
+            Button("Open Settings…") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+                    NSWorkspace.shared.open(url)
                 }
             }
-            Picker("Engine", selection: Binding(get: { engine }, set: { storedEngine = $0 })) {
-                if appleAvailable { Text("Apple (built in)").tag("apple") }
-                Text("Whisper large-v3 turbo").tag("whisper")
-                Text("Cloud (your API key)").tag("cloud")
-            }
-            if engine == "whisper" { modelRow }
-            if engine == "cloud" { CloudVoiceSection() }
-            if engine == "whisper" || engine == "cloud" {
-                Picker("Language", selection: $language) {
-                    Text("Auto").tag("auto")
-                    Text("English").tag("en")
-                    Text("Bangla").tag("bn")
-                }
-            }
-            TextField("Words to recognize", text: $voiceWords, prompt: Text("Names and terms, separated by commas"))
-                .textFieldStyle(.roundedBorder)
-            caption("Helps with names it would otherwise mishear; every engine uses them. Rallo, ClickUp, cmux, Claude and Codex are already included.")
-            Toggle("Clean up stutters and fillers", isOn: $tidy)
-            caption("Drops “um” and “uh” and a word said twice in a row (“like like”). Turn off to type exactly what was heard.")
         }
     }
 
@@ -255,32 +295,28 @@ private struct VoiceTab: View {
     private var modelRow: some View {
         switch model.whisperModel {
         case .checking:
-            ProgressView().controlSize(.small)
-        case .missing, .failed:
-            HStack {
-                if case let .failed(message) = model.whisperModel {
-                    Text(message).font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.error)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Button("Download Model (1.6 GB)") { model.downloadWhisperModel() }
+            LabeledContent("Model") { ProgressView().controlSize(.small) }
+        case .missing:
+            LabeledContent("Model") {
+                Button("Download (1.6 GB)") { model.downloadWhisperModel() }
+            }
+        case let .failed(message):
+            LabeledContent("Model") {
+                Text(message).foregroundStyle(Theme.error).lineLimit(2)
+                Button("Try Again") { model.downloadWhisperModel() }
             }
         case let .downloading(fraction):
-            HStack {
-                ProgressView(value: fraction)
-                Text("\(Int(fraction * 100))%").font(Theme.rounded(12)).monospacedDigit()
+            LabeledContent("Model") {
+                ProgressView(value: fraction).frame(width: 120)
+                Text("\(Int(fraction * 100))%").monospacedDigit().foregroundStyle(Theme.bark)
                 Button("Cancel") { model.cancelWhisperDownload() }
             }
         case let .ready(path):
-            HStack {
-                Text((path as NSString).abbreviatingWithTildeInPath)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(Theme.bark)
-                    .textSelection(.enabled)
-                    .lineLimit(3)
-                Spacer()
+            LabeledContent("Model") {
+                Text("Downloaded").foregroundStyle(Theme.bark)
+                    .help((path as NSString).abbreviatingWithTildeInPath)
                 Button("Show in Finder") { model.showWhisperModel() }
-                Button("Delete Model…") { confirmDelete = true }
+                Button("Delete…") { confirmDelete = true }
                     .confirmationDialog("Delete the Whisper model?", isPresented: $confirmDelete, titleVisibility: .visible) {
                         Button("Delete Model", role: .destructive) { model.deleteWhisperModel() }
                         Button("Cancel", role: .cancel) {}
@@ -289,12 +325,16 @@ private struct VoiceTab: View {
                     }
             }
         }
-        caption("Saved in the shared Hugging Face cache, so other tools can use it too — for example “whisper-cli -m <path> -f audio.wav” (brew install whisper-cpp).")
     }
 }
 
-/// Provider, model and API key for the cloud engine (0015). The key is never shown.
-private struct CloudVoiceSection: View {
+private func footnote(_ text: String) -> some View {
+    Text(text).font(Theme.rounded(11.5)).foregroundStyle(Theme.bark)
+}
+
+/// Provider, model and API key rows for the cloud engine (0015). The key is
+/// never shown; once saved, the field gives way to "Saved in Keychain".
+private struct CloudVoiceRows: View {
     @AppStorage(CloudVoiceProvider.providerKey) private var providerID = "groq"
     @AppStorage(CloudVoiceProvider.baseURLKey) private var customBase = ""
     @State private var keyText = ""
@@ -311,38 +351,33 @@ private struct CloudVoiceSection: View {
         Picker("Provider", selection: $providerID) {
             ForEach(CloudVoiceProvider.allCases, id: \.rawValue) { Text($0.name).tag($0.rawValue) }
         }
+        .task(id: providerID) {
+            keyText = ""
+            keyError = false
+            let secret = secret
+            saved = await Task.detached { secret.read() != nil }.value
+        }
         if provider == .custom {
-            fieldRow("Base URL") {
-                TextField("Base URL", text: $customBase, prompt: Text("https://example.com/v1")).textFieldStyle(.roundedBorder)
-            }
+            TextField("Address", text: $customBase, prompt: Text("https://…/v1"))
             if !customBase.isEmpty, CloudVoiceProvider.endpoint(base: customBase) == nil {
-                Text("Use an https address (http only for localhost).")
-                    .font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.error)
+                Text("Use an https address (http only for localhost).").foregroundStyle(Theme.error)
             }
         }
-        fieldRow("Model") { CloudModelField(provider: provider).id(provider) }
-        fieldRow("API key") {
-            SecureField("API key", text: $keyText, prompt: Text(saved ? "Saved in your Keychain" : "Paste your key"))
-                .textFieldStyle(.roundedBorder)
-            Button("Save") { save() }.disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            if saved { Button("Remove") { remove() } }
+        CloudModelField(provider: provider).id(provider)
+        LabeledContent("API key") {
+            if saved {
+                Text("Saved in Keychain").foregroundStyle(Theme.bark)
+                Button("Remove") { remove() }
+            } else {
+                SecureField("API key", text: $keyText, prompt: Text("Paste key"))
+                    .labelsHidden()
+                    .frame(maxWidth: 200)
+                Button("Save") { save() }.disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
         }
         if keyError {
-            Text("Couldn’t use the Keychain.").font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.error)
-        } else if saved {
-            caption("Saved in your Keychain")
+            Text("Couldn’t use the Keychain.").foregroundStyle(Theme.error)
         }
-        if let url = provider.helpURL {
-            Link(destination: url) { Text(provider == .groq ? "Get a free key →" : "Get a key →").underline() }
-                .foregroundStyle(Theme.rust)
-        }
-        caption("Each phrase you dictate is sent to \(provider.name) to be transcribed. The key stays in your Keychain. Free Groq keys allow about 20 phrases a minute.")
-            .task(id: providerID) {
-                keyText = ""
-                keyError = false
-                let secret = secret
-                saved = await Task.detached { secret.read() != nil }.value
-            }
     }
 
     private func save() {
@@ -366,11 +401,21 @@ private struct CloudVoiceSection: View {
     }
 }
 
-/// A fixed-width label in front of a field, so cloud settings line up.
-private func fieldRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-    HStack(spacing: 10) {
-        Text(title).font(Theme.rounded(13)).frame(width: 64, alignment: .leading)
-        content()
+/// "Phrases are sent to Groq. Get a free key" under the engine section.
+private struct CloudVoiceFooter: View {
+    @AppStorage(CloudVoiceProvider.providerKey) private var providerID = "groq"
+
+    var body: some View {
+        let provider = CloudVoiceProvider(rawValue: providerID) ?? .groq
+        HStack(spacing: 4) {
+            footnote("Each phrase is sent to \(provider.name).")
+            if let url = provider.helpURL {
+                Link(provider == .groq ? "Get a free key" : "Get a key", destination: url)
+                    .font(Theme.rounded(11.5, .semibold))
+                    .foregroundStyle(Theme.rust)
+            }
+        }
+        .help(provider == .groq ? "Free Groq keys allow about 20 phrases a minute." : "")
     }
 }
 
@@ -385,7 +430,6 @@ private struct CloudModelField: View {
 
     var body: some View {
         TextField("Model", text: $model, prompt: Text(provider.defaultModel.isEmpty ? "whisper-1" : provider.defaultModel))
-            .textFieldStyle(.roundedBorder)
     }
 }
 

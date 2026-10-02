@@ -23,7 +23,6 @@ final class SettingsModel: ObservableObject {
     @Published var updateCheckEnabled = false
     @Published var updateCheckAllowed = true
     @Published var voiceTypingEnabled = false
-    @Published var voicePermissions = ""
     @Published var voiceAccessibilityMissing = false
     var dataPath = ""
 

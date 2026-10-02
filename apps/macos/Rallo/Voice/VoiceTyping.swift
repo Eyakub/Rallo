@@ -21,9 +21,6 @@ enum VoicePermissions {
         }
     }
 
-    static var summary: String {
-        "Microphone: \(microphoneAllowed ? "allowed" : "not allowed") · Accessibility: \(accessibilityAllowed(prompt: false) ? "allowed" : "not allowed")"
-    }
 }
 
 /// A listening engine: Apple's (macOS 26+), Whisper (0014) or cloud (0015).
