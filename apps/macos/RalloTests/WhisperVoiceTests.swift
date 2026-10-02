@@ -55,6 +55,7 @@ final class WhisperVoiceTests: XCTestCase {
     func testCleanRemovesAnnotations() {
         XCTAssertEqual(WhisperText.clean(" [BLANK_AUDIO] "), "")
         XCTAssertEqual(WhisperText.clean("(music)"), "")
+        XCTAssertEqual(WhisperText.clean("Hello there (laughs"), "Hello there")
         XCTAssertEqual(WhisperText.clean("[BLANK_AUDIO]."), "")
         XCTAssertEqual(WhisperText.clean(" Hello  (laughs) there [x]  world. "), "Hello there world.")
         XCTAssertEqual(WhisperText.clean("আমি ভালো আছি।"), "আমি ভালো আছি।")
@@ -64,7 +65,7 @@ final class WhisperVoiceTests: XCTestCase {
         let store = WhisperModelStore(home: URL(fileURLWithPath: "/Users/x"))
         let root = "/Users/x/.cache/huggingface/hub/models--ggerganov--whisper.cpp"
         XCTAssertEqual(store.blob.path, "\(root)/blobs/\(WhisperModelStore.sha256)")
-        XCTAssertEqual(store.partial.path, store.blob.path + ".incomplete")
+        XCTAssertEqual(store.partial.path, store.blob.path + ".rallo-download")
         XCTAssertEqual(store.snapshot.path, "\(root)/snapshots/\(WhisperModelStore.commit)/ggml-large-v3-turbo.bin")
         XCTAssertEqual(store.refsMain.path, "\(root)/refs/main")
         XCTAssertEqual(WhisperModelStore.snapshotLinkTarget, "../../blobs/\(WhisperModelStore.sha256)")

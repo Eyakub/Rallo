@@ -32,11 +32,14 @@ the only choice.
   stored in the Hugging Face hub cache layout
   (`~/.cache/huggingface/hub/models--ggerganov--whisper.cpp/`: `blobs/<sha>`,
   a relative `snapshots/<commit>/` symlink, and `refs/main` written only if
-  missing) so other tools find it. An existing copy is reused: the blob by
-  size, a file in another snapshot only after its hash is verified once
-  (remembered by path, size and modification time). Downloads are verified
-  before they are renamed into place; failures and cancels delete the partial
-  file.
+  missing) so other tools find it. An existing copy is reused, the blob or a
+  file in another snapshot, once its SHA-256 matches; it is hashed again on
+  each launch before the first load (about a second), since whisper.cpp
+  parses it in a process holding microphone and Accessibility access.
+  Downloads go to `blobs/<sha>.rallo-download` (not huggingface_hub's own
+  `.incomplete`), are verified before they are renamed into place, and
+  failures and cancels delete the partial file. Delete removes only the
+  snapshot entries that point at that blob.
 - **Segmentation.** Whisper isn't streaming, so an energy voice-activity
   detector (30 ms frames, adaptive noise floor) cuts the mic audio into
   segments: 700 ms of trailing silence after at least 300 ms of speech, or 20

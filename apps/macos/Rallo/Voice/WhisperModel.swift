@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 enum WhisperModelError: LocalizedError {
     case http(Int)
@@ -18,7 +19,7 @@ enum WhisperModelError: LocalizedError {
 /// Finds, downloads and deletes the Whisper model in the shared Hugging Face
 /// cache (0014). Nothing leaves the Mac except the download the user asks for.
 struct WhisperModel {
-    private static let verifiedKey = "whisperVerifiedModels"
+    private static let launchVerified = OSAllocatedUnfairLock(initialState: Set<String>())
     let store: WhisperModelStore
 
     init(home: URL = FileManager.default.homeDirectoryForCurrentUser) { store = WhisperModelStore(home: home) }
@@ -31,27 +32,30 @@ struct WhisperModel {
     }
 
     private static func locateSync(_ store: WhisperModelStore) -> URL? {
-        let fm = FileManager.default
-        if fileSize(store.blob) == WhisperModelStore.size {
+        if verified(store.blob) {
             ensureSnapshot(store)
-            return store.snapshot
+            return store.blob
         }
-        let names = (try? fm.contentsOfDirectory(atPath: store.snapshotsDirectory.path)) ?? []
+        // A copy another tool put in a snapshot.
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: store.snapshotsDirectory.path)) ?? []
         for name in names.sorted() {
-            let url = store.snapshotsDirectory.appendingPathComponent("\(name)/\(WhisperModelStore.fileName)")
-            let real = url.resolvingSymlinksInPath()
-            guard fileSize(real) == WhisperModelStore.size else { continue }
-            let mtime = (try? real.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            let key = "\(real.path)|\(WhisperModelStore.size)|\(mtime?.timeIntervalSince1970 ?? 0)"
-            var verified = UserDefaults.standard.stringArray(forKey: verifiedKey) ?? []
-            if verified.contains(key) { return url }
-            if (try? sha256(of: real)) == WhisperModelStore.sha256 {
-                verified.append(key)
-                UserDefaults.standard.set(verified, forKey: verifiedKey)
-                return url
-            }
+            let real = store.snapshotsDirectory.appendingPathComponent("\(name)/\(WhisperModelStore.fileName)")
+                .resolvingSymlinksInPath()
+            if verified(real) { return real }
         }
         return nil
+    }
+
+    /// Right size and SHA-256, hashed once per launch (a changed size or date
+    /// hashes again): whisper.cpp parses it in a process with mic access.
+    private static func verified(_ url: URL) -> Bool {
+        guard fileSize(url) == WhisperModelStore.size else { return false }
+        let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let key = "\(url.path)|\(mtime?.timeIntervalSince1970 ?? 0)"
+        if launchVerified.withLock({ $0.contains(key) }) { return true }
+        guard (try? sha256(of: url)) == WhisperModelStore.sha256 else { return false }
+        launchVerified.withLock { _ = $0.insert(key) }
+        return true
     }
 
     private static func fileSize(_ url: URL) -> Int64? {
@@ -106,8 +110,11 @@ struct WhisperModel {
     /// Removes the snapshot link(s) and the blob. Other tools lose the file.
     func delete() {
         let fm = FileManager.default
+        // Only entries that resolve to Rallo's blob; other revisions are someone else's.
+        let blob = store.blob.resolvingSymlinksInPath().path
         for name in (try? fm.contentsOfDirectory(atPath: store.snapshotsDirectory.path)) ?? [] {
-            try? fm.removeItem(at: store.snapshotsDirectory.appendingPathComponent("\(name)/\(WhisperModelStore.fileName)"))
+            let entry = store.snapshotsDirectory.appendingPathComponent("\(name)/\(WhisperModelStore.fileName)")
+            if entry.resolvingSymlinksInPath().path == blob { try? fm.removeItem(at: entry) }
         }
         try? fm.removeItem(at: store.blob)
     }

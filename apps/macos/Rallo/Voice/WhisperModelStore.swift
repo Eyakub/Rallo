@@ -14,7 +14,7 @@ struct WhisperModelStore {
 
     var root: URL { home.appendingPathComponent(".cache/huggingface/hub/\(Self.repo)") }
     var blob: URL { root.appendingPathComponent("blobs/\(Self.sha256)") }
-    var partial: URL { root.appendingPathComponent("blobs/\(Self.sha256).incomplete") }
+    var partial: URL { root.appendingPathComponent("blobs/\(Self.sha256).rallo-download") }
     var snapshotsDirectory: URL { root.appendingPathComponent("snapshots") }
     var snapshot: URL { snapshotsDirectory.appendingPathComponent("\(Self.commit)/\(Self.fileName)") }
     var refsMain: URL { root.appendingPathComponent("refs/main") }

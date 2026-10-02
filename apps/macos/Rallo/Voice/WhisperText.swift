@@ -18,7 +18,7 @@ enum WhisperText {
                 out.append(ch)
             }
         }
-        if depth > 0 { return "" }  // an unterminated annotation: nothing to trust after it
+        // An unterminated annotation drops itself and the rest; text before it stays.
         let words = out.split(whereSeparator: { $0.isWhitespace })
         let text = words.joined(separator: " ")
         // Only punctuation left (say "." after a removed token) is not speech.
