@@ -14,20 +14,22 @@ xcodebuild -project "$REPO_ROOT/apps/macos/Rallo.xcodeproj" -scheme Rallo -confi
 
 app="$REPO_ROOT/build/DerivedData/Build/Products/Release/Rallo.app"
 
-# Xcode signs ad-hoc. With Rallo's own certificate in the Keychain, re-sign
-# (helper first, then the app) so macOS keeps permissions and Keychain access
-# across updates (docs/distribution.md, "Signing"). Without it the build
-# stays ad-hoc, which is fine for development; scripts/release.sh refuses it.
+# Strip local symbols (about 3 MB, mostly whisper.cpp), then sign: with Rallo's
+# own certificate when it's in the Keychain, so macOS keeps permissions and
+# Keychain access across updates (docs/distribution.md, "Signing"), else
+# ad-hoc, which is fine for development; scripts/release.sh refuses it.
+# Helper first, then the app.
+strip -x "$app/Contents/MacOS/Rallo"
 identity="${RALLO_SIGN_IDENTITY:-Rallo Self-Signed}"
-if security find-certificate -c "$identity" >/dev/null 2>&1; then
-  for code in "$app/Contents/Helpers/rallo" "$app"; do
-    codesign --force --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none \
-      --sign "$identity" "$code" 2>/dev/null
-  done
-  echo "signed: $identity"
-else
-  echo "note: no \"$identity\" certificate in the Keychain; the build stays ad-hoc signed" >&2
+if ! security find-certificate -c "$identity" >/dev/null 2>&1; then
+  echo "note: no \"$identity\" certificate in the Keychain; signing ad-hoc" >&2
+  identity="-"
 fi
+for code in "$app/Contents/Helpers/rallo" "$app"; do
+  codesign --force --preserve-metadata=identifier,entitlements,flags,runtime --timestamp=none \
+    --sign "$identity" "$code" 2>/dev/null
+done
+echo "signed: $identity"
 echo "built: $app"
 
 if [ "${1:-}" = "--install" ]; then
