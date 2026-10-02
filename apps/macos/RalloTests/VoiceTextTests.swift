@@ -5,6 +5,7 @@ final class VoiceTextTests: XCTestCase {
         let out = VoiceText.sanitize("a\nb\r\nc\td\u{2028}e  f\n\n")
         XCTAssertEqual(out, "a b c d e f ")
         for bad in ["\n", "\r", "\t"] { XCTAssertFalse(out.contains(bad)) }
+        XCTAssertEqual(VoiceText.sanitize("a\u{0F}b\u{03}c\u{04}d\u{1B}e\u{7F}f\u{85}g"), "a b c d e f g")
     }
 
     func testJoinedSpacing() {
@@ -35,11 +36,18 @@ final class VoiceTextTests: XCTestCase {
     }
 
     func testTidy() {
-        XCTAssertEqual(VoiceText.tidy("set it up like like we said"), "set it up like we said")
-        XCTAssertEqual(VoiceText.tidy("Um, I I think, uh, it works"), "I think, it works")
-        XCTAssertEqual(VoiceText.tidy("it was like, like fine"), "it was like fine")
+        XCTAssertEqual(VoiceText.tidy("set it up like like we said", dropFillers: true), "set it up like we said")
+        XCTAssertEqual(VoiceText.tidy("Um, I I think, uh, it works", dropFillers: true), "I think, it works")
+        XCTAssertEqual(VoiceText.tidy("it was like, like fine", dropFillers: true), "it was like fine")
         XCTAssertEqual(VoiceText.tidy("call 5 5 5 now"), "call 5 5 5 now")
         XCTAssertEqual(VoiceText.tidy("like we said", after: "set it up like"), "we said")
-        XCTAssertEqual(VoiceText.tidy("um"), "")
+        XCTAssertEqual(VoiceText.tidy("um", dropFillers: true), "")
+        XCTAssertEqual(VoiceText.tidy("The screw is 5 mm long", dropFillers: true), "The screw is 5 mm long")
+        XCTAssertEqual(VoiceText.tidy("er kommt um 5 Uhr", dropFillers: false), "er kommt um 5 Uhr")
+        XCTAssertEqual(VoiceText.tidy("I said no. No way.", dropFillers: true), "I said no. No way.")
+        XCTAssertEqual(VoiceText.tidy("No means no.", after: "I said no.", dropFillers: true), "No means no.")
+        XCTAssertEqual(VoiceText.tidy("uh hello", dropFillers: false), "uh hello")
+        XCTAssertTrue(VoiceText.fillersApply(language: "en"))
+        XCTAssertFalse(VoiceText.fillersApply(language: "de"))
     }
 }
