@@ -1,4 +1,5 @@
 import AppKit
+import os
 import Security
 
 /// A generic-password Keychain item: `read` and `delete` match the service
@@ -8,6 +9,14 @@ struct KeychainSecret {
     var account: String?
     let label: String
 
+    /// Values read or saved this launch. Rallo has no Apple Team ID, so macOS
+    /// remembers "Always Allow" per build and asks again after each update
+    /// (0012): each item is read at most once per launch, so that's one
+    /// prompt even for "Allow". ponytail: an item deleted in Keychain Access
+    /// is still used until relaunch.
+    private static let cache = OSAllocatedUnfairLock(initialState: [String: String]())
+    private var cacheKey: String { "\(service)|\(account ?? "")" }
+
     private var match: [String: Any] {
         var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
         if let account { query[kSecAttrAccount as String] = account }
@@ -15,12 +24,21 @@ struct KeychainSecret {
     }
 
     func read() -> String? {
+        if let value = Self.cache.withLock({ $0[cacheKey] }) { return value }
         var result: AnyObject?
         let query = match.merging([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]) { $1 }
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
               let data = result as? Data, let value = String(data: data, encoding: .utf8), !value.isEmpty
         else { return nil }
+        Self.cache.withLock { $0[cacheKey] = value }
         return value
+    }
+
+    /// Whether the item is there, from its attributes alone: never prompts.
+    func exists() -> Bool {
+        var result: AnyObject?
+        let query = match.merging([kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitOne]) { $1 }
+        return SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess
     }
 
     func save(_ value: String) -> Bool {
@@ -32,11 +50,18 @@ struct KeychainSecret {
             kSecAttrLabel as String: label,
             kSecValueData as String: Data(value.utf8),
         ]
-        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+        guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { return false }
+        Self.cache.withLock { $0[cacheKey] = value }
+        return true
     }
 
+    /// Without an account, forgets every cached account of the service too.
     @discardableResult
-    func delete() -> OSStatus { SecItemDelete(match as CFDictionary) }
+    func delete() -> OSStatus {
+        let prefix = cacheKey
+        Self.cache.withLock { $0 = $0.filter { !$0.key.hasPrefix(prefix) } }
+        return SecItemDelete(match as CFDictionary)
+    }
 }
 
 /// The ClickUp personal API token, in the login Keychain (0010): never in

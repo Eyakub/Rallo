@@ -362,7 +362,7 @@ private struct CloudVoiceRows: View {
             keyText = ""
             keyError = false
             let secret = secret
-            saved = await Task.detached { secret.read() != nil }.value
+            saved = await Task.detached { secret.exists() }.value
         }
         if provider == .custom {
             TextField("Address", text: $customBase, prompt: Text("https://…/v1"))
