@@ -33,7 +33,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Razlio</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Rallo listens only while you voice-type (⌃⌥⌘V). Audio stays on your Mac and isn’t saved.</string>
+	<string>Rallo listens only while voice typing is on. The on-device engines keep audio on your Mac; the cloud engine sends each phrase to the provider you set up.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Rallo turns your speech into text on your Mac while you voice-type.</string>
 	<key>NSPrincipalClass</key>

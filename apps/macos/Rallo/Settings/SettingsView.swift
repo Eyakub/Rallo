@@ -215,7 +215,7 @@ private struct VoiceTab: View {
 
     /// Apple's engine needs macOS 26; before that only Whisper exists.
     private var engine: String {
-        if #available(macOS 26, *) { storedEngine } else { "whisper" }
+        if #available(macOS 26, *) { storedEngine } else { storedEngine == "apple" ? "whisper" : storedEngine }
     }
 
     private var appleAvailable: Bool {
