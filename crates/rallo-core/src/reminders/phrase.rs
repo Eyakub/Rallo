@@ -51,7 +51,7 @@ fn not_a_date(raw: &str) -> CoreError {
 /// ahead; `today`/`tomorrow` and dates with a year never roll; a result not
 /// strictly after `now` is refused.
 pub fn resolve(raw: &str, now: PrimitiveDateTime) -> CoreResult<PhraseTarget> {
-    let lower = raw.to_lowercase();
+    let lower = siri_tidy(&raw.to_lowercase());
     let words: Vec<&str> = lower.split_whitespace().collect();
     if let ["in", rest @ ..] = words.as_slice() {
         return relative(rest).map(|seconds| PhraseTarget::After { seconds }).ok_or_else(|| unreadable(raw));
@@ -87,6 +87,14 @@ pub fn resolve(raw: &str, now: PrimitiveDateTime) -> CoreResult<PhraseTarget> {
         return Err(passed(raw));
     }
     Ok(PhraseTarget::Local(target))
+}
+
+/// Siri writes "9 a.m." and ends dictation with a period (0017): read
+/// `a.m.`/`p.m.` as am/pm, then drop one trailing `.`, `,` or `!`.
+fn siri_tidy(lower: &str) -> String {
+    let spelled = lower.replace("a.m.", "am").replace("p.m.", "pm");
+    let trimmed = spelled.trim_end();
+    trimmed.strip_suffix(['.', ',', '!']).unwrap_or(trimmed).to_owned()
 }
 
 /// At most one day-or-date and one time, in either order; `at` must be
@@ -285,6 +293,20 @@ mod tests {
     /// Tue 6 Oct 2026, 10:30 local -- the examples in 0016.
     const NOW: PrimitiveDateTime = datetime!(2026-10-06 10:30);
 
+    #[test]
+    fn siri_transcriptions() {
+        assert_eq!(local("Tomorrow at 9 a.m."), datetime!(2026-10-07 09:00));
+        assert_eq!(local("fri 5 P.M."), datetime!(2026-10-09 17:00));
+        assert_eq!(local("fri 5p.m."), datetime!(2026-10-09 17:00));
+        assert_eq!(local("fri 5pm."), datetime!(2026-10-09 17:00));
+        assert_eq!(local("tomorrow 9am,"), datetime!(2026-10-07 09:00));
+        assert_eq!(local("fri 5pm!"), datetime!(2026-10-09 17:00));
+        assert_eq!(after("in 2 hours."), 7_200);
+        // Only one trailing mark, and only these three.
+        refused("fri 5pm..");
+        refused("fri 5pm?");
+    }
+
     fn local(raw: &str) -> PrimitiveDateTime {
         match resolve(raw, NOW) {
             Ok(PhraseTarget::Local(at)) => at,
@@ -417,7 +439,7 @@ mod tests {
             "9:7pm",
             "+9am",
             "1730",
-            "fri 5pm.",
+            "fri 5pm?",
             "fri 5pm 🦊",
             "okt 20",
             "2027",

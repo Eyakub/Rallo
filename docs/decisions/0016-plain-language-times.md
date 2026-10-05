@@ -5,6 +5,8 @@
   instant). Lifts the build plan's "no natural-language date interpretation"
   for this fixed grammar only: it is a deterministic rules table, not a
   language model, and anything outside it is refused.
+- **Amended 2026-10-06 by 0017:** `a.m.`/`p.m.` are read as am/pm and one
+  trailing `.`, `,` or `!` is ignored, because Siri writes them.
 - **Date:** 2026-10-06
 
 ## Context
