@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let options: LaunchOptions
     private var instanceLock: InstanceLock?
     private var coordinator: AppCoordinator?
+    /// Kept here: `NSApp.servicesProvider` doesn't retain it.
+    private let servicesProvider = ServicesProvider()
     private var terminationSource: DispatchSourceSignal?
 
     init(options: LaunchOptions) {
@@ -41,6 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = editMenu()
+        // Set at launch so a Services request that started the app is delivered (0017).
+        NSApp.servicesProvider = servicesProvider
+        NSUpdateDynamicServices()
         Task { @MainActor in await coordinator?.start() }
     }
 

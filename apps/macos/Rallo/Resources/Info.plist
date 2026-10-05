@@ -38,5 +38,26 @@
 	<string>Rallo turns your speech into text on your Mac while you voice-type.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>New Rallo Note</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>newRalloNote</string>
+			<key>NSPortName</key>
+			<string>Rallo</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+				<string>NSStringPboardType</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
