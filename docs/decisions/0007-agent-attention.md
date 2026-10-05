@@ -160,7 +160,7 @@ Automation permission.
     replaces them; `--remove` deletes only them (and arrays it emptied).
     Everything else in the file, including key order, is kept.
   - Before the first change to a file it saves `<file>.rallo-backup`; writes
-    are atomic. A file that isn't valid JSON is refused, untouched.
+    are atomic. A file that isn't valid JSON is refused, untouched: with `--agent` the whole command fails (`HOOKS_CONFIG_INVALID`); in the default detected run that agent is skipped with a warning and the rest are done. (Gemini CLI allows comments in `settings.json`; Rallo can't edit those without losing them.)
   - Codex asks the user to trust new hooks (their hash lives in
     `config.toml`); Rallo never writes trust itself and says so.
   - `--print` shows the entries it would add.

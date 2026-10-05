@@ -195,7 +195,7 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>, purge: bool, yes: bool) ->
     let mut hook_lines = Vec::new();
     for agent in Agent::ALL {
         match crate::hooks::apply(&home, vec![agent], true, None) {
-            Ok(results) => {
+            Ok((results, _)) => {
                 for (value, line) in results {
                     if value["status"] == "removed" {
                         hook_lines.push(line);

@@ -441,24 +441,26 @@ pub fn run(out: &Output, agents: Vec<Agent>, remove: bool, print: bool) -> Comma
     let home = terminal_command::home_dir()
         .ok_or_else(|| Failure::new(Exit::InvalidInput, "INVALID_INPUT", "$HOME is not set"))?;
     let cli_path = if remove { None } else { Some(installed_cli_path()?) };
-    let results = apply(&home, agents, remove, cli_path.as_deref())?;
+    let (results, warnings) = apply(&home, agents, remove, cli_path.as_deref())?;
     let installs: Vec<Value> = results.iter().map(|(value, _)| value.clone()).collect();
     let lines: Vec<String> = results.into_iter().map(|(_, line)| line).collect();
 
-    out.success(json!({ "hooks": { "targets": installs } }), &[], || lines.join("\n"));
+    out.success(json!({ "hooks": { "targets": installs } }), &warnings, || lines.join("\n"));
     Ok(())
 }
 
 /// Installs or removes Rallo's hooks for `agents` (all detected if empty),
 /// returning each target's JSON value and human line without printing.
 /// `cli_path` is required unless `remove`. All targets are checked before any
-/// is written (`HOOKS_CONFIG_INVALID`).
+/// is written (`HOOKS_CONFIG_INVALID`). When `agents` is empty (auto-detected),
+/// an unparsable file is instead skipped untouched with a warning.
 pub(crate) fn apply(
     home: &Path,
     agents: Vec<Agent>,
     remove: bool,
     cli_path: Option<&Path>,
-) -> Result<Vec<(Value, String)>, Failure> {
+) -> Result<(Vec<(Value, String)>, Vec<String>), Failure> {
+    let explicit = !agents.is_empty();
     let target_agents = targets(agents, home);
 
     struct Target {
@@ -475,11 +477,28 @@ pub(crate) fn apply(
         match load(&path) {
             Loaded::Existing(value) => loaded.push(Target { agent, path, original: value, existed: true }),
             Loaded::Missing => loaded.push(Target { agent, path, original: default_content(agent), existed: false }),
-            Loaded::Invalid => invalid_paths.push(path),
+            Loaded::Invalid => invalid_paths.push((agent, path)),
         }
     }
-    if !invalid_paths.is_empty() {
-        return Err(hooks_config_invalid(&invalid_paths));
+    let mut warnings = Vec::new();
+    if explicit {
+        if !invalid_paths.is_empty() {
+            let paths: Vec<PathBuf> = invalid_paths.into_iter().map(|(_, path)| path).collect();
+            return Err(hooks_config_invalid(&paths));
+        }
+    } else {
+        for (agent, path) in invalid_paths {
+            let note = if agent == Agent::Gemini {
+                " Gemini CLI allows comments in settings.json, which Rallo can't edit without losing them."
+            } else {
+                ""
+            };
+            warnings.push(format!(
+                "Left {} alone: it isn't valid JSON.{note} Fix it, or pass --agent {} to see the error.",
+                path.display(),
+                agent.json_name()
+            ));
+        }
     }
 
     let mut results = Vec::new();
@@ -523,7 +542,7 @@ pub(crate) fn apply(
             human_line(target.agent, status, &target.path),
         ));
     }
-    Ok(results)
+    Ok((results, warnings))
 }
 
 #[cfg(test)]

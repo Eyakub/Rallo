@@ -298,3 +298,47 @@ fn rewriting_settings_keeps_their_permissions() {
     let mode = fs::metadata(setup.claude_settings()).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600, "settings.json must stay private");
 }
+
+/// Gemini CLI allows comments in settings.json; Rallo's strict parser can't edit such a file.
+fn commented_gemini_and_valid_claude(setup: &Setup) -> (PathBuf, &'static str) {
+    fs::create_dir_all(setup.home.join(".claude")).unwrap();
+    fs::write(setup.claude_settings(), "{}\n").unwrap();
+    let gemini = setup.home.join(".gemini/settings.json");
+    fs::create_dir_all(gemini.parent().unwrap()).unwrap();
+    let commented = "{\n  // keep me\n  \"theme\": \"dark\"\n}\n";
+    fs::write(&gemini, commented).unwrap();
+    (gemini, commented)
+}
+
+#[test]
+fn an_unreadable_detected_file_is_skipped_with_a_warning_by_default() {
+    let setup = Setup::new();
+    let (gemini, commented) = commented_gemini_and_valid_claude(&setup);
+
+    let (code, doc) = setup.json(&["setup", "hooks", "--json"]);
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(install(&doc, "claude")["status"], "installed");
+    assert_eq!(doc["hooks"]["targets"].as_array().unwrap().len(), 1, "{doc}");
+    let warnings = doc["warnings"].as_array().unwrap();
+    assert!(
+        warnings.iter().any(|w| {
+            let w = w.as_str().unwrap();
+            w.contains("settings.json") && w.contains("comments")
+        }),
+        "{doc}"
+    );
+    assert_eq!(fs::read_to_string(&gemini).unwrap(), commented, "Gemini file untouched");
+}
+
+#[test]
+fn an_unreadable_file_named_with_agent_is_still_refused() {
+    let setup = Setup::new();
+    let (gemini, commented) = commented_gemini_and_valid_claude(&setup);
+
+    let output = setup.command(&["setup", "hooks", "--agent", "gemini", "--json"]).output().unwrap();
+    let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(4), "{doc}");
+    assert_eq!(doc["error"]["code"], "HOOKS_CONFIG_INVALID");
+    assert_eq!(fs::read_to_string(&gemini).unwrap(), commented);
+    assert_eq!(fs::read_to_string(setup.claude_settings()).unwrap(), "{}\n");
+}
