@@ -3,6 +3,7 @@
 
 pub mod change_signal;
 pub mod launch;
+pub mod local_time;
 pub mod process_ancestry;
 pub mod terminal_command;
 pub mod update;
