@@ -124,7 +124,7 @@ fn digits<T: FromStr>(text: &str) -> Option<T> {
         .flatten()
 }
 
-/// `noon`, `9am`/`9:30pm`, `9 am`, or 24-hour `17:00`/`9:45`; returns the
+/// `noon`, `9am`/`9:30pm`, `9 am`, or 24-hour `17:00`/`09:45` (two-digit hour); returns the
 /// time and how many words it used. A bare hour is never a time.
 fn parse_time(words: &[&str]) -> Option<(Time, usize)> {
     let first = *words.first()?;
@@ -145,7 +145,7 @@ fn parse_time(words: &[&str]) -> Option<(Time, usize)> {
         return twelve_hour(first, pm).map(|time| (time, 2));
     }
     let (hour, minute) = first.split_once(':')?;
-    if hour.len() > 2 || minute.len() != 2 {
+    if hour.len() != 2 || minute.len() != 2 {
         return None;
     }
     Time::from_hms(digits(hour)?, digits(minute)?, 0).ok().map(|time| (time, 1))
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(local("9 am"), datetime!(2026-10-07 09:00));
         assert_eq!(local("9:30PM"), datetime!(2026-10-06 21:30));
         assert_eq!(local("17:00"), datetime!(2026-10-06 17:00));
-        assert_eq!(local("9:45"), datetime!(2026-10-07 09:45));
+        assert_eq!(local("09:45"), datetime!(2026-10-07 09:45));
         assert_eq!(local("noon"), datetime!(2026-10-06 12:00));
         assert_eq!(local("12am"), datetime!(2026-10-07 00:00));
         assert_eq!(local("12pm"), datetime!(2026-10-06 12:00));
@@ -412,6 +412,8 @@ mod tests {
             "13pm",
             "0am",
             "24:00",
+            "5:30",
+            "9:45",
             "9:7pm",
             "+9am",
             "1730",
