@@ -43,7 +43,8 @@ Services menu (an item in the right-click menu of any selected text).
   core validates it as for any note).
 - Success: the pet's acknowledgement. Failure (empty selection, over 64 KB,
   storage unavailable): the notes panel opens with the error in its usual
-  banner, so a failed save is never silent.
+  banner, so a failed save is never silent. The message stays until the
+  panel is next opened; a reload of the list doesn't clear it.
 - Rallo reads the pasteboard only when the user picks the item, and only the
   text the sending app put there.
 
@@ -51,7 +52,9 @@ Services menu (an item in the right-click menu of any selected text).
 
 macOS starts Rallo if it isn't running. Actions and the Services item wait up
 to 5 s for the store to open (`CaptureService`), then fail with "Rallo is
-still starting. Try again in a moment." The Services provider is registered in
+still starting. Try again in a moment." If the store fails to open, they fail
+at once with "Rallo can't open its storage. Run rallo doctor in Terminal."
+The Services provider is registered in
 `applicationDidFinishLaunching`, so a request that launched the app is still
 delivered.
 
