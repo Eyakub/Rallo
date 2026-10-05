@@ -73,7 +73,7 @@ fn invalid_time() -> CoreError {
 /// the same digits (this is exactly how an optional non-consuming regex
 /// group behaves). Anything left unconsumed after all four units means the
 /// order, case, or extra characters were wrong.
-fn parse_relative(raw: &str) -> CoreResult<u64> {
+pub(super) fn parse_relative(raw: &str) -> CoreResult<u64> {
     const UNITS: [(u8, u64); 4] = [(b'd', 86_400), (b'h', 3_600), (b'm', 60), (b's', 1)];
     let bytes = raw.as_bytes();
     let mut pos = 0usize;

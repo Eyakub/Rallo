@@ -1,4 +1,5 @@
 pub mod model;
+pub mod phrase;
 pub mod protocol;
 pub(crate) mod repository;
 pub mod service;
