@@ -23,7 +23,7 @@ Case-insensitive, surrounding and repeated spaces ignored, English only.
 
 | Part | Accepted | Examples |
 |---|---|---|
-| Time | `h[:mm]` + `am`/`pm` (space optional), `HH:MM` (24 h), `noon` | `9am`, `9:30pm`, `9 am`, `17:00`, `noon` |
+| Time | `h[:mm]` + `am`/`pm` (space optional), `HH:MM` (24 h, two-digit hour), `noon` | `9am`, `9:30pm`, `9 am`, `17:00`, `noon` |
 | Day | `today`, `tomorrow`/`tmrw`, weekday full or short (`mon`, `tue`/`tues`, `wed`, `thu`/`thur`/`thurs`, `fri`, `sat`, `sun`) | `fri`, `friday`, `thurs` |
 | Date | month name or 3-letter abbreviation + day, either order, optional 4-digit year; ISO `YYYY-MM-DD` | `oct 20`, `20 oct`, `october 20 2027`, `2026-10-20` |
 | Relative | `in` + the `--in` grammar, or `in` + a number + one spelled unit (`min`/`mins`/`minute(s)`, `h`/`hr`/`hrs`/`hour(s)`, `day(s)`) | `in 2h30m`, `in 2 hours`, `in 45 min` |
@@ -50,14 +50,15 @@ At most one day-or-date and one time. Nothing else may be left over.
 Refused with `INVALID_TIME` and a hint (`couldn't read "later" as a time; try
 "in 2h", "5pm" or "fri 9am"`): `later`, `soon`, `tonight`, `next week`,
 `this weekend`, `next fri` (readers disagree which Friday), a bare hour like
-`9` (am or pm?), `midnight` (start or end of the day?), and anything else
+`9` (am or pm?), a one-digit 24-hour time like `5:30` (am or pm?), `midnight` (start or end of the day?), and anything else
 outside the grammar.
 
 ### Clock changes
 
 The phrase resolves to a local wall-clock date and time; the offset used is
-the one in force at that date and time (`mktime` with `tm_isdst = -1`), not
-today's. A wall-clock time skipped by a spring-forward change moves forward
+the one in force at that date and time (`mktime` under both DST
+assumptions, keeping the candidate that reads back as the typed time, the
+earlier if both do, else the later), not today's. A wall-clock time skipped by a spring-forward change moves forward
 by the gap (02:30 → 03:30); a time that occurs twice in an autumn change
 resolves to the earlier one.
 
@@ -91,7 +92,8 @@ Resolve at the edge; the core's write path is untouched.
   the reminder through the existing `remindAt`.
 
 So the stored `input_kind` is `absolute`, `time_input` is the resolved RFC
-3339 string, and there is no schema or export-format change.
+3339 string (an `in …` phrase is stored as `relative` with `time_input`
+`<n>s`), and there is no schema or export-format change.
 
 **Idempotency.** For a phrase, the 0003 §7 fingerprint holds the resolved
 RFC 3339 rather than the words typed. A `--request-id` retry that resolves

@@ -27,7 +27,7 @@ mutation also accepts `--if-revision N` (0003 §9).
 | `done ID` | Marks the item done; disables an active reminder. Already-done is a no-op. |
 | `reopen ID` | Marks the item open; never re-enables a reminder. Already-open is a no-op. |
 | `restore ID` | Clears soft-deletion, keeping prior open/done status; never re-enables a reminder. Not-deleted is a no-op. |
-| `reschedule ID (--in DUR \| --at WHEN)` | Creates a reminder if the item has none, otherwise re-arms the existing one at a new deadline (new generation, acknowledgement cleared). Rejected on done/deleted items. Always changes state on success — never a no-op. Subject to capacity only if the reminder was not already active. |
+| `reschedule ID (--in DUR \| --at WHEN)` | (`--at` as for `remind`, including phrases.) Creates a reminder if the item has none, otherwise re-arms the existing one at a new deadline (new generation, acknowledgement cleared). Rejected on done/deleted items. Always changes state on success — never a no-op. Subject to capacity only if the reminder was not already active. |
 | `snooze ID --in DUR` | `--in` only. Requires an existing reminder on an open, nondeleted item. Always changes state on success. |
 | `acknowledge ID` | Disables an active reminder (`acknowledged`), clearing due-attention state. Already-inactive is a no-op. |
 | `cancel-reminder ID` | Disables an active reminder (`cancelled`) without completing the item. Already-inactive is a no-op. |
