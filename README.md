@@ -94,7 +94,7 @@ If the installer adds `~/.local/bin` to your PATH, open a new terminal window be
 ```sh
 rallo note "Call the dentist"
 rallo remind "Stretch" --in 20m
-rallo remind "Standup notes" --at 2026-10-02T09:30:00+06:00
+rallo remind "Standup notes" --at "tomorrow 9:30am"   # or "fri 5pm", "oct 20", RFC 3339
 rallo list                     # open notes; --due, --all, --deleted
 rallo search dentist
 rallo done <id>                # the short ID from list/search

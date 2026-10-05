@@ -58,7 +58,7 @@ session, or container cannot reach Rallo's data; say so instead of trying.
 | Want | Command |
 |---|---|
 | Save a note | `rallo --json note "Call the dentist"` |
-| One-time reminder | `rallo --json remind "Stretch" --in 20m` or `--at 2026-10-01T09:00:00+06:00` |
+| One-time reminder | `rallo --json remind "Stretch" --in 20m` or `--at "tomorrow 9am"` |
 | Open items | `rallo --json list` (`--all`, `--due`, `--deleted`; paginate with `--cursor`) |
 | One item | `rallo --json get <id>` |
 | Find by text | `rallo --json search "dentist"` (literal substring), `--exact` for whole-text equality |
@@ -73,7 +73,12 @@ Exit codes: `0` success, `2` invalid input (nothing saved), `3` not found,
 (see the error `code`).
 
 Time: `--in` is `\d+d\d+h\d+m\d+s` groups in that order (a day is 24 h).
-`--at` needs RFC 3339 **with an explicit offset**. If the user's timing is
+`--at` takes RFC 3339 with an explicit offset, or the user's own words when
+they fit Rallo's grammar: `fri 5pm`, `tomorrow 9am`, `5pm` (today, or tomorrow
+if passed), `oct 20`, `in 2 hours`. Prefer their words: Rallo resolves them in
+the Mac's time zone, including clock changes. Read the resolved time from the
+response and tell the user. `INVALID_TIME` means the words didn't fit: ask, or
+build RFC 3339. If the user's timing is
 genuinely ambiguous ("later", "next week"), ask; otherwise keep their intent
 and don't over-ask.
 

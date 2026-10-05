@@ -53,8 +53,9 @@ pub enum Command {
         /// Relative duration such as "20m" or "1h30m". Exactly one of --in/--at is required.
         #[arg(long = "in", value_name = "DURATION", conflicts_with = "at", required_unless_present = "at")]
         in_: Option<String>,
-        /// Absolute RFC 3339 deadline with an explicit offset, e.g. "2026-10-01T15:00:00+06:00".
-        #[arg(long, value_name = "RFC3339")]
+        /// When: RFC 3339 with an explicit offset ("2026-10-01T15:00:00+06:00") or a
+        /// phrase such as "fri 5pm", "tomorrow 9am", "oct 20", "in 2 hours".
+        #[arg(long, value_name = "WHEN")]
         at: Option<String>,
         /// Idempotency key: retrying a relative "--in" duration must not move the deadline again.
         #[arg(long, value_name = "KEY")]
@@ -136,7 +137,9 @@ pub enum Command {
         id: String,
         #[arg(long = "in", value_name = "DURATION", conflicts_with = "at", required_unless_present = "at")]
         in_: Option<String>,
-        #[arg(long, value_name = "RFC3339")]
+        /// When: RFC 3339 with an explicit offset ("2026-10-01T15:00:00+06:00") or a
+        /// phrase such as "fri 5pm", "tomorrow 9am", "oct 20", "in 2 hours".
+        #[arg(long, value_name = "WHEN")]
         at: Option<String>,
         #[arg(long, value_name = "KEY")]
         request_id: Option<String>,

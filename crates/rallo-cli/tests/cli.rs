@@ -586,3 +586,66 @@ fn unreadable_store_names_the_sandbox_case() {
     let message = doc["error"]["message"].as_str().unwrap();
     assert!(message.contains("sandbox") && message.contains("rallo setup skill"), "{message}");
 }
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64
+}
+
+#[test]
+fn remind_at_accepts_a_phrase() {
+    let cli = Cli::new();
+    // TZ pinned to UTC so tomorrow 09:00 is computable here.
+    let output = cli
+        .command(&["remind", "standup", "--at", "Tomorrow 9am", "--json"])
+        .env("TZ", "UTC")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+    let doc = parse(&output);
+    let tomorrow_nine = (now_ms() / 86_400_000 + 1) * 86_400_000 + 9 * 3_600_000;
+    assert_eq!(doc["item"]["reminder"]["deadline_ms"].as_i64().unwrap(), tomorrow_nine);
+}
+
+#[test]
+fn remind_at_in_a_spelled_duration_is_relative() {
+    let cli = Cli::new();
+    let before = now_ms();
+    let (code, doc) = cli.json(&["remind", "stretch", "--at", "in 2 hours", "--json"]);
+    let after = now_ms();
+    assert_eq!(code, 0);
+    let deadline = doc["item"]["reminder"]["deadline_ms"].as_i64().unwrap();
+    assert!((before + 7_200_000..=after + 7_200_000).contains(&deadline), "{deadline}");
+}
+
+#[test]
+fn an_unreadable_phrase_is_invalid_time_and_writes_nothing() {
+    let cli = Cli::new();
+    let (code, doc) = cli.json(&["remind", "x", "--at", "later", "--json"]);
+    assert_eq!(code, 2);
+    assert_eq!(doc["error"]["code"], "INVALID_TIME");
+    assert_eq!(doc["error"]["message"], "couldn't read \"later\" as a time; try \"in 2h\", \"5pm\" or \"fri 9am\"");
+    let (_, list) = cli.json(&["list", "--all", "--json"]);
+    assert_eq!(list["items"], serde_json::json!([]), "nothing saved");
+}
+
+#[test]
+fn reschedule_at_accepts_a_phrase() {
+    let cli = Cli::new();
+    let (_, note) = cli.json(&["note", "call mom", "--json"]);
+    let id = note["item"]["id"].as_str().unwrap();
+    let (code, doc) = cli.json(&["reschedule", id, "--at", "in 45 min", "--json"]);
+    assert_eq!(code, 0);
+    assert!(doc["item"]["reminder"]["deadline_ms"].as_i64().unwrap() > now_ms() + 44 * 60_000);
+}
+
+#[test]
+fn a_retried_phrase_with_a_request_id_replays() {
+    let cli = Cli::new();
+    let args = ["remind", "once", "--at", "fri 5pm", "--request-id", "phrase-1", "--json"];
+    let (_, first) = cli.json(&args);
+    let (code, second) = cli.json(&args);
+    assert_eq!(code, 0);
+    assert_eq!(second["replayed"], true);
+    assert_eq!(second["item"]["id"], first["item"]["id"]);
+}

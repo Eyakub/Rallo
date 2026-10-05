@@ -17,7 +17,7 @@ mutation also accepts `--if-revision N` (0003 §9).
 | Command | Behaviour |
 |---|---|
 | `note TEXT` / `note --stdin` | Durably stores an open note. |
-| `remind TEXT\|--stdin (--in DUR \| --at RFC3339)` | Durably stores an open note with an enabled reminder at the given deadline, atomically. Exactly one of `--in`/`--at` (clap rejects both or neither, exit 2). `--in`: `\d+d`?`\d+h`?`\d+m`?`\d+s`? in that order, at least one group, a day is 24h. `--at`: RFC 3339 with an explicit offset. Rejects zero/negative/overflowing/elapsed deadlines. Subject to the 32-active-reminder capacity (0003 §4). |
+| `remind TEXT\|--stdin (--in DUR \| --at WHEN)` | Durably stores an open note with an enabled reminder at the given deadline, atomically. Exactly one of `--in`/`--at` (clap rejects both or neither, exit 2). `--in`: `\d+d`?`\d+h`?`\d+m`?`\d+s`? in that order, at least one group, a day is 24h. `--at`: RFC 3339 with an explicit offset, else a plain-language phrase per `docs/decisions/0016-plain-language-times.md` (`fri 5pm`, `tomorrow 9am`, `oct 20`, `in 2 hours`), resolved in the Mac's local time zone; a phrase is stored as the RFC 3339 instant it resolved to (an `in …` phrase as an `--in` duration in seconds). Unreadable or past phrases → `INVALID_TIME`. Rejects zero/negative/overflowing/elapsed deadlines. Subject to the 32-active-reminder capacity (0003 §4). |
 | `list [--all \| --deleted \| --due] [--limit N] [--cursor C]` | Default: open, nondeleted. `--all`: open+done, excludes deleted. `--deleted`: deleted items. `--due`: open items with an active reminder past its deadline. The three filters are mutually exclusive (clap rejects combinations, exit 2). |
 | `get ID` | The item (full ID or unique prefix; 0003 §6), plus its `scheduling`/`cancellation` status. |
 | `status` | App-running/data-dir/schema/pet-visibility overview (never starts the app). |
@@ -27,7 +27,7 @@ mutation also accepts `--if-revision N` (0003 §9).
 | `done ID` | Marks the item done; disables an active reminder. Already-done is a no-op. |
 | `reopen ID` | Marks the item open; never re-enables a reminder. Already-open is a no-op. |
 | `restore ID` | Clears soft-deletion, keeping prior open/done status; never re-enables a reminder. Not-deleted is a no-op. |
-| `reschedule ID (--in DUR \| --at RFC3339)` | Creates a reminder if the item has none, otherwise re-arms the existing one at a new deadline (new generation, acknowledgement cleared). Rejected on done/deleted items. Always changes state on success — never a no-op. Subject to capacity only if the reminder was not already active. |
+| `reschedule ID (--in DUR \| --at WHEN)` | Creates a reminder if the item has none, otherwise re-arms the existing one at a new deadline (new generation, acknowledgement cleared). Rejected on done/deleted items. Always changes state on success — never a no-op. Subject to capacity only if the reminder was not already active. |
 | `snooze ID --in DUR` | `--in` only. Requires an existing reminder on an open, nondeleted item. Always changes state on success. |
 | `acknowledge ID` | Disables an active reminder (`acknowledged`), clearing due-attention state. Already-inactive is a no-op. |
 | `cancel-reminder ID` | Disables an active reminder (`cancelled`) without completing the item. Already-inactive is a no-op. |

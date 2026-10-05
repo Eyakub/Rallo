@@ -13,7 +13,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use rallo_core::items::MutationOptions;
-use rallo_core::reminders::TimeSpec;
+use rallo_core::reminders::{TimeSpec, phrase};
+use rallo_core::shared::clock::{Clock, SystemClock};
 use rallo_core::storage::paths;
 use rallo_core::{Store, StoreOptions};
 
@@ -34,11 +35,18 @@ fn main() -> ExitCode {
     }
 }
 
-/// Exactly one of `--in`/`--at` is required by clap for every caller.
-fn time_spec(in_: Option<String>, at: Option<String>) -> TimeSpec {
+/// Exactly one of `--in`/`--at` is required by clap for every caller. `--at`
+/// takes RFC 3339 or a plain-language phrase (0016), resolved against this
+/// Mac's local time zone.
+fn time_spec(in_: Option<String>, at: Option<String>) -> Result<TimeSpec, Failure> {
     match (in_, at) {
-        (Some(in_), None) => TimeSpec::In(in_),
-        (None, Some(at)) => TimeSpec::At(at),
+        (Some(in_), None) => Ok(TimeSpec::In(in_)),
+        (None, Some(at)) => Ok(phrase::time_spec(
+            &at,
+            SystemClock.now_ms(),
+            rallo_platform_macos::local_time::wall_clock,
+            rallo_platform_macos::local_time::instant,
+        )?),
         _ => unreachable!("clap enforces exactly one of --in/--at"),
     }
 }
@@ -85,7 +93,7 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
     let result: commands::CommandResult = match command {
         Command::Note { text, stdin, request_id } => commands::note(out, &mut store, text, stdin, request_id),
         Command::Remind { text, stdin, in_, at, request_id } => {
-            commands::remind(out, &mut store, text, stdin, time_spec(in_, at), request_id)
+            commands::remind(out, &mut store, text, stdin, time_spec(in_, at)?, request_id)
         }
         Command::List { all, deleted, due, limit, cursor } => {
             commands::list(out, &store, all, deleted, due, limit, cursor)
@@ -107,7 +115,7 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
             commands::restore(out, &mut store, &id, MutationOptions { request_id, if_revision })
         }
         Command::Reschedule { id, in_, at, request_id, if_revision } => {
-            commands::reschedule(out, &mut store, &id, time_spec(in_, at), MutationOptions { request_id, if_revision })
+            commands::reschedule(out, &mut store, &id, time_spec(in_, at)?, MutationOptions { request_id, if_revision })
         }
         Command::Snooze { id, duration, request_id, if_revision } => {
             commands::snooze(out, &mut store, &id, &duration, MutationOptions { request_id, if_revision })
