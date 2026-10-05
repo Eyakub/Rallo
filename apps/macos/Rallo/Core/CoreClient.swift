@@ -22,6 +22,12 @@ final class CoreClient {
         try await worker.perform { try $0.createNote(text: text) }
     }
 
+    /// A note with its reminder in one write; `when` is RFC 3339 or a phrase
+    /// such as "fri 5pm" (0016).
+    func createReminder(_ text: String, when: String) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.createReminder(text: text, when: when) }
+    }
+
     func completeItem(_ item: ItemSnapshot) async throws -> ItemSnapshot {
         try await worker.perform { try $0.completeItem(id: item.id, ifRevision: item.revision) }
     }

@@ -121,4 +121,21 @@ final class CoreBridgeTests: XCTestCase {
         let item = try await worker.perform { try $0.createNote(text: "from worker") }
         XCTAssertEqual(item.text, "from worker")
     }
+
+    func testCreateReminderTakesAPhraseAndSavesNothingOnARefusal() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        let before = Int64(Date().timeIntervalSince1970 * 1000)
+        let item = try store.createReminder(text: "Stretch", when: "in 2 hours")
+        let after = Int64(Date().timeIntervalSince1970 * 1000)
+        XCTAssertEqual(item.text, "Stretch")
+        let deadline = try XCTUnwrap(item.reminder?.deadlineMs)
+        XCTAssertTrue((before + 7_200_000...after + 7_200_000).contains(deadline), "\(deadline)")
+
+        XCTAssertThrowsError(try store.createReminder(text: "Nope", when: "later")) { error in
+            guard case let RalloError.InvalidInput(code, message) = error else { return XCTFail("unexpected \(error)") }
+            XCTAssertEqual(code, "INVALID_TIME")
+            XCTAssertEqual(message, "couldn't read \"later\" as a time; try \"in 2h\", \"5pm\" or \"fri 9am\"")
+        }
+        XCTAssertEqual(try store.listOpenItems(limit: 50).map(\.text), ["Stretch"], "a refused time saves no note")
+    }
 }

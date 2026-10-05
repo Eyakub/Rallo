@@ -163,6 +163,14 @@ impl RalloStore {
         Ok(from_outcome(self.store().create_note(&text, None)?))
     }
 
+    /// A note and its reminder in one write, as `rallo remind TEXT --at WHEN`
+    /// (0017): `when` is RFC 3339 or a 0016 phrase such as "fri 5pm".
+    pub fn create_reminder(&self, text: String, when: String) -> Result<ItemSnapshot, RalloError> {
+        let mut store = self.store();
+        let spec = phrase::time_spec(&when, store.now_ms(), local_time::wall_clock, local_time::instant)?;
+        Ok(from_outcome(store.create_reminder(&text, &spec, None)?))
+    }
+
     pub fn list_open_items(&self, limit: u32) -> Result<Vec<ItemSnapshot>, RalloError> {
         let store = self.store();
         let page = store.list(ListQuery { filter: ListFilter::Open, limit, cursor: None })?;
