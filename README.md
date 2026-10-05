@@ -21,6 +21,7 @@
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="#shortcuts-siri-and-services">Shortcuts &amp; Siri</a> ·
   <a href="#coding-agents">Coding agents</a> ·
   <a href="#clickup">ClickUp</a> ·
   <a href="#privacy">Privacy</a> ·
@@ -119,6 +120,19 @@ the same interface you do. `rallo --help` lists them all;
 <p align="center">
   <img src="docs/images/menu.png" width="440" alt="The menu bar menu: two rows waiting for you, then Open Notes, Jump to Waiting Agent, Hide Pet, Pause Animations, Settings, and Quit">
 </p>
+
+## Shortcuts, Siri and Services
+
+- **Shortcuts:** "Add Rallo Note" and "Add Rallo Reminder" are actions you can use in your own
+  shortcuts. "When" takes the same words as `rallo remind --at` ("fri 5pm", "tomorrow 9am",
+  "in 2 hours") or an ISO 8601 date.
+- **Siri:** "Add a note in Rallo" or "Remind me in Rallo". Siri asks for the note and the time.
+  On macOS 26 the same actions show up in Spotlight.
+- **Any app:** select text, right-click, and choose **Services → New Rallo Note**. The pet
+  smiles when it's saved; if it can't be saved, the notes panel opens and says why. Give it a
+  key in System Settings → Keyboard → Keyboard Shortcuts → Services.
+
+Rallo only sees the text you selected, at the moment you pick the menu item.
 
 ## Coding agents
 
