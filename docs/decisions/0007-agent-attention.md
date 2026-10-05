@@ -18,8 +18,13 @@
   file (schema v4 drops the table below), last as long as their agent
   process, store the last two folders instead of `cwd`, and a click jumps
   to the exact cmux pane or Terminal/iTerm2 tab. `agent_done_seq` is gone.
+- **Amended 2026-10-05 (user):** Gemini CLI is the fourth agent (runtime
+  schema v5 adds `gemini` to the agent check). Its own rows in the event
+  table below; hook `timeout` is milliseconds there; it is detected by
+  `settings.json`, not the `.gemini` folder; and only `details.type` (and
+  `details.toolName` for MCP) are read from its permission payload.
 
-Coding agents (Claude Code, Codex, Grok) often sit idle waiting for a permission
+Coding agents (Claude Code, Codex, Grok, Gemini CLI) often sit idle waiting for a permission
 answer while the user is in another window. Both run hook commands at
 lifecycle events. Rallo installs one hook command; the pet waves when an
 agent waits for the user, shows a ✓ when one finishes, and the notes panel
@@ -40,6 +45,9 @@ CLI 0.158 (`~/.codex/hooks.json`, same schema as Claude Code's
 | `PostToolUse`, `UserPromptSubmit` | both | `working` (clears waiting/done; written only on change) |
 | `Stop`; `Notification` `idle_prompt`, `agent_completed`, or `task_complete`; `StopCancelled`, `StopFailure` | all / Claude Code and Grok / Grok | row deleted (was `done` before the amendment) |
 | `SessionEnd`, `Interrupt` | both / Codex | row deleted |
+| Gemini CLI `Notification` with `notification_type` `ToolPermission` | Gemini CLI | `waiting` (detail from `details.type`: `exec` Shell, `edit` Edit, `info` WebFetch, `ask_user` AskUserQuestion, `mcp` the `details.toolName`, else none) |
+| Gemini CLI `BeforeAgent`, `AfterTool` | Gemini CLI | `working` |
+| Gemini CLI `AfterAgent`, `SessionEnd` | Gemini CLI | row deleted |
 | anything else | — | ignored |
 
 **Grok** (xAI's CLI; amended 2026-10-02) reads every `$GROK_HOME/hooks/*.json`
@@ -58,6 +66,25 @@ Grok sets `GROK_HOOK_EVENT` on every hook process; if it is present the event
 is Grok's whatever `--agent` says, which covers the Claude hooks Grok runs
 too. With both installed one Grok event arrives twice; the second write is a
 no-op (same state, or no row to delete), so duplicates are harmless.
+
+**Gemini CLI** (Google's; amended 2026-10-05) keeps hooks in the shared user
+settings file `<gemini home>/settings.json` under `hooks` (Claude's shape;
+foreign keys and their order are preserved, as for Claude), where the home is
+`$GEMINI_CLI_HOME/.gemini` if that variable is set, else `~/.gemini` (the
+variable replaces the home, `.gemini` is still appended). Hooks are on by
+default. Payload fields are snake_case. Its events are its own (table above),
+so Claude's notification types are not interpreted for it and the reverse;
+`Notification` is reported only for `ToolPermission`. Gemini reads a hook
+`timeout` as **milliseconds** (default 60000), so its entries get `10000`,
+not `10`. Rallo installs `Notification`, `BeforeAgent`, `AfterTool`,
+`AfterAgent`, `SessionEnd`. The skill goes to
+`<gemini home>/skills/rallo/SKILL.md`. Detection requires
+`<gemini home>/settings.json` to be a file: Google's Antigravity IDE also
+creates `~/.gemini`, so the folder alone proves nothing. Privacy: from
+`details` only `type`, and `toolName` for `mcp`, are read; `title`,
+`command`, `rootCommand`, `fileDiff`, `originalContent`, `newContent`,
+`filePath`, `message`, `prompt` and `prompt_response` (which can hold paths,
+code and conversation text) are never read, stored, or logged.
 
 Only `hook_event_name`, `session_id` (`sessionId`), `cwd`, `notification_type`
 (`notificationType`), and `tool_name` (`toolName`) are read; everything else in the payload is ignored, so field
@@ -110,17 +137,18 @@ Automation permission.
 
 ## CLI
 
-- `rallo agent-event --agent claude|codex|grok` reads the hook JSON from stdin.
+- `rallo agent-event --agent claude|codex|grok|gemini` reads the hook JSON from stdin.
   **Always exits 0 and prints nothing to stdout** (Claude Code adds some
   hooks' stdout to the model's context; a failing hook can block the
   agent). Problems go to stderr. Payload fields are length-checked; unknown
   events are ignored. Target: ≤ 50 ms p95.
 - `rallo agents [--json]` lists current sessions; `rallo agents clear
   [--agent A] [--session ID]` removes rows.
-- `rallo setup hooks [--agent claude|codex|grok]… [--remove] [--print]`:
+- `rallo setup hooks [--agent claude|codex|grok|gemini]… [--remove] [--print]`:
   - Claude Code: merges into `~/.claude/settings.json` `hooks`; Codex:
     `$CODEX_HOME/hooks.json` (default `~/.codex`); Grok:
-    `$GROK_HOME/hooks/rallo.json` (default `~/.grok`, a Rallo-owned file). Default: every detected
+    `$GROK_HOME/hooks/rallo.json` (default `~/.grok`, a Rallo-owned file); Gemini CLI:
+    `<gemini home>/settings.json` (shared with the user's settings). Default: every detected
     agent, as `setup skill` does.
   - The command is the installed app's CLI by absolute path
     (`"…/Rallo.app/Contents/Helpers/rallo" agent-event --agent X || true`:

@@ -6,7 +6,7 @@
 
 <p align="center">
   Notes and one-time reminders from a fast command, kept in view by “Rallo the Red Panda” on your desktop<br>
-  that waves when Claude Code, Codex, Grok, or a ClickUp teammate is waiting on you.
+  that waves when Claude Code, Codex, Grok, Gemini CLI, or a ClickUp teammate is waiting on you.
 </p>
 
 <p align="center"><sub>Made by <a href="https://eyakub.github.io">Eyakub</a> · © Razlio</sub></p>
@@ -122,15 +122,15 @@ the same interface you do. `rallo --help` lists them all;
 
 ## Coding agents
 
-Rallo works with [Claude Code](https://claude.com/claude-code), Codex, and Grok in two ways.
+Rallo works with [Claude Code](https://claude.com/claude-code), Codex, Grok, and Gemini CLI in two ways.
 
 **Let agents save notes for you.** `rallo setup skill` installs a skill that teaches
-Claude Code, Cursor, Codex, and Grok to use `rallo` when you ask ("remind me to check the
+Claude Code, Cursor, Codex, Grok, and Gemini CLI to use `rallo` when you ask ("remind me to check the
 deploy in an hour"). Agents only act when asked, and treat note text as data, never
 as instructions.
 
 **Know when an agent is waiting.** `rallo setup hooks` adds Rallo's hook to Claude Code,
-Codex, and Grok. When an agent asks for permission or has a question, the pet waves, the
+Codex, Grok, and Gemini CLI. When an agent asks for permission or has a question, the pet waves, the
 paw shows a count, and the row says what it's asking ("Asks to use Bash"). Click the row
 to jump straight to that agent:
 
