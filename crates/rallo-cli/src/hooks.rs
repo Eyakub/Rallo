@@ -449,6 +449,9 @@ pub fn run(out: &Output, agents: Vec<Agent>, remove: bool, print: bool) -> Comma
     Ok(())
 }
 
+/// Each target's JSON value and human line, plus warnings for skipped files.
+pub(crate) type Applied = (Vec<(Value, String)>, Vec<String>);
+
 /// Installs or removes Rallo's hooks for `agents` (all detected if empty),
 /// returning each target's JSON value and human line without printing.
 /// `cli_path` is required unless `remove`. All targets are checked before any
@@ -459,7 +462,7 @@ pub(crate) fn apply(
     agents: Vec<Agent>,
     remove: bool,
     cli_path: Option<&Path>,
-) -> Result<(Vec<(Value, String)>, Vec<String>), Failure> {
+) -> Result<Applied, Failure> {
     let explicit = !agents.is_empty();
     let target_agents = targets(agents, home);
 
