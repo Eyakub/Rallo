@@ -59,6 +59,8 @@ targets:
       - path: RalloTests
       - path: Rallo/Generated/rallo_ffi.swift
       - path: Rallo/Core/CoreWorker.swift
+      - path: Rallo/Core/CoreClient.swift
+      - path: Rallo/Capture/CaptureService.swift
       - path: Rallo/Setup/TerminalCommand.swift
       - path: Rallo/Pet/Stroke.swift
       - path: Rallo/Pet/PetWatermarks.swift

@@ -152,6 +152,7 @@ final class AppCoordinator {
         do {
             try await core.open()
             storageReady = true
+            CaptureService.shared.attach(core: core) { [weak self] message in self?.showCaptureError(message) }
             excludeRuntimeFromBackups()
             clickUp.onChange = { [weak self] in Task { await self?.checkForChanges() } }
             clickUp.start()
@@ -515,6 +516,16 @@ final class AppCoordinator {
     }
 
     // MARK: Notes and notifications
+
+    /// A Services save that failed (0017): the panel opens and says why.
+    /// `reload()` clears the banner, so the message is set after it.
+    private func showCaptureError(_ message: String) {
+        openNotes(highlighting: nil)
+        Task {
+            await notesModel.reload()
+            notesModel.errorMessage = message
+        }
+    }
 
     private func openNotes(highlighting itemID: String?) {
         notesModel.highlight(itemID, for: 4)

@@ -1,0 +1,85 @@
+import XCTest
+
+/// 0017: Shortcuts, Siri and Services save through CaptureService.
+@MainActor
+final class CaptureServiceTests: XCTestCase {
+    private var dataDir: URL!
+    private var shown: [String] = []
+
+    override func setUp() async throws {
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("rallo-capture-\(UUID().uuidString)")
+        shown = []
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: dataDir)
+    }
+
+    private func attached() async throws -> CaptureService {
+        let core = CoreClient(dataDir: dataDir.path)
+        try await core.open()
+        let service = CaptureService(waitLimit: .milliseconds(300))
+        service.attach(core: core) { [weak self] message in self?.shown.append(message) }
+        return service
+    }
+
+    private func savedTexts() throws -> [String] {
+        try RalloStore.open(dataDir: dataDir.path).listOpenItems(limit: 50).map(\.text)
+    }
+
+    func testAddsANoteAndAReminder() async throws {
+        let service = try await attached()
+        let note = try await service.addNote("Call mom")
+        XCTAssertNil(note.reminder)
+        let reminder = try await service.addReminder("Stretch", when: "in 2 hours")
+        XCTAssertNotNil(reminder.reminder)
+        XCTAssertEqual(Set(try savedTexts()), ["Call mom", "Stretch"])
+    }
+
+    func testARefusedTimeThrowsTheHintAndSavesNothing() async throws {
+        let service = try await attached()
+        do {
+            _ = try await service.addReminder("Nope", when: "later")
+            XCTFail("expected a refusal")
+        } catch let failure as CaptureFailure {
+            XCTAssertEqual(failure.message, "couldn't read \"later\" as a time; try \"in 2h\", \"5pm\" or \"fri 9am\"")
+        }
+        XCTAssertEqual(try savedTexts(), [])
+    }
+
+    func testAnEmptySelectionGoesToThePanel() async throws {
+        let service = try await attached()
+        await service.saveSelection("  \n ")
+        XCTAssertEqual(shown.count, 1, "a failed Services save is never silent")
+        XCTAssertEqual(try savedTexts(), [])
+    }
+
+    func testATooLongSelectionGoesToThePanel() async throws {
+        let service = try await attached()
+        await service.saveSelection(String(repeating: "a", count: 64 * 1024 + 1))
+        XCTAssertEqual(shown.count, 1)
+        XCTAssertEqual(try savedTexts(), [])
+    }
+
+    func testGivesUpWhenTheStoreNeverOpens() async throws {
+        let service = CaptureService(waitLimit: .milliseconds(200))
+        do {
+            _ = try await service.addNote("x")
+            XCTFail("expected a timeout")
+        } catch let failure as CaptureFailure {
+            XCTAssertEqual(failure.message, "Rallo is still starting. Try again in a moment.")
+        }
+    }
+
+    func testWaitsForAStoreThatOpensLate() async throws {
+        let core = CoreClient(dataDir: dataDir.path)
+        try await core.open()
+        let service = CaptureService(waitLimit: .seconds(3))
+        Task { @MainActor in
+            try await Task.sleep(for: .milliseconds(300))
+            service.attach(core: core) { _ in }
+        }
+        let note = try await service.addNote("late")
+        XCTAssertEqual(note.text, "late")
+    }
+}
