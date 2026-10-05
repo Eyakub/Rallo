@@ -43,7 +43,8 @@ impl Cli {
             // So a real $CODEX_HOME on the machine running the tests never
             // leaks into agent_skill's Codex detection.
             .env_remove("CODEX_HOME")
-            .env_remove("GROK_HOME");
+            .env_remove("GROK_HOME")
+            .env_remove("GEMINI_CLI_HOME");
         command
     }
 

@@ -1,4 +1,4 @@
-//! `rallo agent-event --agent claude|codex|grok` (0007): reads one hook payload
+//! `rallo agent-event --agent claude|codex|grok|gemini` (0007): reads one hook payload
 //! from stdin and records the mapped state. **Always exits 0 and never
 //! writes to stdout** -- Claude Code adds a nonzero-exit hook's stderr to the
 //! model's context and can block `Stop`/`UserPromptSubmit`, so a failure here
@@ -11,6 +11,11 @@
 //! ever read from the payload: no prompt or model text
 //! (`prompt`, `last_assistant_message`) is read, stored, or logged. Of `cwd`
 //! only the last two folders are kept (0009).
+//!
+//! Gemini CLI (snake_case like Claude's) additionally has `details.type` and,
+//! for an `mcp` tool, `details.toolName` read from its `Notification`; no
+//! other `details` field (`title`, `command`, `fileDiff`, `filePath`, ...) nor
+//! `message`, `prompt`, or `prompt_response` is ever read.
 
 use std::io::Read;
 use std::path::Path;
@@ -39,6 +44,7 @@ fn to_core_agent(agent: Agent) -> AgentKind {
         Agent::Claude => AgentKind::Claude,
         Agent::Codex => AgentKind::Codex,
         Agent::Grok => AgentKind::Grok,
+        Agent::Gemini => AgentKind::Gemini,
     }
 }
 
@@ -81,7 +87,7 @@ enum Mapped {
 /// Maps a raw hook payload to `(session_id, Mapped)` per 0007's event table.
 /// `Ok(None)` covers every "ignore" case documented there: a
 /// `hook_event_name` this build doesn't map (including a Codex payload's
-/// unrelated `Notification`, which the table reserves for Claude Code and Grok),
+/// unrelated `Notification`, which the table reserves for Claude Code and Grok; Gemini has its own table),
 /// or one absent altogether. Only a malformed payload -- not valid JSON, not
 /// a JSON object, or missing/invalid `session_id` -- is an `Err`.
 fn map_event(agent: Agent, payload: &[u8]) -> Result<Option<(String, Mapped)>, &'static str> {
@@ -111,9 +117,29 @@ fn map_event(agent: Agent, payload: &[u8]) -> Result<Option<(String, Mapped)>, &
     };
     let working = || Mapped::SetState { state: AgentState::Working, place: place.clone(), detail: None };
 
+    if agent == Agent::Gemini {
+        // Its own table (0007): Claude's notification types mean nothing here.
+        let details = object.get("details").and_then(Value::as_object);
+        let kind = details.and_then(|details| details.get("type")).and_then(Value::as_str);
+        let mapped = match hook_event_name {
+            "Notification" if notification_type == Some("ToolPermission") => Some(waiting(match kind {
+                Some("exec") => Some("Shell"),
+                Some("edit") => Some("Edit"),
+                Some("info") => Some("WebFetch"),
+                Some("ask_user") => Some("AskUserQuestion"),
+                Some("mcp") => details.and_then(|details| details.get("toolName")).and_then(Value::as_str),
+                _ => None,
+            })),
+            "BeforeAgent" | "AfterTool" => Some(working()),
+            "AfterAgent" | "SessionEnd" => Some(Mapped::End),
+            _ => None,
+        };
+        return Ok(mapped.map(|mapped| (session_id.to_owned(), mapped)));
+    }
+
     let mapped = match hook_event_name {
         "PermissionRequest" => Some(waiting(tool_name)),
-        "Notification" if agent != Agent::Codex => match notification_type {
+        "Notification" if matches!(agent, Agent::Claude | Agent::Grok) => match notification_type {
             Some("permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog" | "agent_needs_input") => {
                 Some(waiting(None))
             }
@@ -219,6 +245,51 @@ mod tests {
         let cancelled = r#"{"hook_event_name":"StopCancelled","sessionId":"s1"}"#;
         assert!(matches!(map_one(Agent::Grok, cancelled), Some(Mapped::End)));
         assert!(map_one(Agent::Codex, &grok_notification("permission_prompt")).is_none(), "Codex ignores Notification");
+    }
+
+    fn gemini_permission(details: &str) -> String {
+        format!(
+            r#"{{"session_id":"g1","cwd":"/tmp/a/b","hook_event_name":"Notification","notification_type":"ToolPermission","message":"secret","details":{details}}}"#
+        )
+    }
+
+    #[test]
+    fn gemini_permission_detail_comes_from_the_details_type_only() {
+        let detail = |details: &str| match map_one(Agent::Gemini, &gemini_permission(details)) {
+            Some(Mapped::SetState { state: AgentState::Waiting, detail, .. }) => detail,
+            _ => panic!("not waiting: {details}"),
+        };
+        let exec = r#"{"type":"exec","title":"Run /Users/me/secret","command":"rm -rf ~","rootCommand":"rm"}"#;
+        assert_eq!(detail(exec).as_deref(), Some("Shell"));
+        let edit = r#"{"type":"edit","title":"/Users/me/a.rs","fileDiff":"+x","newContent":"y","filePath":"/a"}"#;
+        assert_eq!(detail(edit).as_deref(), Some("Edit"));
+        assert_eq!(detail(r#"{"type":"info"}"#).as_deref(), Some("WebFetch"));
+        assert_eq!(detail(r#"{"type":"ask_user"}"#).as_deref(), Some("AskUserQuestion"));
+        assert_eq!(detail(r#"{"type":"mcp","toolName":"search","title":"t"}"#).as_deref(), Some("search"));
+        assert_eq!(detail(r#"{"type":"mcp"}"#), None);
+        assert_eq!(detail(r#"{"type":"other"}"#), None);
+        assert_eq!(detail("{}"), None);
+    }
+
+    #[test]
+    fn gemini_events_and_isolation_from_other_agents() {
+        let event = |name: &str| format!(r#"{{"session_id":"g1","hook_event_name":"{name}","prompt":"p"}}"#);
+        for name in ["BeforeAgent", "AfterTool"] {
+            assert!(matches!(
+                map_one(Agent::Gemini, &event(name)),
+                Some(Mapped::SetState { state: AgentState::Working, .. })
+            ));
+        }
+        for name in ["AfterAgent", "SessionEnd"] {
+            assert!(matches!(map_one(Agent::Gemini, &event(name)), Some(Mapped::End)), "{name}");
+        }
+        for name in ["Stop", "PostToolUse", "PermissionRequest", "Other"] {
+            assert!(map_one(Agent::Gemini, &event(name)).is_none(), "{name}");
+        }
+        let claude_style =
+            r#"{"session_id":"g1","hook_event_name":"Notification","notification_type":"permission_prompt"}"#;
+        assert!(map_one(Agent::Gemini, claude_style).is_none());
+        assert!(map_one(Agent::Claude, &gemini_permission(r#"{"type":"exec"}"#)).is_none());
     }
 
     #[test]

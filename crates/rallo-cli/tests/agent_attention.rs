@@ -53,7 +53,8 @@ impl Setup {
             .env("RALLO_DATA_DIR", &self.data_dir)
             .env_remove("RALLO_APP_PATH")
             .env_remove("CODEX_HOME")
-            .env_remove("GROK_HOME");
+            .env_remove("GROK_HOME")
+            .env_remove("GEMINI_CLI_HOME");
         command
     }
 

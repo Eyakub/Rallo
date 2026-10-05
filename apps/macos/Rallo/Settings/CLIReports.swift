@@ -75,7 +75,7 @@ enum CLIReports {
         }
         let lines = entries.compactMap { entry -> String? in
             guard let agent = entry["agent"] as? String, let status = entry["status"] as? String else { return nil }
-            let name = agent == "claude" ? "Claude Code" : agent == "codex" ? "Codex" : agent == "grok" ? "Grok" : agent
+            let name = agent == "claude" ? "Claude Code" : agent == "codex" ? "Codex" : agent == "grok" ? "Grok" : agent == "gemini" ? "Gemini CLI" : agent
             return "\(name): \(status.replacingOccurrences(of: "_", with: " "))."
         }
         return .done(lines.isEmpty ? "Done." : lines.joined(separator: " "))

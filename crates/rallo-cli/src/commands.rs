@@ -232,6 +232,7 @@ pub fn setup_skill(out: &Output, print: bool, agents: Vec<skill::Agent>) -> Comm
             skill::Agent::Claude => ["Claude Code", "Cursor"].as_slice(),
             skill::Agent::Codex => ["Codex"].as_slice(),
             skill::Agent::Grok => ["Grok"].as_slice(),
+            skill::Agent::Gemini => ["Gemini CLI"].as_slice(),
         });
         let status = match target.skill_state {
             skill::State::Current => "already_installed",
@@ -308,6 +309,7 @@ fn to_core_agent(agent: skill::Agent) -> AgentKind {
         skill::Agent::Claude => AgentKind::Claude,
         skill::Agent::Codex => AgentKind::Codex,
         skill::Agent::Grok => AgentKind::Grok,
+        skill::Agent::Gemini => AgentKind::Gemini,
     }
 }
 
@@ -341,6 +343,7 @@ fn agent_kind_label(agent: AgentKind) -> &'static str {
         AgentKind::Claude => "Claude Code",
         AgentKind::Codex => "Codex",
         AgentKind::Grok => "Grok",
+        AgentKind::Gemini => "Gemini CLI",
         AgentKind::ClickUp => "ClickUp",
     }
 }

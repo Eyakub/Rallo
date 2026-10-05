@@ -490,7 +490,7 @@ impl From<ImportReport> for ImportSummary {
 
 // --- Agent attention (0007, 0009) --------------------------------------------
 
-/// One Claude Code/Codex/Grok session waiting on the user, for the panel's
+/// One Claude Code/Codex/Grok/Gemini CLI session waiting on the user, for the panel's
 /// "Agents" section. `place` is the last two folders of the agent's working
 /// directory ("~" for home); `focus` an opaque terminal target for jumping
 /// to the exact pane ("cmux:<workspace>:<panel>" or "tty:/dev/ttysN").

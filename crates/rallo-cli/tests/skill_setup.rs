@@ -44,7 +44,8 @@ impl Home {
             .env("PATH", "/usr/bin:/bin")
             .env_remove("RALLO_DATA_DIR")
             .env_remove("CODEX_HOME")
-            .env_remove("GROK_HOME");
+            .env_remove("GROK_HOME")
+            .env_remove("GEMINI_CLI_HOME");
         command
     }
 
@@ -194,6 +195,34 @@ fn grok_home_env_var_is_honoured() {
     assert_eq!(code, 0, "{doc}");
     assert_eq!(install(&doc, "grok")["path"], custom.path().join("skills/rallo/SKILL.md").to_str().unwrap());
     assert!(!home.home().join(".grok").exists(), "the $HOME/.grok fallback must not be used");
+}
+
+#[test]
+fn gemini_cli_home_env_var_replaces_the_home_not_the_dot_gemini_folder() {
+    let home = Home::new();
+    let custom = tempfile::tempdir().unwrap();
+    let mut command = home.command(&["--agent", "gemini"]);
+    command.env("GEMINI_CLI_HOME", custom.path());
+    let (code, doc) = run(&mut command);
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(install(&doc, "gemini")["path"], custom.path().join(".gemini/skills/rallo/SKILL.md").to_str().unwrap());
+    assert!(!home.home().join(".gemini").exists(), "the $HOME/.gemini fallback must not be used");
+}
+
+#[test]
+fn gemini_is_detected_by_its_settings_file_not_the_folder() {
+    let home = Home::new();
+    let gemini = home.home().join(".gemini");
+    fs::create_dir_all(&gemini).unwrap();
+    let (code, doc) = home.run(&[]);
+    assert_eq!(code, 0, "{doc}");
+    let installs = doc["skill"]["installs"].as_array().unwrap();
+    assert!(installs.iter().all(|entry| entry["agent"] != "gemini"), "bare .gemini (Antigravity): {doc}");
+
+    fs::write(gemini.join("settings.json"), "{}").unwrap();
+    let (code, doc) = home.run(&[]);
+    assert_eq!(code, 0, "{doc}");
+    assert!(home.home().join(".gemini/skills/rallo/SKILL.md").is_file(), "{doc}");
 }
 
 #[test]

@@ -48,7 +48,8 @@ impl Setup {
             .env_remove("RALLO_APP_PATH")
             .env_remove("RALLO_DATA_DIR")
             .env_remove("CODEX_HOME")
-            .env_remove("GROK_HOME");
+            .env_remove("GROK_HOME")
+            .env_remove("GEMINI_CLI_HOME");
         command
     }
 
@@ -262,6 +263,27 @@ fn grok_hooks_install_into_a_rallo_owned_file_and_remove_cleanly() {
     assert!(!path.exists(), "an emptied Rallo-owned file is deleted");
     let left: Vec<_> = fs::read_dir(grok_home.join("hooks")).unwrap().collect();
     assert!(left.is_empty(), "no backup of Rallo's own file: {left:?}");
+}
+
+#[test]
+fn gemini_hooks_merge_into_settings_with_millisecond_timeouts() {
+    let setup = Setup::new();
+    let path = setup.home.join(".gemini/settings.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, r#"{"theme":"dark","hooks":{"SessionStart":[]},"zeta":1}"#).unwrap();
+    let (code, doc) = setup.json(&["setup", "hooks", "--agent", "gemini", "--json"]);
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(install(&doc, "gemini")["path"], path.to_str().unwrap());
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("agent-event --agent gemini || true") && text.contains("\"AfterAgent\""), "{text}");
+    assert!(text.contains("\"timeout\": 10000") && !text.contains("\"timeout\": 10,"), "{text}");
+    assert!(text.find("theme").unwrap() < text.find("hooks").unwrap(), "foreign key order kept: {text}");
+    assert!(text.find("hooks").unwrap() < text.find("zeta").unwrap(), "foreign key order kept: {text}");
+
+    let (code, doc) = setup.json(&["setup", "hooks", "--agent", "gemini", "--remove", "--json"]);
+    assert_eq!(code, 0, "{doc}");
+    let left: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(left, serde_json::json!({"theme":"dark","hooks":{"SessionStart":[]},"zeta":1}));
 }
 
 #[test]

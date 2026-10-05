@@ -5,7 +5,7 @@ enum VoiceText {
     /// UserDefaults key for the user's "Words to recognize" (Settings → General).
     static let wordsKey = "voiceTypingWords"
     /// Words the engine would otherwise mishear ("Rallo" became "Rao").
-    static let builtInWords = ["Rallo", "ClickUp", "cmux", "Claude", "Codex", "Grok"]
+    static let builtInWords = ["Rallo", "ClickUp", "cmux", "Claude", "Codex", "Grok", "Gemini"]
 
     /// UserDefaults key for "Clean up stutters and fillers" (on unless set false).
     static let tidyKey = "voiceTidy"

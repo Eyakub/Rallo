@@ -1,7 +1,8 @@
 //! `rallo setup hooks` (0007): installs the `agent-event` hook command into
 //! Claude Code's `~/.claude/settings.json` `hooks` and Codex's
 //! `$CODEX_HOME/hooks.json` `hooks`, plus Grok's own Rallo-owned
-//! `$GROK_HOME/hooks/rallo.json`.
+//! `$GROK_HOME/hooks/rallo.json`, and Gemini CLI's shared
+//! `<gemini home>/settings.json` `hooks`.
 //!
 //! Both files are arbitrary JSON a person (or another tool) may already have
 //! populated, and 0007 requires preserving everything Rallo doesn't own,
@@ -37,12 +38,14 @@ const CODEX_EVENTS: [&str; 6] =
     ["PermissionRequest", "PostToolUse", "UserPromptSubmit", "Stop", "SessionEnd", "Interrupt"];
 const GROK_EVENTS: [&str; 7] =
     ["Notification", "PostToolUse", "UserPromptSubmit", "Stop", "StopCancelled", "StopFailure", "SessionEnd"];
+const GEMINI_EVENTS: [&str; 5] = ["Notification", "BeforeAgent", "AfterTool", "AfterAgent", "SessionEnd"];
 
 fn events_for(agent: Agent) -> &'static [&'static str] {
     match agent {
         Agent::Claude => &CLAUDE_EVENTS,
         Agent::Codex => &CODEX_EVENTS,
         Agent::Grok => &GROK_EVENTS,
+        Agent::Gemini => &GEMINI_EVENTS,
     }
 }
 
@@ -54,6 +57,7 @@ pub(crate) fn hook_label(agent: Agent) -> &'static str {
         Agent::Claude => "Claude Code",
         Agent::Codex => "Codex",
         Agent::Grok => "Grok",
+        Agent::Gemini => "Gemini CLI",
     }
 }
 
@@ -62,6 +66,7 @@ pub(crate) fn hooks_path(agent: Agent, home: &Path) -> PathBuf {
         Agent::Claude => skill::claude_home(home).join("settings.json"),
         Agent::Codex => skill::codex_home(home).join("hooks.json"),
         Agent::Grok => skill::grok_home(home).join("hooks/rallo.json"),
+        Agent::Gemini => skill::gemini_home(home).join("settings.json"),
     }
 }
 
@@ -121,7 +126,7 @@ impl OrderedValue {
     }
 }
 
-/// `"<abs cli path>" agent-event --agent <claude|codex|grok> || true` (0007): the
+/// `"<abs cli path>" agent-event --agent <claude|codex|grok|gemini> || true` (0007): the
 /// path is quoted because a `Home With Spaces` install path is real (other
 /// setup commands are tested against one). Both agents run hook commands
 /// through a shell, and `|| true` keeps a missing or older CLI (one without
@@ -147,20 +152,25 @@ pub(crate) fn extract_cli_path(command: &str) -> Option<&str> {
     Some(&rest[..end])
 }
 
-fn one_hook_group(command: &str) -> OrderedValue {
+/// Gemini CLI reads a hook `timeout` as milliseconds; the others as seconds.
+fn timeout_for(agent: Agent) -> u64 {
+    if agent == Agent::Gemini { 10_000 } else { 10 }
+}
+
+fn one_hook_group(command: &str, timeout: u64) -> OrderedValue {
     OrderedValue::Object(IndexMap::from([(
         "hooks".to_owned(),
         OrderedValue::Array(vec![OrderedValue::Object(IndexMap::from([
             ("type".to_owned(), OrderedValue::String("command".to_owned())),
             ("command".to_owned(), OrderedValue::String(command.to_owned())),
-            ("timeout".to_owned(), OrderedValue::Number(Number::from(10))),
+            ("timeout".to_owned(), OrderedValue::Number(Number::from(timeout))),
         ]))]),
     )]))
 }
 
 fn default_content(agent: Agent) -> OrderedValue {
     match agent {
-        Agent::Claude => OrderedValue::object(),
+        Agent::Claude | Agent::Gemini => OrderedValue::object(),
         Agent::Codex | Agent::Grok => {
             OrderedValue::Object(IndexMap::from([("hooks".to_owned(), OrderedValue::object())]))
         }
@@ -229,7 +239,7 @@ fn append_rallo_groups(root: &mut OrderedValue, agent: Agent, cli_path: &Path) {
     for event in events_for(agent) {
         let groups = hooks_obj.entry((*event).to_owned()).or_insert_with(|| OrderedValue::Array(Vec::new()));
         let Some(groups) = groups.as_array_mut() else { continue };
-        groups.push(one_hook_group(&command));
+        groups.push(one_hook_group(&command, timeout_for(agent)));
     }
 }
 
@@ -405,7 +415,10 @@ fn print_groups(out: &Output, agents: Vec<Agent>) -> CommandResult {
             let events: Value = events_for(agent)
                 .iter()
                 .map(|event| {
-                    ((*event).to_owned(), serde_json::to_value(one_hook_group(&command)).expect("group serializes"))
+                    (
+                        (*event).to_owned(),
+                        serde_json::to_value(one_hook_group(&command, timeout_for(agent))).expect("group serializes"),
+                    )
                 })
                 .collect::<serde_json::Map<_, _>>()
                 .into();
@@ -419,7 +432,7 @@ fn print_groups(out: &Output, agents: Vec<Agent>) -> CommandResult {
     Ok(())
 }
 
-/// `rallo setup hooks [--agent claude|codex|grok]... [--remove] [--print]` (0007).
+/// `rallo setup hooks [--agent claude|codex|grok|gemini]... [--remove] [--print]` (0007).
 pub fn run(out: &Output, agents: Vec<Agent>, remove: bool, print: bool) -> CommandResult {
     if print {
         return print_groups(out, agents);
@@ -536,6 +549,16 @@ mod tests {
     }
 
     #[test]
+    fn gemini_hook_timeout_is_milliseconds() {
+        assert_eq!(timeout_for(Agent::Gemini), 10_000);
+        assert_eq!(timeout_for(Agent::Claude), 10);
+        let mut root = default_content(Agent::Gemini);
+        append_rallo_groups(&mut root, Agent::Gemini, Path::new("/Applications/Rallo.app/Contents/Helpers/rallo"));
+        let json = serde_json::to_string(&root).unwrap();
+        assert!(json.contains("\"timeout\":10000") && json.contains("AfterAgent"), "{json}");
+    }
+
+    #[test]
     fn remove_drops_only_containers_it_emptied() {
         let mut root = OrderedValue::Object(IndexMap::from([(
             "hooks".to_owned(),
@@ -544,6 +567,7 @@ mod tests {
                     "PostToolUse".to_owned(),
                     OrderedValue::Array(vec![one_hook_group(
                         "\"/Applications/Rallo.app/Contents/Helpers/rallo\" agent-event --agent claude",
+                        10,
                     )]),
                 ),
                 // A pre-existing empty array Rallo never touched must survive.

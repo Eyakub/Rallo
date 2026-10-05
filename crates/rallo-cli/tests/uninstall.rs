@@ -57,6 +57,7 @@ impl Fixture {
             .env_remove("RALLO_APP_PATH")
             .env_remove("CODEX_HOME")
             .env_remove("GROK_HOME")
+            .env_remove("GEMINI_CLI_HOME")
             .env_remove("RALLO_UNINSTALL_TEST_PREPARE")
             .stdin(Stdio::null());
         command

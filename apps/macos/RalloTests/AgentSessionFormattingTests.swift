@@ -47,6 +47,7 @@ final class AgentSessionFormattingTests: XCTestCase {
                        "Claude Code · code/shop")
         XCTAssertEqual(AgentSessionFormatting.title(for: session(agent: "codex", place: "~")), "Codex · ~")
         XCTAssertEqual(AgentSessionFormatting.title(for: session(agent: "grok", place: "~")), "Grok · ~")
+        XCTAssertEqual(AgentSessionFormatting.title(for: session(agent: "gemini", place: "~")), "Gemini CLI · ~")
     }
 
     func testTitleWithoutAPlaceIsTheAgentNameAlone() {

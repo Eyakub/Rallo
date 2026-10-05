@@ -2,8 +2,9 @@
 //! this CLI's version, and the agents `rallo setup skill` installs it for:
 //! Claude Code's personal skills directory (`~/.claude/skills`, which Cursor
 //! also reads) and Codex's (`~/.codex/skills`, or `$CODEX_HOME` -- shared by
-//! the Codex CLI and the Codex tab of the ChatGPT desktop app) and Grok's
-//! (`~/.grok/skills`, or `$GROK_HOME`). Codex also
+//! the Codex CLI and the Codex tab of the ChatGPT desktop app), Grok's
+//! (`~/.grok/skills`, or `$GROK_HOME`), and Gemini CLI's (`~/.gemini/skills`,
+//! or under `$GEMINI_CLI_HOME`). Codex also
 //! gets `rallo.rules`, an execpolicy file pre-approving Rallo's everyday
 //! commands, because its default sandbox blocks the notes store in
 //! `~/Library` otherwise.
@@ -51,16 +52,18 @@ pub enum Agent {
     Claude,
     Codex,
     Grok,
+    Gemini,
 }
 
 impl Agent {
-    pub const ALL: [Agent; 3] = [Agent::Claude, Agent::Codex, Agent::Grok];
+    pub const ALL: [Agent; 4] = [Agent::Claude, Agent::Codex, Agent::Grok, Agent::Gemini];
 
     pub fn json_name(self) -> &'static str {
         match self {
             Agent::Claude => "claude",
             Agent::Codex => "codex",
             Agent::Grok => "grok",
+            Agent::Gemini => "gemini",
         }
     }
 
@@ -70,6 +73,7 @@ impl Agent {
             Agent::Claude => "Claude Code and Cursor",
             Agent::Codex => "Codex",
             Agent::Grok => "Grok",
+            Agent::Gemini => "Gemini CLI",
         }
     }
 }
@@ -96,6 +100,16 @@ pub(crate) fn grok_home(home: &Path) -> PathBuf {
     }
 }
 
+/// `$GEMINI_CLI_HOME/.gemini` if the variable is set and non-empty, else
+/// `$HOME/.gemini` (unlike `$GROK_HOME`, the variable replaces the home, not
+/// the `.gemini` folder).
+pub(crate) fn gemini_home(home: &Path) -> PathBuf {
+    match env::var_os("GEMINI_CLI_HOME").filter(|value| !value.is_empty()) {
+        Some(value) => PathBuf::from(value).join(".gemini"),
+        None => home.join(".gemini"),
+    }
+}
+
 /// Whether `agent`'s home directory exists on this machine, i.e. whether it
 /// looks worth installing for without being asked.
 pub fn detected(agent: Agent, home: &Path) -> bool {
@@ -103,6 +117,9 @@ pub fn detected(agent: Agent, home: &Path) -> bool {
         Agent::Claude => claude_home(home).is_dir(),
         Agent::Codex => codex_home(home).is_dir(),
         Agent::Grok => grok_home(home).is_dir(),
+        // Google's Antigravity IDE also creates `~/.gemini`; only the CLI's
+        // settings file proves Gemini CLI itself.
+        Agent::Gemini => gemini_home(home).join("settings.json").is_file(),
     }
 }
 
@@ -111,6 +128,7 @@ pub fn skill_path(agent: Agent, home: &Path) -> PathBuf {
         Agent::Claude => claude_home(home).join("skills/rallo/SKILL.md"),
         Agent::Codex => codex_home(home).join("skills/rallo/SKILL.md"),
         Agent::Grok => grok_home(home).join("skills/rallo/SKILL.md"),
+        Agent::Gemini => gemini_home(home).join("skills/rallo/SKILL.md"),
     }
 }
 
