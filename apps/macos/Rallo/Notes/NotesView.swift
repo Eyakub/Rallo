@@ -62,6 +62,8 @@ final class NotesViewModel: ObservableObject {
     @Published var expandedID: String?
     @Published var editingID: String?
     @Published var editDraft = ""
+    /// The note whose "Custom…" reminder popover is open (0016).
+    @Published var customRemindID: String?
     @Published var focusToken = 0
     /// Swipe state: at most one row shows a tray; `liveSwipe` follows the
     /// pointer or fingers while a swipe is in progress.
@@ -269,13 +271,23 @@ final class NotesViewModel: ObservableObject {
     }
 
     func remind(_ item: ItemSnapshot, _ preset: RemindPreset) async {
-        do {
-            let updated: ItemSnapshot
+        await setReminder { [core] in
             switch preset {
-            case .inTwentyMinutes: updated = try await core.remindIn(item, duration: "20m")
-            case .inOneHour: updated = try await core.remindIn(item, duration: "1h")
-            case .tomorrowMorning: updated = try await core.remindAt(item, date: RemindPreset.tomorrowMorning())
+            case .inTwentyMinutes: return try await core.remindIn(item, duration: "20m")
+            case .inOneHour: return try await core.remindIn(item, duration: "1h")
+            case .tomorrowMorning: return try await core.remindAt(item, date: RemindPreset.tomorrowMorning())
             }
+        }
+    }
+
+    /// "Custom…" (0016): `date` is what the popover previewed.
+    func remind(_ item: ItemSnapshot, at date: Date) async {
+        await setReminder { [core] in try await core.remindAt(item, date: date) }
+    }
+
+    private func setReminder(_ change: () async throws -> ItemSnapshot) async {
+        do {
+            let updated = try await change()
             if let reminder = updated.reminder {
                 show(Toast(message: "Reminder set for \(ReminderLabel.text(for: reminder.deadline))", undo: nil))
             }
@@ -351,16 +363,6 @@ final class NotesViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
         await reload()
-    }
-}
-
-extension RalloError {
-    var displayMessage: String {
-        switch self {
-        case let .InvalidInput(_, message), let .NotFound(_, message), let .Conflict(_, message),
-             let .Storage(_, message), let .IncompatibleSchema(_, _, message):
-            return message
-        }
     }
 }
 

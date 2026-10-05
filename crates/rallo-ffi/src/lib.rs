@@ -12,12 +12,15 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome};
 use rallo_core::pet;
+use rallo_core::reminders::phrase;
 use rallo_core::reminders::protocol as core_protocol;
+use rallo_core::reminders::time::deadline_ms;
 use rallo_core::reminders::{SchedulingStatus, TimeSpec};
 use rallo_core::shared::signal;
 use rallo_core::storage::{instance_lock, migrations, paths};
 use rallo_core::transfer::MAX_IMPORT_BYTES;
 use rallo_core::{ErrorCode, Store, StoreOptions};
+use rallo_platform_macos::local_time;
 
 pub use types::*;
 
@@ -54,6 +57,15 @@ pub fn change_signal_name(data_dir: String) -> String {
 #[uniffi::export]
 pub fn show_signal_name(data_dir: String) -> String {
     signal::show_signal_name(Path::new(&data_dir))
+}
+
+/// The deadline (UTC ms) that `text` -- RFC 3339 or a 0016 phrase such as
+/// "fri 5pm" -- resolves to at `now_ms`, for the panel's live preview: the
+/// same rules `rallo remind --at` applies. Writes nothing.
+#[uniffi::export]
+pub fn resolve_reminder_time(text: String, now_ms: i64) -> Result<i64, RalloError> {
+    let spec = phrase::time_spec(&text, now_ms, local_time::wall_clock, local_time::instant)?;
+    Ok(deadline_ms(&spec, now_ms)?)
 }
 
 #[uniffi::export]

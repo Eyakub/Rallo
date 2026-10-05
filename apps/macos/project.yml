@@ -64,6 +64,9 @@ targets:
       - path: Rallo/Pet/PetWatermarks.swift
       - path: Rallo/Notes/AgentSessionFormatting.swift
       - path: Rallo/Notes/AgentSessionActivation.swift
+      - path: Rallo/Notes/CustomRemindPreview.swift
+      - path: Rallo/Notes/ReminderLabel.swift
+      - path: Rallo/Notes/RalloError+Display.swift
       - path: Rallo/ClickUp/ClickUpWaiting.swift
       - path: Rallo/Notifications/NotificationAdapter.swift
       - path: Rallo/Notifications/AgentNotificationIdentifier.swift
