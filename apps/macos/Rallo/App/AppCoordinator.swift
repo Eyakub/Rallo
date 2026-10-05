@@ -149,10 +149,11 @@ final class AppCoordinator {
         observer.onShowRequest = { [weak self] in Task { await self?.handleShowRequest() } }
         observer.onDiagnosticsRequest = { [weak self] in self?.writeWindowReport() }
 
+        CaptureService.shared.showErrors { [weak self] message in self?.showCaptureError(message) }
         do {
             try await core.open()
             storageReady = true
-            CaptureService.shared.attach(core: core) { [weak self] message in self?.showCaptureError(message) }
+            CaptureService.shared.attach(core: core)
             excludeRuntimeFromBackups()
             clickUp.onChange = { [weak self] in Task { await self?.checkForChanges() } }
             clickUp.start()

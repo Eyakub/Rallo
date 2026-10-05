@@ -19,7 +19,8 @@ final class CaptureServiceTests: XCTestCase {
         let core = CoreClient(dataDir: dataDir.path)
         try await core.open()
         let service = CaptureService(waitLimit: .milliseconds(300))
-        service.attach(core: core) { [weak self] message in self?.shown.append(message) }
+        service.showErrors { [weak self] message in self?.shown.append(message) }
+        service.attach(core: core)
         return service
     }
 
@@ -71,13 +72,20 @@ final class CaptureServiceTests: XCTestCase {
         }
     }
 
+    func testAFailedSaveIsReportedEvenIfTheStoreNeverOpens() async throws {
+        let service = CaptureService(waitLimit: .milliseconds(200))
+        service.showErrors { [weak self] message in self?.shown.append(message) }
+        await service.saveSelection("x")
+        XCTAssertEqual(shown, ["Rallo is still starting. Try again in a moment."])
+    }
+
     func testWaitsForAStoreThatOpensLate() async throws {
         let core = CoreClient(dataDir: dataDir.path)
         try await core.open()
         let service = CaptureService(waitLimit: .seconds(3))
         Task { @MainActor in
             try await Task.sleep(for: .milliseconds(300))
-            service.attach(core: core) { _ in }
+            service.attach(core: core)
         }
         let note = try await service.addNote("late")
         XCTAssertEqual(note.text, "late")

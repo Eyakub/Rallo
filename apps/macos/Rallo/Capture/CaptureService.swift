@@ -22,10 +22,15 @@ final class CaptureService {
         self.waitLimit = waitLimit
     }
 
-    /// Called once the store is open; `showError` puts a message in the notes panel.
-    func attach(core: CoreClient, showError: @escaping (String) -> Void) {
+    /// Where a failed Services save is reported: the notes panel. Set before the
+    /// store opens, so a store that never opens is still reported.
+    func showErrors(_ sink: @escaping (String) -> Void) {
+        showError = sink
+    }
+
+    /// Called once the store is open.
+    func attach(core: CoreClient) {
         self.core = core
-        self.showError = showError
     }
 
     func addNote(_ text: String) async throws -> ItemSnapshot {
@@ -39,7 +44,7 @@ final class CaptureService {
     }
 
     /// Services has no way to reply, so a failure goes to the notes panel (or a
-    /// beep if the store never opened).
+    /// beep if no sink was set).
     func saveSelection(_ text: String) async {
         do {
             _ = try await addNote(text)
