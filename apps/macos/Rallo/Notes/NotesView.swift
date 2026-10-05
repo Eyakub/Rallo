@@ -54,6 +54,8 @@ final class NotesViewModel: ObservableObject {
     @Published var agentSessions: [AgentSessionSnapshot] = []
     @Published var draft = ""
     @Published var errorMessage: String?
+    /// A failed Services save (0017); reload() leaves it alone.
+    @Published var captureError: String?
     @Published var highlightedItemID: String?
     @Published var completingIDs: Set<String> = []
     /// The last panel action: "done" and "deleted" can be undone.
@@ -390,7 +392,9 @@ struct NotesView: View {
             } else {
                 list
             }
-            if let message = model.errorMessage {
+            let messages = [model.captureError, model.errorMessage].compactMap { $0 }
+            if !messages.isEmpty {
+                let message = messages.joined(separator: "\n")
                 Text(message)
                     .font(.callout)
                     .foregroundStyle(Theme.error)

@@ -16,6 +16,7 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
     var isOpen: Bool { panel?.isVisible ?? false }
 
     func open(near anchor: NSRect?) {
+        model.captureError = nil
         let panel = self.panel ?? makePanel()
         self.panel = panel
         if !panel.isVisible {

@@ -31,12 +31,28 @@ final class ServicesProviderTests: XCTestCase {
         XCTAssertEqual(texts, ["Deploy freeze starts Friday 5pm\nfrom #eng"], "multi-line selections stay multi-line")
     }
 
-    func testNoTextReportsAnError() {
+    func testNoTextReportsAnError() async throws {
+        let dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("rallo-services-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dataDir) }
+        let core = CoreClient(dataDir: dataDir.path)
+        try await core.open()
+        let capture = CaptureService(waitLimit: .milliseconds(300))
+        capture.attach(core: core)
+        let reported = expectation(description: "error reaches the panel")
+        var message = ""
+        capture.showErrors {
+            message = $0
+            reported.fulfill()
+        }
+
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("rallo-test-\(UUID().uuidString)"))
         defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
         var error: NSString?
-        ServicesProvider(capture: CaptureService(waitLimit: .milliseconds(100))).newRalloNote(pasteboard, userData: nil, error: &error)
-        XCTAssertEqual(error, "No text was selected.")
+        ServicesProvider(capture: capture).newRalloNote(pasteboard, userData: nil, error: &error)
+
+        await fulfillment(of: [reported], timeout: 3)
+        XCTAssertFalse(message.isEmpty)
+        XCTAssertEqual(try RalloStore.open(dataDir: dataDir.path).listOpenItems(limit: 10).map(\.text), [])
     }
 }

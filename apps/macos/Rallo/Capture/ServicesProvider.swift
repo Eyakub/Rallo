@@ -12,10 +12,7 @@ final class ServicesProvider: NSObject {
     }
 
     @objc func newRalloNote(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
-        guard let text = pasteboard.string(forType: .string) else {
-            error.pointee = "No text was selected."
-            return
-        }
-        Task { await capture.saveSelection(text) }
+        // The core rejects empty text and saveSelection reports why to the panel.
+        Task { await capture.saveSelection(pasteboard.string(forType: .string) ?? "") }
     }
 }

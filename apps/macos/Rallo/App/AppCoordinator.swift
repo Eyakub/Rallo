@@ -153,17 +153,18 @@ final class AppCoordinator {
         do {
             try await core.open()
             storageReady = true
-            CaptureService.shared.attach(core: core)
             excludeRuntimeFromBackups()
             clickUp.onChange = { [weak self] in Task { await self?.checkForChanges() } }
             clickUp.start()
         } catch {
             log.record("storage_open_failed", ["error": "\(error)"])
             notificationSummary = "Storage unavailable — run `rallo doctor`"
+            CaptureService.shared.unavailable("Rallo can't open its storage. Run rallo doctor in Terminal.")
             return
         }
         observer.start()
         await applyLaunchVisibility()
+        CaptureService.shared.attach(core: core)
         await refreshNotificationSummary()
         observeSystemEvents()
         drainer.requestDrain("launch")
@@ -519,13 +520,10 @@ final class AppCoordinator {
     // MARK: Notes and notifications
 
     /// A Services save that failed (0017): the panel opens and says why.
-    /// `reload()` clears the banner, so the message is set after it.
+    /// `captureError` survives reloads; the next fresh open clears it.
     private func showCaptureError(_ message: String) {
         openNotes(highlighting: nil)
-        Task {
-            await notesModel.reload()
-            notesModel.errorMessage = message
-        }
+        notesModel.captureError = message
     }
 
     private func openNotes(highlighting itemID: String?) {

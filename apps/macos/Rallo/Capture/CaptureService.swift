@@ -16,6 +16,7 @@ final class CaptureService {
 
     private var core: CoreClient?
     private var showError: ((String) -> Void)?
+    private var unavailableMessage: String?
     private let waitLimit: Duration
 
     init(waitLimit: Duration = .seconds(5)) {
@@ -31,6 +32,12 @@ final class CaptureService {
     /// Called once the store is open.
     func attach(core: CoreClient) {
         self.core = core
+    }
+
+    /// The store will never open: requests fail with `message` right away,
+    /// including any already waiting.
+    func unavailable(_ message: String) {
+        unavailableMessage = message
     }
 
     func addNote(_ text: String) async throws -> ItemSnapshot {
@@ -59,8 +66,10 @@ final class CaptureService {
         let clock = ContinuousClock()
         let deadline = clock.now + waitLimit
         while core == nil, clock.now < deadline {
+            if let unavailableMessage { throw CaptureFailure(message: unavailableMessage) }
             try await Task.sleep(for: .milliseconds(100))
         }
+        if core == nil, let unavailableMessage { throw CaptureFailure(message: unavailableMessage) }
         guard let core else { throw CaptureFailure(message: "Rallo is still starting. Try again in a moment.") }
         return core
     }

@@ -90,4 +90,33 @@ final class CaptureServiceTests: XCTestCase {
         let note = try await service.addNote("late")
         XCTAssertEqual(note.text, "late")
     }
+
+    func testAnUnavailableStoreFailsAtOnceWithItsMessage() async throws {
+        let service = CaptureService(waitLimit: .seconds(5))
+        service.unavailable("storage broken")
+        let start = ContinuousClock.now
+        do {
+            _ = try await service.addNote("x")
+            XCTFail("expected a failure")
+        } catch let failure as CaptureFailure {
+            XCTAssertEqual(failure.message, "storage broken")
+        }
+        XCTAssertLessThan(ContinuousClock.now - start, .seconds(1))
+    }
+
+    func testAWaitingRequestFailsWhenTheStoreBecomesUnavailable() async throws {
+        let service = CaptureService(waitLimit: .seconds(5))
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            service.unavailable("storage broken")
+        }
+        let start = ContinuousClock.now
+        do {
+            _ = try await service.addNote("x")
+            XCTFail("expected a failure")
+        } catch let failure as CaptureFailure {
+            XCTAssertEqual(failure.message, "storage broken")
+        }
+        XCTAssertLessThan(ContinuousClock.now - start, .seconds(1))
+    }
 }
