@@ -5,7 +5,10 @@
 
 use std::str::FromStr;
 
-use time::{Date, Month, PrimitiveDateTime, Time, Weekday};
+use time::format_description::well_known::Rfc3339;
+use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, Weekday};
+
+use super::time::TimeSpec;
 
 use crate::shared::errors::{CoreError, CoreResult, ErrorCode};
 
@@ -249,6 +252,29 @@ fn relative(words: &[&str]) -> Option<u64> {
     }
 }
 
+/// `--at` input (0016): RFC 3339 is passed through verbatim, so its stored
+/// input and idempotency fingerprint are unchanged; otherwise a phrase,
+/// resolved against the local clock, becomes RFC 3339 carrying the target
+/// date's offset, or (`in ...`) an `--in` duration in seconds. `wall_clock` and
+/// `instant` are `rallo_platform_macos::local_time`'s conversions.
+pub fn time_spec(
+    raw: &str,
+    now_ms: i64,
+    wall_clock: impl Fn(i64) -> PrimitiveDateTime,
+    instant: impl Fn(PrimitiveDateTime) -> Option<OffsetDateTime>,
+) -> CoreResult<TimeSpec> {
+    if OffsetDateTime::parse(raw, &Rfc3339).is_ok() {
+        return Ok(TimeSpec::At(raw.to_owned()));
+    }
+    match resolve(raw, wall_clock(now_ms))? {
+        PhraseTarget::After { seconds } => Ok(TimeSpec::In(format!("{seconds}s"))),
+        PhraseTarget::Local(local) => {
+            let at = instant(local).ok_or_else(|| unreadable(raw))?;
+            Ok(TimeSpec::At(at.format(&Rfc3339).map_err(|_| unreadable(raw))?))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use time::macros::datetime;
@@ -403,5 +429,57 @@ mod tests {
                 );
             }
         }
+    }
+
+    use time::OffsetDateTime;
+    use time::macros::offset;
+
+    use crate::reminders::TimeSpec;
+    use crate::reminders::time::deadline_ms;
+
+    /// A fixed +06:00 zone standing in for the platform conversions.
+    fn dhaka_wall(unix_ms: i64) -> PrimitiveDateTime {
+        let at = OffsetDateTime::from_unix_timestamp(unix_ms.div_euclid(1000)).unwrap().to_offset(offset!(+6));
+        PrimitiveDateTime::new(at.date(), at.time())
+    }
+
+    fn dhaka_instant(local: PrimitiveDateTime) -> Option<OffsetDateTime> {
+        Some(local.assume_offset(offset!(+6)))
+    }
+
+    const NOW_MS: i64 = datetime!(2026-10-06 10:30 +6).unix_timestamp() * 1000;
+
+    fn spec(raw: &str) -> CoreResult<TimeSpec> {
+        time_spec(raw, NOW_MS, dhaka_wall, dhaka_instant)
+    }
+
+    #[test]
+    fn rfc3339_passes_through_verbatim() {
+        let raw = "2026-10-09T17:00:00+06:00";
+        assert_eq!(spec(raw).unwrap(), TimeSpec::At(raw.to_owned()));
+        assert_eq!(spec("2026-10-09T11:00:00Z").unwrap(), TimeSpec::At("2026-10-09T11:00:00Z".to_owned()));
+    }
+
+    #[test]
+    fn a_phrase_becomes_rfc3339_with_the_target_offset() {
+        assert_eq!(spec("fri 5pm").unwrap(), TimeSpec::At("2026-10-09T17:00:00+06:00".to_owned()));
+        assert_eq!(spec("in 2 hours").unwrap(), TimeSpec::In("7200s".to_owned()));
+    }
+
+    #[test]
+    fn unzoned_rfc3339_is_still_invalid() {
+        let error = spec("2026-10-09T17:00:00").unwrap_err();
+        assert_eq!(error.code(), ErrorCode::InvalidTime);
+    }
+
+    #[test]
+    fn preview_deadline_matches_what_a_write_would_store() {
+        let fri = datetime!(2026-10-09 17:00 +6).unix_timestamp() * 1000;
+        assert_eq!(deadline_ms(&spec("fri 5pm").unwrap(), NOW_MS).unwrap(), fri);
+        assert_eq!(deadline_ms(&spec("in 2 hours").unwrap(), NOW_MS).unwrap(), NOW_MS + 7_200_000);
+        assert_eq!(
+            deadline_ms(&TimeSpec::At("2020-01-01T00:00:00Z".to_owned()), NOW_MS).unwrap_err().code(),
+            ErrorCode::InvalidTime
+        );
     }
 }

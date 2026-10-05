@@ -121,6 +121,12 @@ pub(crate) fn parse(spec: &TimeSpec) -> CoreResult<ParsedTime> {
     }
 }
 
+/// The deadline `spec` resolves to at `now_ms` without writing anything: the
+/// panel's live preview (0016) uses the same rules a write applies.
+pub fn deadline_ms(spec: &TimeSpec, now_ms: i64) -> CoreResult<i64> {
+    Ok(parse(spec)?.resolve(now_ms)?.deadline_ms)
+}
+
 /// Latest representable deadline (0003 §5): 9999-12-31T23:59:59Z.
 fn max_deadline_ms() -> i64 {
     time::macros::datetime!(9999-12-31 23:59:59 UTC).unix_timestamp() * 1_000
