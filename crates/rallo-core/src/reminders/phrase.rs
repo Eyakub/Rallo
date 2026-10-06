@@ -271,6 +271,7 @@ pub fn time_spec(
     wall_clock: impl Fn(i64) -> PrimitiveDateTime,
     instant: impl Fn(PrimitiveDateTime) -> Option<OffsetDateTime>,
 ) -> CoreResult<TimeSpec> {
+    let raw = raw.trim();
     if OffsetDateTime::parse(raw, &Rfc3339).is_ok() {
         return Ok(TimeSpec::At(raw.to_owned()));
     }
@@ -482,6 +483,7 @@ mod tests {
         let raw = "2026-10-09T17:00:00+06:00";
         assert_eq!(spec(raw).unwrap(), TimeSpec::At(raw.to_owned()));
         assert_eq!(spec("2026-10-09T11:00:00Z").unwrap(), TimeSpec::At("2026-10-09T11:00:00Z".to_owned()));
+        assert_eq!(spec(" 2026-10-09T17:00:00+06:00 \n").unwrap(), TimeSpec::At(raw.to_owned()));
     }
 
     #[test]
