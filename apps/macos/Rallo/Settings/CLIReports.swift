@@ -78,7 +78,11 @@ enum CLIReports {
             let name = agent == "claude" ? "Claude Code" : agent == "codex" ? "Codex" : agent == "grok" ? "Grok" : agent == "gemini" ? "Gemini CLI" : agent
             return "\(name): \(status.replacingOccurrences(of: "_", with: " "))."
         }
-        return .done(lines.isEmpty ? "Done." : lines.joined(separator: " "))
+        // Skipped agents (e.g. a settings file Rallo can't parse) come back as warnings.
+        let warnings = (json["warnings"] as? [String]) ?? []
+        if lines.isEmpty && !warnings.isEmpty { return .failed(warnings.joined(separator: " ")) }
+        let all = lines + warnings
+        return .done(all.isEmpty ? "Done." : all.joined(separator: " "))
     }
 
     private static func errorMessage(_ json: [String: Any]) -> String? {

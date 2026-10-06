@@ -25,6 +25,16 @@ final class CLIReportsTests: XCTestCase {
         XCTAssertEqual(CLIReports.hooksOutcome(Data()), .failed("Rallo couldn’t read the result."))
     }
 
+    func testHooksOutcomeShowsSkippedAgentWarnings() {
+        XCTAssertEqual(
+            CLIReports.hooksOutcome(data(#"{"ok":true,"hooks":{"targets":[{"agent":"claude","status":"installed"}]},"warnings":["Left g alone."]}"#)),
+            .done("Claude Code: installed. Left g alone."))
+        XCTAssertEqual(
+            CLIReports.hooksOutcome(data(#"{"ok":true,"hooks":{"targets":[]},"warnings":["Left g alone.","Left h alone."]}"#)),
+            .failed("Left g alone. Left h alone."))
+        XCTAssertEqual(CLIReports.hooksOutcome(data(#"{"ok":true,"hooks":{"targets":[]},"warnings":[]}"#)), .done("Done."))
+    }
+
     func testSkillOutcome() {
         XCTAssertEqual(
             CLIReports.skillOutcome(data(#"{"ok":true,"skill":{"installs":[{"agent":"claude","status":"updated","path":"/x","rules":null}]}}"#)),
