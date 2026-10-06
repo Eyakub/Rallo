@@ -25,6 +25,9 @@ shell / agent ──► rallo (CLI, Rust) ────────────�
   the same database through it.
 - Only the installed app talks to UserNotifications. The CLI persists intent,
   then signals or launches the app.
+- Shortcuts, Siri (App Intents) and the Services menu run inside the app
+  process and save through its `CoreWorker` (`CaptureService`, 0017); macOS
+  starts the app first if it isn't running.
 - Swift never contains SQL or domain transitions; Rust never depends on AppKit.
   The CLI's small macOS launch adapter lives in `rallo-platform-macos`.
 
@@ -34,7 +37,7 @@ shell / agent ──► rallo (CLI, Rust) ────────────�
 |---|---|
 | `rallo-core` | Domain rules, storage (open, pragmas, migrations, backup), IDs, text rules, preferences, instance lock, change-signal names. Injectable `Clock`. |
 | `rallo-cli` | Clap parsing, JSON/human output, exit codes, post-commit app nudges. Binary name `rallo`. |
-| `rallo-platform-macos` | Locating the app bundle that contains the CLI, `open -g` launch, `notify_post`. |
+| `rallo-platform-macos` | Locating the app bundle that contains the CLI, `open -g` launch, `notify_post`, and local wall-clock time ↔ instants (`local_time`, 0016; also linked into the app through `rallo-ffi`). |
 | `rallo-ffi` | UniFFI definitions (staticlib) and the pinned Swift binding generator. |
 
 ## Storage
@@ -105,10 +108,12 @@ Generated Swift from `crates/rallo-ffi` (module `rallo_ffi`, C module
 | `RalloStore.open(dataDir:) throws` | `RalloStore::open` | opens and migrates under the SQLite write lock |
 | `changeRevision() throws -> Int64` | | cheap revision read |
 | `createNote(text:) throws -> ItemSnapshot` | | validated at the boundary; durable on return |
+| `createReminder(text:when:) throws -> ItemSnapshot` | `create_reminder` | `when` read as for `remind --at` (RFC 3339, else a 0016 phrase); note and reminder in one write, so a refused time saves nothing (0017) |
 | `listOpenItems(limit:) throws -> [ItemSnapshot]` | | newest first, capped at 50 |
 | `completeItem` / `reopenItem` / `editItemText(id:…ifRevision:)` | | `ifRevision` is the row's snapshot; a newer write → `REVISION_CONFLICT` |
 | `deleteItem` / `restoreItem(id:ifRevision:)` | | soft delete; restore never re-enables the reminder |
 | `remindIn(id:duration:ifRevision:)` / `remindAt(id:rfc3339:ifRevision:)` | `reschedule` | creates or moves the reminder; capacity 32 enforced in core |
+| `resolveReminderTime(text:nowMs:) throws -> Int64` | `resolve_reminder_time` | free function; a typed time → `deadline_ms` in the Mac's time zone, or `INVALID_TIME` with a hint; the panel's Custom… preview (0016) |
 | `exportToFile(path:format:overwrite:) throws -> ExportResult` | `export_to_file` | JSON backup or CSV (0004); atomic, mode 0600 |
 | `previewImportFile(path:) throws -> ImportSummary` | `inspect_import` | writes nothing; conflicts reported in the summary, not thrown |
 | `applyImportFile(path:) throws -> ImportSummary` | `apply_import` | snapshot first, then one transaction; any conflict aborts before writing |

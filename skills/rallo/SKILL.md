@@ -76,11 +76,12 @@ Time: `--in` is `\d+d\d+h\d+m\d+s` groups in that order (a day is 24 h).
 `--at` takes RFC 3339 with an explicit offset, or the user's own words when
 they fit Rallo's grammar: `fri 5pm`, `tomorrow 9am`, `5pm` (today, or tomorrow
 if passed), `oct 20`, `in 2 hours`. Prefer their words: Rallo resolves them in
-the Mac's time zone, including clock changes. Times need am/pm (`5:30pm`) or
-a two-digit 24-hour clock (`17:30`). `item.reminder.deadline` is UTC: tell the
-user the local time from `item.reminder.time_input` (RFC 3339 with the Mac's
-offset), or for an `in …` phrase (`time_input` is `<n>s`) say "in N
-minutes/hours". `INVALID_TIME` means the words didn't fit: ask, or
+the local time zone (the Mac's, unless your shell sets `TZ`), including clock
+changes. Times need am/pm (`5:30pm`) or a two-digit 24-hour clock (`17:30`).
+`item.reminder.deadline` is UTC: tell the user the local time from
+`item.reminder.time_input` (for a phrase, RFC 3339 with the local offset; for
+RFC 3339 you passed, exactly your string), or for an `in …` phrase
+(`time_input` is `<n>s`) say "in N minutes/hours". `INVALID_TIME` means the words didn't fit: ask, or
 build RFC 3339. If the user's timing is
 genuinely ambiguous ("later", "next week"), ask; otherwise keep their intent
 and don't over-ask.

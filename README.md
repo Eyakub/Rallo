@@ -31,11 +31,12 @@
 ---
 
 Rallo is a small Mac app for the thoughts you'd otherwise lose: "call the dentist",
-"check the CI flake", "stretch in 20 minutes". You save them from the terminal in a
-second, and a red panda sitting on your desktop keeps them quietly in view. When
-something needs you, a reminder coming due, an agent asking for permission, or a
-teammate's message, it waves. And when typing is slower than talking, press **⌃⌥⌘V**
-and speak: Rallo types for you in any app, from the terminal to the browser.
+"check the CI flake", "stretch in 20 minutes". You save them in a second, from the
+terminal, Siri, Shortcuts, or any app's right-click menu, and a red panda sitting on
+your desktop keeps them quietly in view. When something needs you, a reminder coming
+due, an agent asking for permission, or a teammate's message, it waves. And when typing
+is slower than talking, press **⌃⌥⌘V** and speak: Rallo types for you in any app, from
+the terminal to the browser.
 
 Everything lives on your Mac. No account, no server, no telemetry.
 
@@ -103,6 +104,11 @@ rallo snooze <id> --in 10m
 rallo delete <id>              # soft delete; `rallo restore <id>` brings it back
 ```
 
+`--at` reads plain times in your Mac's time zone: `5pm`, `fri 9am`, `tomorrow 17:00`,
+`oct 20`, `in 2 hours`. A time needs am/pm or a two-digit 24-hour clock, and Rallo refuses
+vague ones like "later" or "next fri" instead of guessing
+([decision 0016](docs/decisions/0016-plain-language-times.md) has the full list).
+
 Every command takes `--json` and returns one JSON document, so scripts and agents can use
 the same interface you do. `rallo --help` lists them all;
 [docs/cli-contract.md](docs/cli-contract.md) is the full contract.
@@ -111,7 +117,7 @@ the same interface you do. `rallo --help` lists them all;
 
 | | |
 |---|---|
-| **Notes panel** | Click the pet or press **⌃⌥⌘N**. Add, edit, complete, and snooze notes; a "Waiting for you" section lists agents and people who need you; swipe one sideways to dismiss it. |
+| **Notes panel** | Click the pet or press **⌃⌥⌘N**. Add, edit, complete, and snooze notes. **Remind Me** offers 20 minutes, 1 hour, tomorrow at 9:00, or **Custom…**, where you type a time ("fri 5pm") and see when it lands before you set it. A "Waiting for you" section lists agents and people who need you; swipe one sideways to dismiss it. |
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
 | **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, voice typing, export and import, updates (including an opt-in daily check). |
 | **Voice typing (experimental)** | Turn it on in Settings → Voice, then press **⌃⌥⌘V**, talk, and Rallo types into whatever app has focus; press again to stop (it also stops after 10 s of silence). Pick Apple's built-in engine (macOS 26), Whisper large-v3 turbo (macOS 14+, a 1.6 GB download you start yourself), or a cloud engine that uses your own Groq, OpenAI or compatible API key (macOS 14+). It never presses Return, so a dictated command waits for you in the terminal. Add names it should know ("Rallo", your teammates) under Words to recognize; "um"s and stutters ("like like") are dropped. The pet cups an ear while it listens. Needs Microphone and Accessibility access. |
@@ -125,14 +131,16 @@ the same interface you do. `rallo --help` lists them all;
 
 - **Shortcuts:** "Add Rallo Note" and "Add Rallo Reminder" are actions you can use in your own
   shortcuts. "When" takes the same words as `rallo remind --at` ("fri 5pm", "tomorrow 9am",
-  "in 2 hours") or an ISO 8601 date.
+  "in 2 hours") or an ISO 8601 date and time with its offset (Shortcuts' Format Date → ISO 8601).
+  Both run in the background and reply "Saved to Rallo." or "Reminder set for …".
 - **Siri:** "Add a note in Rallo" or "Remind me in Rallo". Siri asks for the note and the time.
   On macOS 26 the same actions show up in Spotlight.
 - **Any app:** select text, right-click, and choose **Services → New Rallo Note**. The pet
   smiles when it's saved; if it can't be saved, the notes panel opens and says why. Give it a
   key in System Settings → Keyboard → Keyboard Shortcuts → Services.
 
-Rallo only sees the text you selected, at the moment you pick the menu item.
+Rallo sees only the text sent with the request, when the item is used. If Rallo isn't running,
+macOS starts it first.
 
 ## Coding agents
 
@@ -151,6 +159,9 @@ to jump straight to that agent:
 - **cmux**: the exact workspace and pane,
 - **Terminal** and **iTerm2**: the exact tab (macOS asks once to let Rallo control them),
 - anything else: the app comes to the front.
+
+Gemini CLI allows comments in `~/.gemini/settings.json`; Rallo leaves such a file alone and
+says so. With folder trust on, Gemini runs no hooks in folders you haven't trusted.
 
 A row disappears when the agent moves on or its terminal closes. Optionally, Rallo
 notifies you when an agent has waited 5 minutes. The hook never stores prompts or replies:
@@ -182,6 +193,10 @@ message text. Channel @mentions and task comments aren't covered yet
 - **Cloud voice engine.** Only if you choose it and add your own API key, each dictated phrase is
   sent to that provider (Groq, OpenAI or the address you set) to be transcribed. The key stays in
   your Keychain. Nothing else sends audio anywhere.
+- **Siri and Services.** Rallo reads text only when New Rallo Note is used, and only the text
+  sent with it. Siri turns your voice into text (that part is Apple's); Rallo receives only the
+  text. Like any Services item, other apps on your Mac can call it too; all it can do is add a
+  note.
 - **Agent and ClickUp rows** live in a separate throwaway file that is never backed up,
   exported, or included in Time Machine, and is cleared as soon as nobody is waiting.
 - **Backups.** Rallo snapshots your notes before every schema change and every update;

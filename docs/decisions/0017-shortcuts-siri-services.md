@@ -45,8 +45,10 @@ Services menu (an item in the right-click menu of any selected text).
   storage unavailable): the notes panel opens with the error in its usual
   banner, so a failed save is never silent. The message stays until the
   panel is next opened; a reload of the list doesn't clear it.
-- Rallo reads the pasteboard only when the user picks the item, and only the
-  text the sending app put there.
+- Rallo reads the pasteboard only when the service is invoked, and only the
+  text sent with it. Like any Services item, another app on the Mac can invoke
+  it with its own text (`NSPerformService`); the most it can do is add a note
+  or open the panel, no more than it could with the `rallo` command.
 
 ### Startup
 
@@ -92,8 +94,8 @@ unchanged; other punctuation and emoji are still refused.
   unreadable phrase saves nothing); `CaptureService` against a temporary data
   directory (note, reminder, error message, not-yet-attached timeout); the
   Services handler with a private pasteboard.
-- Manual, on an installed build (Shortcuts and Services only see an app in
-  `~/Applications`): both actions in the Shortcuts app, New Rallo Note from
+- Manual, on an installed build (Shortcuts and Services see an installed app
+  in `/Applications` or `~/Applications`, not a build folder): both actions in the Shortcuts app, New Rallo Note from
   TextEdit's right-click menu, the failure path, and the two Siri phrases
   (needs the user's voice).
 

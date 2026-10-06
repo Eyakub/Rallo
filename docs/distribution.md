@@ -87,28 +87,36 @@ doctor` says when it isn't), and instructions on how to use it:
   default sandbox doesn't block Rallo's store in `~/Library` with a storage
   permission error. Delete `rallo.rules` to undo it. Plain ChatGPT chat
   (without the Codex tab) can't run local commands, so it can't use Rallo.
+- **Grok CLI:** the skill goes to `~/.grok/skills/rallo/SKILL.md` (or
+  `$GROK_HOME/skills/rallo/SKILL.md`).
+- **Gemini CLI:** the skill goes to `~/.gemini/skills/rallo/SKILL.md` (or
+  under `$GEMINI_CLI_HOME/.gemini`). Gemini counts as detected only when
+  `~/.gemini/settings.json` exists, since Antigravity also uses `~/.gemini`.
 - **Anything else:** `rallo setup skill --print` prints the same
   instructions; put them wherever the agent takes standing instructions.
 
 With no `--agent` flag, `rallo setup skill` installs for every agent
 detected on this Mac (falling back to Claude Code/Cursor if none is);
-`--agent claude`/`--agent codex` (repeatable) installs only those.
+`--agent claude|codex|grok|gemini` (repeatable) installs only those.
 
 The skill ships inside the CLI, so each release carries its own. After an
 update, `rallo doctor` warns if an installed copy (skill or Codex's
-`rallo.rules`) is older; run `rallo setup skill` again. Claude Code, Cursor
-and Codex were tested with it.
+`rallo.rules`) is older; run `rallo setup skill` again. Claude Code, Cursor,
+Codex and Grok were tested with it.
 
-`rallo setup hooks` (Claude Code and Codex; not Cursor, which has no hook
-mechanism) goes further than the skill: it wires up the `agent-event` hook
-command so the pet notices *while an agent is running*, not just when it
-reads the skill. It waves when Claude Code or Codex is waiting on a
+`rallo setup hooks` (Claude Code, Codex, Grok and Gemini CLI; not Cursor,
+which has no hook mechanism) goes further than the skill: it wires up the
+`agent-event` hook command so the pet notices *while an agent is running*,
+not just when it reads the skill. It waves when an agent is waiting on a
 permission answer, without any network
 call or global input monitoring -- `docs/decisions/0007-agent-attention.md`
-has the full design. It edits `~/.claude/settings.json` and/or
-`$CODEX_HOME/hooks.json` the same carefully-merged way `setup skill` edits
-its files (nothing else in either file is touched, and a backup is made
-before the first change); `rallo doctor` reports whether it's installed and
+has the full design. It edits `~/.claude/settings.json`,
+`$CODEX_HOME/hooks.json`, `$GROK_HOME/hooks/rallo.json` and/or
+`~/.gemini/settings.json` the same carefully-merged way `setup skill` edits
+its files (nothing else in a file is touched, and a backup is made before
+the first change). A settings file that isn't plain JSON (Gemini allows
+comments) is left alone: a default run skips it with a warning and sets up
+the other agents; `--agent` for that agent fails instead; `rallo doctor` reports whether it's installed and
 pointing at the right copy. Like `setup skill`, it only works from an
 installed copy in `/Applications` or `~/Applications`, since the hook
 command needs an absolute path. Codex will ask you to trust the new hooks
