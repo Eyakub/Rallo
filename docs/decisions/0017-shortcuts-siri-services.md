@@ -19,7 +19,7 @@ Services menu (an item in the right-click menu of any selected text).
 | Action | Parameters | Runs | Reply |
 |---|---|---|---|
 | **Add Rallo Note** | Note (text; Siri asks "What's the note?") | in the background (`openAppWhenRun = false`) | "Saved to Rallo." |
-| **Add Rallo Reminder** | Note; When (text; Siri asks "When?") | in the background | "Reminder set for Fri 9 Oct at 5:00 PM." (`ReminderLabel`) |
+| **Add Rallo Reminder** | Note; When (text; Siri asks "When?") | in the background | "Reminder set for Fri 9 Oct at 5:00 PM." (`ReminderLabel`); if macOS won't show Rallo's alerts, the reply says so (below) |
 
 - **When** is text read with 0016's rules, exactly as `rallo remind --at`:
   RFC 3339 first, then a phrase. A Shortcuts user with a Date value passes it
@@ -64,8 +64,34 @@ delivered.
 
 Before parsing, `a.m.`/`p.m.` (any case, with or without the space before
 them) become `am`/`pm`, and one trailing `.`, `,` or `!` is dropped:
-"Tomorrow at 9 a.m." and "fri 5pm." now resolve. Everything else in 0016 is
-unchanged; other punctuation and emoji are still refused.
+"Tomorrow at 9 a.m." and "fri 5pm." now resolve.
+
+Amended 2026-10-06 (after 0.10.0), for text Siri and Shortcuts produce:
+
+- A comma anywhere is a separator, read as a space, so a Shortcuts Date
+  dropped into When as text ("Oct 9, 2026 at 5:00 PM", with the narrow
+  no-break space macOS puts before PM) and "fri, 5pm" resolve. A weekday
+  together with a date ("Friday, October 9") is still refused: at most one
+  day-or-date.
+- Number words become digits: `one` to `nineteen`, the tens `twenty` to
+  `ninety`, and a ten plus a unit written with a space or a hyphen
+  (`forty five`, `forty-five`). `a`/`an` right after `in` is 1, and
+  `half an hour` is 30 minutes: "in two hours", "in an hour", "in half an
+  hour", "tomorrow at nine am" resolve. A bare number word is still a bare
+  hour ("nine" alone is refused, as "9" is), and "nine thirty" is not
+  "9:30".
+
+Everything else in 0016 is unchanged; other punctuation and emoji are still
+refused, and error messages quote what was typed.
+
+### Reminder reply when alerts are blocked
+
+The core's last-observed notification authorization (0005) decides the
+reply, worded as the panel's banner: `denied` → "Reminder set for <label>,
+but it won't alert you: notifications for Rallo are off in System
+Settings."; `notDetermined` → "Reminder set for <label>, but it won't alert
+you until you allow Rallo's notifications."; `authorized`, `provisional`, or
+unknown → "Reminder set for <label>." The reminder is saved either way.
 
 ### Code
 

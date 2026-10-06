@@ -6,7 +6,9 @@
   for this fixed grammar only: it is a deterministic rules table, not a
   language model, and anything outside it is refused.
 - **Amended 2026-10-06 by 0017:** `a.m.`/`p.m.` are read as am/pm and one
-  trailing `.`, `,` or `!` is ignored, because Siri writes them.
+  trailing `.`, `,` or `!` is ignored, because Siri writes them; commas are
+  separators, and number words (`two`, `forty-five`, `an` after `in`,
+  `half an hour`) become digits (0017, "Siri transcription").
 - **Date:** 2026-10-06
 
 ## Context
