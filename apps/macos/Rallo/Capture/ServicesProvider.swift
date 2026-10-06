@@ -7,8 +7,8 @@ import AppKit
 final class ServicesProvider: NSObject {
     private let capture: CaptureService
 
-    init(capture: CaptureService = .shared) {
-        self.capture = capture
+    init(capture: CaptureService? = nil) {
+        self.capture = capture ?? .shared
     }
 
     @objc func newRalloNote(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {

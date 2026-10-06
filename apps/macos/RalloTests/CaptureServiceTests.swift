@@ -84,7 +84,7 @@ final class CaptureServiceTests: XCTestCase {
         try await core.open()
         let service = CaptureService(waitLimit: .seconds(3))
         Task { @MainActor in
-            try await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(300))
             service.attach(core: core)
         }
         let note = try await service.addNote("late")
