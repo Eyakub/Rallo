@@ -275,10 +275,17 @@ fn gemini_hooks_merge_into_settings_with_millisecond_timeouts() {
     assert_eq!(code, 0, "{doc}");
     assert_eq!(install(&doc, "gemini")["path"], path.to_str().unwrap());
     let text = fs::read_to_string(&path).unwrap();
-    assert!(text.contains("agent-event --agent gemini || true") && text.contains("\"AfterAgent\""), "{text}");
+    assert!(
+        text.contains("agent-event --agent gemini 2>/dev/null || true") && text.contains("\"AfterAgent\""),
+        "{text}"
+    );
     assert!(text.contains("\"timeout\": 10000") && !text.contains("\"timeout\": 10,"), "{text}");
     assert!(text.find("theme").unwrap() < text.find("hooks").unwrap(), "foreign key order kept: {text}");
     assert!(text.find("hooks").unwrap() < text.find("zeta").unwrap(), "foreign key order kept: {text}");
+
+    let (code, doc) = setup.json(&["setup", "hooks", "--agent", "gemini", "--json"]);
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(install(&doc, "gemini")["status"], "already_installed", "{doc}");
 
     let (code, doc) = setup.json(&["setup", "hooks", "--agent", "gemini", "--remove", "--json"]);
     assert_eq!(code, 0, "{doc}");

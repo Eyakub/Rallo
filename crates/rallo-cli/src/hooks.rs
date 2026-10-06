@@ -128,12 +128,15 @@ impl OrderedValue {
 
 /// `"<abs cli path>" agent-event --agent <claude|codex|grok|gemini> || true` (0007): the
 /// path is quoted because a `Home With Spaces` install path is real (other
-/// setup commands are tested against one). Both agents run hook commands
-/// through a shell, and `|| true` keeps a missing or older CLI (one without
-/// `agent-event`, which exits 2) from ever failing a hook: exit 2 on `Stop`
-/// or `UserPromptSubmit` would block the agent.
+/// setup commands are tested against one). Every supported agent runs hook
+/// commands through a shell, and `|| true` keeps a missing or older CLI (one
+/// without `agent-event`, which exits 2) from ever failing a hook: exit 2 on
+/// `Stop` or `UserPromptSubmit` would block the agent. Gemini CLI alone shows
+/// a hook's stderr (when stdout is empty) in the user's session, so its
+/// command also discards stderr; the others keep the shorter string.
 fn command_string(cli_path: &Path, agent: Agent) -> String {
-    format!("\"{}\" agent-event --agent {} || true", cli_path.display(), agent.json_name())
+    let silence = if agent == Agent::Gemini { " 2>/dev/null" } else { "" };
+    format!("\"{}\" agent-event --agent {}{silence} || true", cli_path.display(), agent.json_name())
 }
 
 /// Rallo's own entries are recognised by shape, not by an exact path match,
@@ -568,6 +571,22 @@ mod tests {
         ));
         assert!(!is_rallo_command("\"/usr/local/bin/rallo\" agent-event --agent codex"));
         assert!(!is_rallo_command("\"/Applications/Rallo.app/Contents/Helpers/rallo\" note hi"));
+    }
+
+    #[test]
+    fn only_gemini_silences_stderr_and_is_still_recognised() {
+        let cli = Path::new("/Applications/Rallo.app/Contents/Helpers/rallo");
+        let gemini = command_string(cli, Agent::Gemini);
+        assert_eq!(
+            gemini,
+            "\"/Applications/Rallo.app/Contents/Helpers/rallo\" agent-event --agent gemini 2>/dev/null || true"
+        );
+        assert_eq!(
+            command_string(cli, Agent::Claude),
+            "\"/Applications/Rallo.app/Contents/Helpers/rallo\" agent-event --agent claude || true"
+        );
+        assert!(is_rallo_command(&gemini));
+        assert_eq!(extract_cli_path(&gemini), Some(cli.to_str().unwrap()));
     }
 
     #[test]

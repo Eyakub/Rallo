@@ -76,7 +76,8 @@ default. Payload fields are snake_case. Its events are its own (table above),
 so Claude's notification types are not interpreted for it and the reverse;
 `Notification` is reported only for `ToolPermission`. Gemini reads a hook
 `timeout` as **milliseconds** (default 60000), so its entries get `10000`,
-not `10`. Rallo installs `Notification`, `BeforeAgent`, `AfterTool`,
+not `10`. Gemini CLI shows a hook's stderr (when stdout is empty) in the
+session, so Rallo's Gemini command discards stderr. Rallo installs `Notification`, `BeforeAgent`, `AfterTool`,
 `AfterAgent`, `SessionEnd`. The skill goes to
 `<gemini home>/skills/rallo/SKILL.md`. Detection requires
 `<gemini home>/settings.json` to be a file: Google's Antigravity IDE also
@@ -152,7 +153,7 @@ Automation permission.
     agent, as `setup skill` does.
   - The command is the installed app's CLI by absolute path
     (`"…/Rallo.app/Contents/Helpers/rallo" agent-event --agent X || true`:
-    both agents run hooks through a shell, and `|| true` means an older CLI
+    every supported agent runs hooks through a shell, and `|| true` means an older CLI
     without `agent-event`, which exits 2, can't block `Stop`), because
     hooks run without the user's interactive PATH. Refuses (`NOT_INSTALLED`)
     from a copy that isn't in an installed app.
