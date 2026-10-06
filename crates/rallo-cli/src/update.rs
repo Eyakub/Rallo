@@ -93,7 +93,7 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>, check: bool) -> CommandRes
 
     let previous = update::swap_bundle(&app, &new_app)?;
     update::remove_quarantine(&app);
-    update::register_launch_services(&app);
+    update::register_launch_services(&config, &app);
 
     let mut warnings = Vec::new();
     if let Err(error) = update::relaunch(&config, &app, &data_dir) {

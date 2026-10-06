@@ -584,8 +584,13 @@ pub fn remove_quarantine(app: &Path) {
 const LSREGISTER: &str =
     "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 
-/// Best effort, same as `scripts/build-macos.sh --install`.
-pub fn register_launch_services(app: &Path) {
+/// Best effort, same as `scripts/build-macos.sh --install`. Skipped for a
+/// local test release: a fake bundle registered from a temp folder outlives
+/// the folder and competes with the installed app for its bundle ID.
+pub fn register_launch_services(config: &Config, app: &Path) {
+    if config.is_local_test() {
+        return;
+    }
     let _ = Command::new(LSREGISTER).arg("-f").arg(app).status();
 }
 
