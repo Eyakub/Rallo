@@ -135,8 +135,11 @@ the same interface you do. `rallo --help` lists them all;
   A Date from another action works too ("Oct 9, 2026 at 5:00 PM"), and so do Siri's spelled-out
   numbers ("in two hours").
   Both run in the background and reply "Saved to Rallo." or "Reminder set for …".
-- **Siri:** "Add a note in Rallo" or "Remind me in Rallo". Siri asks for the note and the time.
-  On macOS 26 the same actions show up in Spotlight.
+- **Spotlight:** on macOS 26, press **⌘Space** and type "Add Rallo Note" or "Add Rallo Reminder".
+- **Siri:** on a Mac, Siri doesn't run an app's built-in phrases (Apple supports those on iPhone
+  and iPad only), but it runs your shortcuts by name. Make a shortcut with Add Rallo Reminder,
+  set Note and When to **Ask Each Time**, name it "Remind me in Rallo", and say "Hey Siri,
+  remind me in Rallo".
 - **Any app:** select text, right-click, and choose **Services → New Rallo Note**. The pet
   smiles when it's saved; if it can't be saved, the notes panel opens and says why. Give it a
   key in System Settings → Keyboard → Keyboard Shortcuts → Services.

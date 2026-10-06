@@ -27,10 +27,21 @@ Services menu (an item in the right-click menu of any selected text).
   0016 hint, which Siri speaks; nothing is saved.
 - The reminder is saved in one write with its note, as `rallo remind` does
   (`Store::create_reminder`, exposed to Swift as `RalloStore.createReminder`).
-- App Shortcuts (Siri phrases, also listed in Spotlight on macOS 26), English:
-  "Add a note in Rallo", "New Rallo note", "Remind me in Rallo", "New Rallo
-  reminder". App Shortcut phrases can't carry free text, so Siri asks for the
-  note and the time.
+- App Shortcuts, English: "Add a note in Rallo", "New Rallo note", "Remind me
+  in Rallo", "New Rallo reminder". App Shortcut phrases can't carry free text,
+  so Siri asks for the note and the time.
+- **Amended 2026-10-06 (after 0.10.1):** Siri on macOS does not run App
+  Shortcut phrases. Apple DTS: "voice invocation of those intents as App
+  Shortcuts isn't available on macOS"
+  (developer.apple.com/forums/thread/764609); confirmed on macOS 27, where
+  Siri answered "I don't see an app for that". The App Shortcuts still list
+  the actions in Spotlight (⌘Space, macOS 26 and later; confirmed working)
+  and the Shortcuts app. Siri on a Mac reaches Rallo through a shortcut the
+  user makes and names (e.g. "Remind me in Rallo" with Note and When set to
+  Ask Each Time), which Siri runs by name; the README says how. Rallo is
+  self-signed with no Team ID, so linkd logs "Unable to get teamId" while
+  indexing; that did not stop Spotlight from listing or running the
+  actions.
 - Feedback in Rallo itself is the pet's acknowledgement: every save already
   increments `save_seq` (0006), whoever made it.
 
@@ -122,8 +133,8 @@ unknown → "Reminder set for <label>." The reminder is saved either way.
   Services handler with a private pasteboard.
 - Manual, on an installed build (Shortcuts and Services see an installed app
   in `/Applications` or `~/Applications`, not a build folder): both actions in the Shortcuts app, New Rallo Note from
-  TextEdit's right-click menu, the failure path, and the two Siri phrases
-  (needs the user's voice).
+  TextEdit's right-click menu, the failure path, Add Rallo Note from
+  Spotlight, and a user-named shortcut run by Siri (needs the user's voice).
 
 Size: about 150–300 KB (Swift code and the App Intents metadata Xcode
 generates).
