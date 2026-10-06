@@ -50,6 +50,23 @@ final class CaptureService {
         return try await reported { try await core.createReminder(text, when: when) }
     }
 
+    /// What the core last saw of notification permission, nil if it can't say.
+    func notificationAuthorization() async -> NotificationAuthorization? {
+        try? await core?.notificationAuthorization()
+    }
+
+    /// The spoken reply for a saved reminder (0017): honest when alerts are blocked.
+    nonisolated static func reminderReply(label: String, authorization: NotificationAuthorization?) -> String {
+        switch authorization {
+        case .denied:
+            "Reminder set for \(label), but it won't alert you: notifications for Rallo are off in System Settings."
+        case .notDetermined:
+            "Reminder set for \(label), but it won't alert you until you allow Rallo's notifications."
+        default:
+            "Reminder set for \(label)."
+        }
+    }
+
     /// Services has no way to reply, so a failure goes to the notes panel (or a
     /// beep if no sink was set).
     func saveSelection(_ text: String) async {

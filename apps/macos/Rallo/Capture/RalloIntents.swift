@@ -42,7 +42,9 @@ struct AddReminderIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let item = try await CaptureService.shared.addReminder(text, when: when)
         guard let reminder = item.reminder else { return .result(dialog: "Saved to Rallo.") }
-        return .result(dialog: "Reminder set for \(ReminderLabel.text(for: reminder.deadline)).")
+        let authorization = await CaptureService.shared.notificationAuthorization()
+        let label = ReminderLabel.text(for: reminder.deadline)
+        return .result(dialog: "\(CaptureService.reminderReply(label: label, authorization: authorization))")
     }
 }
 

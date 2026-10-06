@@ -119,4 +119,16 @@ final class CaptureServiceTests: XCTestCase {
         }
         XCTAssertLessThan(ContinuousClock.now - start, .seconds(1))
     }
+
+    func testReminderReplyIsHonestWhenAlertsAreBlocked() {
+        let reply = { CaptureService.reminderReply(label: "Fri 5:00 PM", authorization: $0) }
+        XCTAssertEqual(
+            reply(.denied),
+            "Reminder set for Fri 5:00 PM, but it won't alert you: notifications for Rallo are off in System Settings.")
+        XCTAssertEqual(
+            reply(.notDetermined),
+            "Reminder set for Fri 5:00 PM, but it won't alert you until you allow Rallo's notifications.")
+        XCTAssertEqual(reply(.authorized), "Reminder set for Fri 5:00 PM.")
+        XCTAssertEqual(reply(nil), "Reminder set for Fri 5:00 PM.")
+    }
 }
