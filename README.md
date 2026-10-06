@@ -132,6 +132,8 @@ the same interface you do. `rallo --help` lists them all;
 - **Shortcuts:** "Add Rallo Note" and "Add Rallo Reminder" are actions you can use in your own
   shortcuts. "When" takes the same words as `rallo remind --at` ("fri 5pm", "tomorrow 9am",
   "in 2 hours") or an ISO 8601 date and time with its offset (Shortcuts' Format Date → ISO 8601).
+  A Date from another action works too ("Oct 9, 2026 at 5:00 PM"), and so do Siri's spelled-out
+  numbers ("in two hours").
   Both run in the background and reply "Saved to Rallo." or "Reminder set for …".
 - **Siri:** "Add a note in Rallo" or "Remind me in Rallo". Siri asks for the note and the time.
   On macOS 26 the same actions show up in Spotlight.

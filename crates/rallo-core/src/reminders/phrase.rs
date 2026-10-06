@@ -90,11 +90,62 @@ pub fn resolve(raw: &str, now: PrimitiveDateTime) -> CoreResult<PhraseTarget> {
 }
 
 /// Siri writes "9 a.m." and ends dictation with a period (0017): read
-/// `a.m.`/`p.m.` as am/pm, then drop one trailing `.`, `,` or `!`.
+/// `a.m.`/`p.m.` as am/pm, drop one trailing `.`, `,` or `!`, read the rest of
+/// the commas as spaces, and spell number words as digits.
 fn siri_tidy(lower: &str) -> String {
     let spelled = lower.replace("a.m.", "am").replace("p.m.", "pm");
     let trimmed = spelled.trim_end();
-    trimmed.strip_suffix(['.', ',', '!']).unwrap_or(trimmed).to_owned()
+    let spaced = trimmed.strip_suffix(['.', ',', '!']).unwrap_or(trimmed).replace(',', " ");
+    let words: Vec<&str> = spaced.split_whitespace().collect();
+    let mut out: Vec<String> = Vec::with_capacity(words.len());
+    let mut i = 0;
+    while i < words.len() {
+        let word = words[i];
+        let next = words.get(i + 1).and_then(|next| unit(next));
+        let mut used = 1;
+        if word == "half" && words.get(i + 1) == Some(&"an") && words.get(i + 2) == Some(&"hour") {
+            out.extend(["30".to_owned(), "minutes".to_owned()]);
+            used = 3;
+        } else if matches!(word, "a" | "an") && out.last().is_some_and(|last| last == "in") {
+            out.push("1".to_owned());
+        } else if let Some(ten) = ten(word) {
+            // "forty five" is 45; a ten with no unit after it stays itself.
+            used = if next.is_some() { 2 } else { 1 };
+            out.push((ten + next.unwrap_or(0)).to_string());
+        } else if let Some((ten, unit)) = word.split_once('-').and_then(|(a, b)| Some((self::ten(a)?, unit(b)?))) {
+            out.push((ten + unit).to_string());
+        } else if let Some(n) = unit(word).or_else(|| teen(word)) {
+            out.push(n.to_string());
+        } else {
+            out.push(word.to_owned());
+        }
+        i += used;
+    }
+    out.join(" ")
+}
+
+/// `one` to `nine`.
+fn unit(word: &str) -> Option<u32> {
+    ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+        .iter()
+        .position(|name| *name == word)
+        .map(|index| index as u32 + 1)
+}
+
+/// `ten` to `nineteen`.
+fn teen(word: &str) -> Option<u32> {
+    ["ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+        .iter()
+        .position(|name| *name == word)
+        .map(|index| index as u32 + 10)
+}
+
+/// `twenty` to `ninety`.
+fn ten(word: &str) -> Option<u32> {
+    ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+        .iter()
+        .position(|name| *name == word)
+        .map(|index| (index as u32 + 2) * 10)
 }
 
 /// At most one day-or-date and one time, in either order; `at` must be
@@ -306,6 +357,29 @@ mod tests {
         // Only one trailing mark, and only these three.
         refused("fri 5pm..");
         refused("fri 5pm?");
+    }
+
+    #[test]
+    fn shortcuts_dates_and_number_words() {
+        assert_eq!(local("Oct 9, 2026 at 5:00\u{202F}PM"), datetime!(2026-10-09 17:00));
+        assert_eq!(local("Oct 9, 2026 at 5:00\u{A0}PM"), datetime!(2026-10-09 17:00));
+        assert_eq!(local("Oct 9, 2026 at 5:00 PM"), datetime!(2026-10-09 17:00));
+        assert_eq!(local("fri, 5pm"), local("fri 5pm"));
+        assert_eq!(after("in two hours"), 7_200);
+        assert_eq!(after("in forty-five minutes"), 2_700);
+        assert_eq!(after("in forty five min"), 2_700);
+        assert_eq!(after("in twenty one minutes"), 1_260);
+        assert_eq!(after("in twenty minutes"), 1_200);
+        assert_eq!(after("in an hour"), 3_600);
+        assert_eq!(after("in a day"), 86_400);
+        assert_eq!(after("in half an hour"), 1_800);
+        assert_eq!(local("tomorrow at nine am"), datetime!(2026-10-07 09:00));
+        assert_eq!(local("Tomorrow at nine a.m."), datetime!(2026-10-07 09:00));
+        for raw in ["nine", "nine thirty pm", "in two", "a 5pm", "5,30pm", "in ninety nine thousand hours"] {
+            refused(raw);
+        }
+        // A weekday together with a date is still two days.
+        assert!(refused("Friday, October 9, 2026 at 5:00 PM").contains("Friday, October 9"));
     }
 
     fn local(raw: &str) -> PrimitiveDateTime {
