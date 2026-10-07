@@ -113,3 +113,29 @@ pub(crate) fn all(conn: &Connection) -> CoreResult<Vec<ImageRow>> {
     let rows = statement.query_map([], image_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn insert_imported(
+    conn: &Connection,
+    item_id: Uuid,
+    image_id: Uuid,
+    kind: super::format::ImageKind,
+    byte_size: i64,
+    position: i64,
+    created_at_ms: i64,
+) -> CoreResult<()> {
+    conn.execute(
+        "INSERT INTO attachments (id, item_id, file_name, mime_type, byte_size, position, created_at_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            image_id.to_string(),
+            item_id.to_string(),
+            file_name(image_id, kind),
+            kind.mime_type(),
+            byte_size,
+            position,
+            created_at_ms,
+        ],
+    )?;
+    Ok(())
+}

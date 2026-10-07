@@ -28,6 +28,8 @@ pub fn snapshot(conn: &Connection, destination: &Path) -> CoreResult<PathBuf> {
 pub struct BackupSummary {
     pub path: PathBuf,
     pub bytes: u64,
+    /// Image files copied to `<path>.attachments`.
+    pub images: u64,
 }
 
 /// Default destination for `rallo backup` with no `--output`: `<data
@@ -78,13 +80,19 @@ pub fn backup_manual(conn: &Connection, destination: &Path, overwrite: bool) -> 
     }
     fs::rename(&temp_path, destination)?;
     let bytes = fs::metadata(destination)?.len();
-    Ok(BackupSummary { path: destination.to_path_buf(), bytes })
+    Ok(BackupSummary { path: destination.to_path_buf(), bytes, images: 0 })
 }
 
 impl Store {
     /// `rallo backup` (M4): see `backup_manual`. Never starts or signals the
     /// app; read-only against the store's own data.
     pub fn backup_to_file(&self, destination: &Path, overwrite: bool) -> CoreResult<BackupSummary> {
-        backup_manual(self.conn(), destination, overwrite)
+        let mut summary = backup_manual(self.conn(), destination, overwrite)?;
+        let images_to = PathBuf::from(format!("{}.attachments", destination.display()));
+        if overwrite && images_to.exists() {
+            fs::remove_dir_all(&images_to)?;
+        }
+        summary.images = crate::images::files::copy_tree(self.data_dir(), &images_to)?;
+        Ok(summary)
     }
 }

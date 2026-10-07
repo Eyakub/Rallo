@@ -6,7 +6,7 @@
 //! and the classification rules this module implements.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, Transaction};
 use serde::{Deserialize, Serialize};
@@ -15,8 +15,10 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
 
-use super::export::{EXPORT_FORMAT_TAG, EXPORT_VERSION, ExportFormat, rfc3339_utc_ms};
+use super::export::{ARCHIVE_DOCUMENT, EXPORT_FORMAT_TAG, EXPORT_VERSION, ExportFormat, rfc3339_utc_ms};
 use super::formula_guard::strip_formula_guard;
+use crate::images::repository as images_repository;
+use crate::images::{ImageKind, MAX_IMAGE_BYTES, MAX_IMAGES_PER_NOTE, files as image_files};
 use crate::items::model::{Item, ItemStatus};
 use crate::items::repository as items_repository;
 use crate::reminders::model::{InputKind, Reminder};
@@ -25,6 +27,21 @@ use crate::shared::errors::{ConflictDetail, CoreError, CoreResult, ErrorCode};
 use crate::shared::{ids, text};
 use crate::storage::backup;
 use crate::storage::database::{Store, bump_revision};
+
+/// Reads a zip export's document from its unpacked directory, under the same
+/// size cap as any import document.
+fn read_archive_document(dir: &Path) -> CoreResult<Vec<u8>> {
+    let path = dir.join(ARCHIVE_DOCUMENT);
+    let missing = || CoreError::invalid(ErrorCode::InvalidImport, "the archive has no rallo-export.json");
+    let length = std::fs::symlink_metadata(&path).ok().filter(|metadata| metadata.is_file()).ok_or_else(missing)?.len();
+    if length > MAX_IMPORT_BYTES as u64 {
+        return Err(CoreError::invalid(
+            ErrorCode::InvalidImport,
+            format!("import document is {length} bytes; the limit is {MAX_IMPORT_BYTES} bytes"),
+        ));
+    }
+    Ok(std::fs::read(&path)?)
+}
 
 /// File-size cap enforced before any parsing (0004): both formats.
 pub const MAX_IMPORT_BYTES: usize = 64 * 1024 * 1024;
@@ -112,7 +129,18 @@ struct NormalizedRecord {
     completed_at_ms: Option<i64>,
     deleted_at_ms: Option<i64>,
     reminder: Option<NormalizedReminder>,
+    /// Empty for CSV and version-1 JSON.
+    images: Vec<NormalizedImage>,
     origin: RecordOrigin,
+}
+
+/// An image whose file in the archive directory has already been checked.
+struct NormalizedImage {
+    id: Uuid,
+    kind: ImageKind,
+    source: PathBuf,
+    byte_size: i64,
+    created_at_ms: i64,
 }
 
 struct ParsedDocument {
@@ -155,12 +183,12 @@ fn parse_rfc3339_ms(origin: &RecordOrigin, field: &str, raw: &str) -> CoreResult
 /// Format detection (0004): a JSON object tagged `"format": "rallo.export"`
 /// is the backup; anything else (including malformed JSON) is read as CSV,
 /// where it will fail its own validation if it is not that either.
-fn parse_document(bytes: &[u8]) -> CoreResult<ParsedDocument> {
+fn parse_document(bytes: &[u8], archive: Option<&Path>) -> CoreResult<ParsedDocument> {
     let is_backup = serde_json::from_slice::<Value>(bytes)
         .ok()
         .and_then(|value| value.get("format").and_then(Value::as_str).map(str::to_owned))
         .is_some_and(|format| format == EXPORT_FORMAT_TAG);
-    if is_backup { parse_json_document(bytes) } else { parse_csv_document(bytes) }
+    if is_backup { parse_json_document(bytes, archive) } else { parse_csv_document(bytes) }
 }
 
 // --- JSON backup ---------------------------------------------------------
@@ -184,6 +212,17 @@ struct RawItem {
     deleted_at_ms: Option<i64>,
     #[serde(default)]
     reminder: Option<RawReminder>,
+    #[serde(default)]
+    images: Vec<RawImage>,
+}
+
+#[derive(Deserialize)]
+struct RawImage {
+    id: String,
+    file: String,
+    #[serde(rename = "type")]
+    mime_type: String,
+    created_at_ms: i64,
 }
 
 #[derive(Deserialize)]
@@ -199,7 +238,7 @@ struct RawReminder {
     updated_at_ms: i64,
 }
 
-fn parse_json_document(bytes: &[u8]) -> CoreResult<ParsedDocument> {
+fn parse_json_document(bytes: &[u8], archive: Option<&Path>) -> CoreResult<ParsedDocument> {
     let doc: RawDocument = serde_json::from_slice(bytes)
         .map_err(|error| CoreError::invalid(ErrorCode::InvalidImport, format!("malformed export document: {error}")))?;
     if doc.format != EXPORT_FORMAT_TAG {
@@ -211,12 +250,45 @@ fn parse_json_document(bytes: &[u8]) -> CoreResult<ParsedDocument> {
     let mut seen_ids = HashSet::new();
     let mut records = Vec::with_capacity(doc.items.len());
     for (index, raw) in doc.items.into_iter().enumerate() {
-        records.push(normalize_json_item(index, raw, &mut seen_ids)?);
+        records.push(normalize_json_item(index, raw, &mut seen_ids, archive)?);
     }
     Ok(ParsedDocument { format: ExportFormat::Json, records, warnings: Vec::new() })
 }
 
-fn normalize_json_item(index: usize, raw: RawItem, seen_ids: &mut HashSet<Uuid>) -> CoreResult<NormalizedRecord> {
+fn normalize_json_image(
+    origin: &RecordOrigin,
+    item_id: Uuid,
+    raw: RawImage,
+    archive: &Path,
+) -> CoreResult<NormalizedImage> {
+    let id = Uuid::parse_str(&raw.id).map_err(|_| invalid_import(origin, "images", "has an id that is not a UUID"))?;
+    let kind = ImageKind::from_mime_type(&raw.mime_type)
+        .ok_or_else(|| invalid_import(origin, "images", "has a type Rallo cannot store"))?;
+    if raw.file != format!("images/{item_id}/{id}.{}", kind.extension()) {
+        return Err(invalid_import(origin, "images", "names a file outside images/<note id>/"));
+    }
+    let source = archive.join(&raw.file);
+    let metadata = std::fs::symlink_metadata(&source)
+        .ok()
+        .filter(|metadata| metadata.is_file())
+        .ok_or_else(|| invalid_import(origin, "images", "names a file the archive does not have"))?;
+    if metadata.len() == 0 || metadata.len() > MAX_IMAGE_BYTES as u64 {
+        return Err(invalid_import(origin, "images", "names an empty or oversized file"));
+    }
+    let mut head = [0u8; 12];
+    let read = std::fs::File::open(&source).and_then(|mut file| std::io::Read::read(&mut file, &mut head));
+    if !read.is_ok_and(|read| ImageKind::sniff(&head[..read]) == Some(kind)) {
+        return Err(invalid_import(origin, "images", "names a file that is not the image type it says"));
+    }
+    Ok(NormalizedImage { id, kind, source, byte_size: metadata.len() as i64, created_at_ms: raw.created_at_ms })
+}
+
+fn normalize_json_item(
+    index: usize,
+    raw: RawItem,
+    seen_ids: &mut HashSet<Uuid>,
+    archive: Option<&Path>,
+) -> CoreResult<NormalizedRecord> {
     let origin = RecordOrigin::Json { index };
     let id = Uuid::parse_str(&raw.id).map_err(|_| invalid_import(&origin, "id", "is not a valid UUID"))?;
     if !seen_ids.insert(id) {
@@ -224,8 +296,25 @@ fn normalize_json_item(index: usize, raw: RawItem, seen_ids: &mut HashSet<Uuid>)
     }
     let status = ItemStatus::parse(&raw.status)
         .ok_or_else(|| invalid_import(&origin, "status", "must be \"open\" or \"done\""))?;
-    text::validate_note_text(&raw.text)
+    text::validate_note_content(&raw.text, !raw.images.is_empty())
         .map_err(|_| invalid_import(&origin, "text", "is empty or exceeds the size limit"))?;
+    if raw.images.len() > MAX_IMAGES_PER_NOTE {
+        return Err(invalid_import(&origin, "images", "has more than 10 images"));
+    }
+    let images = match (archive, raw.images.is_empty()) {
+        (_, true) => Vec::new(),
+        (None, false) => {
+            return Err(CoreError::invalid(
+                ErrorCode::InvalidImport,
+                "this export has images; import the .zip it came in",
+            ));
+        }
+        (Some(archive), false) => raw
+            .images
+            .into_iter()
+            .map(|image| normalize_json_image(&origin, id, image, archive))
+            .collect::<CoreResult<Vec<_>>>()?,
+    };
     if (status == ItemStatus::Done) != raw.completed_at_ms.is_some() {
         return Err(invalid_import(&origin, "completed_at_ms", "must be set if and only if status is \"done\""));
     }
@@ -239,6 +328,7 @@ fn normalize_json_item(index: usize, raw: RawItem, seen_ids: &mut HashSet<Uuid>)
         completed_at_ms: raw.completed_at_ms,
         deleted_at_ms: raw.deleted_at_ms,
         reminder,
+        images,
         origin,
     })
 }
@@ -383,6 +473,7 @@ fn normalize_csv_row(
         completed_at_ms,
         deleted_at_ms: None,
         reminder,
+        images: Vec::new(),
         origin: origin.clone(),
     })
 }
@@ -516,7 +607,13 @@ fn build_report(
 /// Inserts one `New` record (0004): revision 1, and — if it carries a
 /// reminder — always disabled with `disabled_reason = 'imported'`,
 /// generation 1, no notification intent.
-fn insert_record(tx: &Transaction<'_>, record: &NormalizedRecord, now_ms: i64) -> CoreResult<()> {
+fn insert_record(
+    tx: &Transaction<'_>,
+    record: &NormalizedRecord,
+    now_ms: i64,
+    data_dir: &Path,
+    copied: &mut Vec<PathBuf>,
+) -> CoreResult<()> {
     let id = record.id.unwrap_or_else(ids::new_id);
     let created_at_ms = record.created_at_ms.unwrap_or(now_ms);
     let updated_at_ms = record.updated_at_ms.unwrap_or(created_at_ms);
@@ -548,6 +645,18 @@ fn insert_record(tx: &Transaction<'_>, record: &NormalizedRecord, now_ms: i64) -
             reminder_updated_at_ms,
         )?;
     }
+    for (position, image) in record.images.iter().enumerate() {
+        copied.push(image_files::copy_in(data_dir, id, image.id, image.kind, &image.source)?);
+        images_repository::insert_imported(
+            tx,
+            id,
+            image.id,
+            image.kind,
+            image.byte_size,
+            position as i64,
+            image.created_at_ms,
+        )?;
+    }
     Ok(())
 }
 
@@ -558,7 +667,7 @@ impl Store {
     /// matches what a real import would do.
     pub fn preview_import(&self, bytes: &[u8]) -> CoreResult<ImportReport> {
         validate_size(bytes)?;
-        let parsed = parse_document(bytes)?;
+        let parsed = parse_document(bytes, None)?;
         let decisions = classify_all(self.conn(), &parsed.records)?;
         Ok(build_report(&parsed, &decisions, false, None))
     }
@@ -568,7 +677,7 @@ impl Store {
     /// review can show them. Writes nothing.
     pub fn inspect_import(&self, bytes: &[u8]) -> CoreResult<ImportReport> {
         validate_size(bytes)?;
-        let parsed = parse_document(bytes)?;
+        let parsed = parse_document(bytes, None)?;
         let (decisions, conflicts, total) = classify_collect(self.conn(), &parsed.records)?;
         let mut report = build_report(&parsed, &decisions, false, None);
         report.conflicts = conflicts;
@@ -591,13 +700,32 @@ impl Store {
     /// connection with its own transaction already open, it never returns.
     pub fn apply_import(&mut self, bytes: &[u8]) -> CoreResult<ImportReport> {
         validate_size(bytes)?;
-        let parsed = parse_document(bytes)?;
+        self.apply_parsed(parse_document(bytes, None)?)
+    }
+
+    /// `preview_import` for a zip export's unpacked directory (0018).
+    pub fn preview_import_dir(&self, dir: &Path) -> CoreResult<ImportReport> {
+        let bytes = read_archive_document(dir)?;
+        let parsed = parse_document(&bytes, Some(dir))?;
+        let decisions = classify_all(self.conn(), &parsed.records)?;
+        Ok(build_report(&parsed, &decisions, false, None))
+    }
+
+    /// `apply_import` for a zip export's unpacked directory (0018): every
+    /// image file is checked before anything is written.
+    pub fn apply_import_dir(&mut self, dir: &Path) -> CoreResult<ImportReport> {
+        let bytes = read_archive_document(dir)?;
+        self.apply_parsed(parse_document(&bytes, Some(dir))?)
+    }
+
+    fn apply_parsed(&mut self, parsed: ParsedDocument) -> CoreResult<ImportReport> {
         classify_all(self.conn(), &parsed.records)?;
 
         let now = self.now_ms();
         let backup_path =
             backup::snapshot(self.conn(), &self.data_dir().join("backups").join(format!("pre-import-{now}.sqlite3")))?;
 
+        let data_dir = self.data_dir().to_path_buf();
         let tx = self.write_tx()?;
         let decisions = match classify_all(&tx, &parsed.records) {
             Ok(decisions) => decisions,
@@ -607,17 +735,36 @@ impl Store {
             }
         };
 
-        let mut inserted: u64 = 0;
-        for (record, decision) in parsed.records.iter().zip(&decisions) {
-            if matches!(decision, RecordDecision::New) {
-                insert_record(&tx, record, now)?;
-                inserted += 1;
+        // Image files are copied inside the transaction (imports are rare
+        // and user-initiated), so rows and files stay in step: on any
+        // failure the files copied so far are removed and the rows roll back.
+        let mut copied = Vec::new();
+        let applied: CoreResult<()> = (|| {
+            let mut inserted: u64 = 0;
+            for (record, decision) in parsed.records.iter().zip(&decisions) {
+                if matches!(decision, RecordDecision::New) {
+                    insert_record(&tx, record, now, &data_dir, &mut copied)?;
+                    inserted += 1;
+                }
             }
+            if inserted > 0 {
+                bump_revision(&tx)?;
+            }
+            Ok(())
+        })();
+        let applied = applied.and_then(|()| tx.commit().map_err(CoreError::from));
+        if let Err(error) = applied {
+            for path in &copied {
+                let _ = std::fs::remove_file(path);
+            }
+            for dir in copied.iter().filter_map(|path| path.parent()) {
+                let _ = std::fs::remove_dir(dir);
+            }
+            if let Some(root) = copied.first().and_then(|path| path.parent()).and_then(Path::parent) {
+                let _ = std::fs::remove_dir(root);
+            }
+            return Err(error);
         }
-        if inserted > 0 {
-            bump_revision(&tx)?;
-        }
-        tx.commit()?;
 
         Ok(build_report(&parsed, &decisions, true, Some(backup_path)))
     }

@@ -118,3 +118,48 @@ pub(crate) fn remove_orphans(data_dir: &Path, known: &HashSet<PathBuf>, older_th
     }
     Ok(removed)
 }
+
+/// Copies an image file into the store (import): temp file, sync, rename.
+pub(crate) fn copy_in(
+    data_dir: &Path,
+    item_id: Uuid,
+    image_id: Uuid,
+    kind: ImageKind,
+    source: &Path,
+) -> CoreResult<PathBuf> {
+    let dir = attachments_dir(data_dir).join(item_id.to_string());
+    ensure_private_dir(&attachments_dir(data_dir))?;
+    ensure_private_dir(&dir)?;
+    let temp = dir.join(format!(".{image_id}.tmp"));
+    let bytes = fs::read(source)?;
+    let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    let path = dir.join(file_name(image_id, kind));
+    fs::rename(&temp, &path)?;
+    Ok(path)
+}
+
+/// Copies every image file under `attachments/` to `to` (a backup's
+/// `<name>.attachments`), keeping the `<item id>/<file>` layout. On APFS
+/// `fs::copy` clones, so this costs almost no space. Returns the count.
+pub(crate) fn copy_tree(data_dir: &Path, to: &Path) -> CoreResult<u64> {
+    let Ok(item_dirs) = fs::read_dir(attachments_dir(data_dir)) else { return Ok(0) };
+    let mut copied = 0;
+    // The entry's own type: a symlinked directory is not followed.
+    for item_dir in item_dirs.flatten().filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())) {
+        let target = to.join(item_dir.file_name());
+        for entry in fs::read_dir(item_dir.path())?.flatten() {
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with('.') || !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+                continue; // a temp file mid-write, or not a plain file
+            }
+            ensure_private_dir(to)?;
+            ensure_private_dir(&target)?;
+            fs::copy(entry.path(), target.join(&name))?;
+            fs::set_permissions(target.join(&name), std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+            copied += 1;
+        }
+    }
+    Ok(copied)
+}

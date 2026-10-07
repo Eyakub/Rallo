@@ -3,6 +3,7 @@
 //! hints, and converting local wall-clock time to and from instants
 //! (`local_time`, 0016). Kept outside the core.
 
+pub mod archive;
 pub mod change_signal;
 pub mod launch;
 pub mod local_time;

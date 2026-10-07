@@ -14,6 +14,7 @@ use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
 
 use super::formula_guard::apply_formula_guard;
+use crate::images::repository as images_repository;
 use crate::items::model::Item;
 use crate::items::repository as items_repository;
 use crate::reminders::model::Reminder;
@@ -25,9 +26,15 @@ use crate::storage::migrations::SCHEMA_VERSION;
 /// Tag identifying the JSON backup document (0004), used both to write it and
 /// to detect it on import.
 pub const EXPORT_FORMAT_TAG: &str = "rallo.export";
-/// Version of the JSON backup document shape, independent of the database
-/// schema version recorded alongside it.
-pub const EXPORT_VERSION: u32 = 1;
+/// The newest version of the JSON backup document shape this build reads,
+/// independent of the database schema version recorded alongside it.
+/// Version 2 is the zip export's document (0018), with each note's `images`.
+pub const EXPORT_VERSION: u32 = 2;
+/// What plain JSON exports write: they carry no images.
+const PLAIN_JSON_VERSION: u32 = 1;
+/// The zip export's document and image folder (0018).
+pub const ARCHIVE_DOCUMENT: &str = "rallo-export.json";
+pub const ARCHIVE_IMAGES_DIR: &str = "images";
 
 const CSV_HEADER: [&str; 7] = ["id", "text", "status", "created_at", "completed_at", "reminder_at", "reminder_state"];
 
@@ -44,6 +51,7 @@ pub struct ExportSummary {
     /// Notes written: every item for JSON, nondeleted items for CSV.
     pub items: u64,
     pub path: PathBuf,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -66,6 +74,19 @@ struct ExportItem {
     completed_at_ms: Option<i64>,
     deleted_at_ms: Option<i64>,
     reminder: Option<ExportReminder>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    images: Option<Vec<ExportImage>>,
+}
+
+#[derive(Serialize)]
+struct ExportImage {
+    id: Uuid,
+    /// Relative to the archive root: `images/<item id>/<image id>.<ext>`.
+    file: String,
+    #[serde(rename = "type")]
+    mime_type: String,
+    bytes: i64,
+    created_at_ms: i64,
 }
 
 #[derive(Serialize)]
@@ -105,7 +126,7 @@ fn snapshot(store: &Store) -> CoreResult<Vec<(Item, Option<Reminder>)>> {
     Ok(rows)
 }
 
-fn export_item(item: &Item, reminder: Option<&Reminder>) -> ExportItem {
+fn export_item(item: &Item, reminder: Option<&Reminder>, images: Option<Vec<ExportImage>>) -> ExportItem {
     ExportItem {
         id: item.id,
         text: item.text.clone(),
@@ -125,17 +146,23 @@ fn export_item(item: &Item, reminder: Option<&Reminder>) -> ExportItem {
             created_at_ms: reminder.created_at_ms,
             updated_at_ms: reminder.updated_at_ms,
         }),
+        images,
     }
 }
 
 fn encode_json(store: &Store, rows: &[(Item, Option<Reminder>)]) -> CoreResult<Vec<u8>> {
     let document = ExportDocument {
         format: EXPORT_FORMAT_TAG,
-        version: EXPORT_VERSION,
+        version: PLAIN_JSON_VERSION,
         exported_at: rfc3339_utc_ms(store.now_ms()),
         core_version: crate::CORE_VERSION,
         schema_version: SCHEMA_VERSION,
-        items: rows.iter().map(|(item, reminder)| export_item(item, reminder.as_ref())).collect(),
+        // Only image-only notes have empty text; plain JSON can't carry them.
+        items: rows
+            .iter()
+            .filter(|(item, _)| !item.text.is_empty())
+            .map(|(item, reminder)| export_item(item, reminder.as_ref(), None))
+            .collect(),
     };
     Ok(serde_json::to_vec_pretty(&document).expect("ExportDocument serializes"))
 }
@@ -149,7 +176,7 @@ fn encode_csv(rows: &[(Item, Option<Reminder>)]) -> CoreResult<Vec<u8>> {
         let mut writer = csv::WriterBuilder::new().terminator(csv::Terminator::CRLF).from_writer(&mut buffer);
         writer.write_record(CSV_HEADER)?;
         for (item, reminder) in rows {
-            if item.deleted_at_ms.is_some() {
+            if item.deleted_at_ms.is_some() || item.text.is_empty() {
                 continue;
             }
             writer.write_record([
@@ -225,10 +252,63 @@ impl Store {
         let rows = snapshot(self)?;
         let bytes = encode(self, format, &rows)?;
         write_atomic(path, &bytes, overwrite)?;
-        let items = match format {
-            ExportFormat::Json => rows.len(),
-            ExportFormat::Csv => rows.iter().filter(|(item, _)| item.deleted_at_ms.is_none()).count(),
+        let written =
+            |item: &Item| !item.text.is_empty() && (format == ExportFormat::Json || item.deleted_at_ms.is_none());
+        let items = rows.iter().filter(|(item, _)| written(item)).count();
+        let left_out = rows
+            .iter()
+            .filter(|(item, _)| item.text.is_empty() && (format == ExportFormat::Json || item.deleted_at_ms.is_none()))
+            .count();
+        let images = images_repository::all(self.conn())?.len();
+        let mut warnings = Vec::new();
+        if images == 1 {
+            warnings.push("1 image isn't included; use --format zip".to_owned());
+        } else if images > 1 {
+            warnings.push(format!("{images} images aren't included; use --format zip"));
+        }
+        if left_out == 1 {
+            warnings.push("1 image-only note was left out".to_owned());
+        } else if left_out > 1 {
+            warnings.push(format!("{left_out} image-only notes were left out"));
+        }
+        Ok(ExportSummary { items: items as u64, path: path.to_path_buf(), warnings })
+    }
+
+    /// The zip export's contents (0018), written into `dir` (an empty
+    /// directory the caller made): `rallo-export.json` (version 2, with each
+    /// note's `images`) and `images/<item id>/<file>`. The platform crate
+    /// zips the directory.
+    pub fn export_to_dir(&self, dir: &Path) -> CoreResult<ExportSummary> {
+        let rows = snapshot(self)?;
+        let mut items = Vec::with_capacity(rows.len());
+        for (item, reminder) in &rows {
+            let images = images_repository::for_item(self.conn(), item.id)?;
+            let mut exported = Vec::with_capacity(images.len());
+            for image in images {
+                let file = format!("{ARCHIVE_IMAGES_DIR}/{}/{}", item.id, image.file_name);
+                let target = dir.join(&file);
+                ensure_private_dir(target.parent().expect("has a parent"))?;
+                fs::copy(crate::images::files::file_path(self.data_dir(), item.id, &image.file_name), &target)?;
+                exported.push(ExportImage {
+                    id: image.id,
+                    file,
+                    mime_type: image.mime_type,
+                    bytes: image.byte_size,
+                    created_at_ms: image.created_at_ms,
+                });
+            }
+            items.push(export_item(item, reminder.as_ref(), Some(exported)));
+        }
+        let document = ExportDocument {
+            format: EXPORT_FORMAT_TAG,
+            version: EXPORT_VERSION,
+            exported_at: rfc3339_utc_ms(self.now_ms()),
+            core_version: crate::CORE_VERSION,
+            schema_version: SCHEMA_VERSION,
+            items,
         };
-        Ok(ExportSummary { items: items as u64, path: path.to_path_buf() })
+        let path = dir.join(ARCHIVE_DOCUMENT);
+        write_atomic(&path, &serde_json::to_vec_pretty(&document).expect("ExportDocument serializes"), false)?;
+        Ok(ExportSummary { items: rows.len() as u64, path, warnings: Vec::new() })
     }
 }
