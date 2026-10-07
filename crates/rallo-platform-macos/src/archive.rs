@@ -9,6 +9,7 @@ use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_ENTRIES: usize = 100_000;
@@ -37,8 +38,12 @@ pub fn is_zip(path: &Path) -> io::Result<bool> {
 
 /// A new private (0700) directory under the system temp directory.
 pub fn private_temp_dir(label: &str) -> io::Result<PathBuf> {
+    // macOS's clock ticks in microseconds, so the counter keeps two calls in
+    // the same tick apart.
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|elapsed| elapsed.as_nanos()).unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("rallo-{label}-{}-{nanos}", std::process::id()));
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("rallo-{label}-{}-{nanos}-{count}", std::process::id()));
     DirBuilder::new().mode(0o700).create(&dir)?;
     Ok(dir)
 }
@@ -93,9 +98,13 @@ pub fn read_zip<T, E: From<ArchiveError>>(archive: &Path, read: impl FnOnce(&Pat
 /// `-` as options) while ditto opens it literally, so the archive is first
 /// linked (or copied) to a fixed private name that both treat the same.
 pub fn unzip(zip: &Path, into: &Path) -> Result<(), ArchiveError> {
-    let dir = private_temp_dir("import-src")?;
+    unzip_via(zip, into, &private_temp_dir("import-src")?)
+}
+
+/// Unzips through `dir`, a fresh private directory, and removes it.
+fn unzip_via(zip: &Path, into: &Path, dir: &Path) -> Result<(), ArchiveError> {
     let result = unzip_private(zip, &dir.join("archive.zip"), into);
-    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(dir);
     result
 }
 
@@ -427,14 +436,11 @@ mod tests {
         let bomb = bomb_named(&dir, "[a].zip");
         let target = dir.join("target");
         fs::create_dir(&target).unwrap();
-        assert!(matches!(unzip(&bomb, &target), Err(ArchiveError::UnpacksTooLarge(m)) if m.contains("10 MB")));
+        let work = private_temp_dir("test-wild-src").unwrap();
+        let result = unzip_via(&bomb, &target, &work);
+        assert!(matches!(result, Err(ArchiveError::UnpacksTooLarge(m)) if m.contains("10 MB")));
         assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "nothing was extracted");
-        let prefix = format!("rallo-import-src-{}-", std::process::id());
-        let leftover = fs::read_dir(std::env::temp_dir())
-            .unwrap()
-            .flatten()
-            .any(|e| e.file_name().to_string_lossy().starts_with(&prefix));
-        assert!(!leftover, "the private link directory is removed");
+        assert!(!work.exists(), "the private link directory is removed");
         fs::remove_dir_all(dir).unwrap();
     }
 
