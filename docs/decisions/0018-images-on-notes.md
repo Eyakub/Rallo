@@ -78,14 +78,17 @@ colon). In the panel's note field, ⇧↩ inserts a line break (⌥↩ still doe
   back.
 - A sweep runs when the app opens the store and once a day:
   - images of notes deleted more than 30 days ago are removed (rows and
-    files); a note left with no text is then removed entirely, its reminder
-    rows with it, since there is nothing to restore;
+    files). The deleted note itself stays, as today; a note left with no
+    text and no images can't be restored (`TEXT_EMPTY`, "nothing left to
+    restore: its images were removed 30 days after it was deleted"). Its
+    row is kept rather than removed so the reminder and notification
+    records tied to it (0005) are never touched;
   - files under `attachments/` with no row, older than one hour, are
     removed (the hour keeps a CLI write in progress from being swept by the
     app).
-- Removing one image deletes its row at once. `detach` deletes the file at
-  once too; the panel's Remove Image keeps the file for its 5 s Undo toast
-  (Undo puts the row back) and deletes it when the toast ends.
+- Removing one image deletes its row and file at once. The panel's Remove
+  Image reads the image into memory first and shows a 5 s Undo toast; Undo
+  attaches it again (at the end of the note's images).
 
 ### Ways in
 
@@ -149,7 +152,12 @@ colon). In the panel's note field, ⇧↩ inserts a line break (⌥↩ still doe
   (export format version 2: version 1 plus `images` per item with `id`,
   `file` = `images/<item id>/<image id>.<ext>`, `type`, `bytes`,
   `created_at_ms`) and the image files, zipped with `/usr/bin/ditto -c -k`
-  (no new dependency). `--output -` is refused for zip. JSON and CSV exports
+  (no new dependency). The core writes and reads the export as a directory
+  (`export_to_dir`, `preview_import_dir`, `apply_import_dir`); zipping and
+  unzipping live in `rallo-platform-macos` (`archive`), so the core stays
+  free of platform code. JSON and CSV exports leave out image-only notes
+  (their text would be empty, which those formats can't import) and say how
+  many. `--output -` is refused for zip. JSON and CSV exports
   are unchanged (JSON stays version 1); with images present they warn
   "images aren't included; use --format zip". Settings → Export offers
   "Rallo archive (.zip, with images)".
