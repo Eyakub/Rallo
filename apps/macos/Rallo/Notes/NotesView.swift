@@ -250,7 +250,7 @@ final class NotesViewModel: ObservableObject {
         defer { completingIDs.remove(item.id) }
         do {
             let done = try await core.completeItem(item)
-            show(Toast(message: "Marked “\(NoteParts(done.text).title)” as done", undo: .reopen(done)))
+            show(Toast(message: "Marked “\(NoteParts(done.text).name)” as done", undo: .reopen(done)))
             await reload()
         } catch {
             await report(error)
@@ -265,7 +265,7 @@ final class NotesViewModel: ObservableObject {
             if liveSwipe?.id == item.id { liveSwipe = nil }
             if expandedID == item.id { expandedID = nil }
             if editingID == item.id { editingID = nil }
-            show(Toast(message: "Deleted “\(NoteParts(deleted.text).title)”", undo: .restore(deleted)))
+            show(Toast(message: "Deleted “\(NoteParts(deleted.text).name)”", undo: .restore(deleted)))
             await reload()
         } catch {
             await report(error)
@@ -374,6 +374,7 @@ struct NotesView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var swipeMonitor = SwipeScrollMonitor()
     @StateObject private var agentsClock = AgentsClock()
+    @State private var newlineMonitor: Any?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -472,33 +473,54 @@ struct NotesView: View {
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(text: $model.draft, prompt: Text(prompt).foregroundStyle(Theme.bark), axis: .vertical) {
-                Text("New note")
-            }
-            .textFieldStyle(.plain)
-            .font(.system(size: 14))
-            .lineLimit(1...5)
-            .focused($composerFocused)
-            .onSubmit { Task { await model.save() } }
-            .accessibilityLabel("New note")
-            .accessibilityHint("Press Return to save")
-
-            if hasDraft {
-                Button {
-                    Task { await model.save() }
-                } label: {
-                    Text("Save")
-                        .font(Theme.rounded(12, .semibold))
-                        .foregroundStyle(Color.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Theme.rust))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(text: $model.draft, prompt: Text(prompt).foregroundStyle(Theme.bark), axis: .vertical) {
+                    Text("New note")
                 }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.return, modifiers: .command)
-                .accessibilityLabel("Save note")
-                .transition(.opacity)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .lineLimit(1...5)
+                .focused($composerFocused)
+                .onAppear {
+                    // ⇧↩ inserts a line break (0018), as ⌥↩ already does; ↩ saves.
+                    newlineMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                        guard composerFocused, event.keyCode == 36, flags == .shift else { return event }
+                        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
+                        return nil
+                    }
+                }
+                .onDisappear {
+                    if let newlineMonitor { NSEvent.removeMonitor(newlineMonitor) }
+                    newlineMonitor = nil
+                }
+                .onSubmit { Task { await model.save() } }
+                .accessibilityLabel("New note")
+                .accessibilityHint("Press Return to save, Shift-Return for a new line")
+
+                if hasDraft {
+                    Button {
+                        Task { await model.save() }
+                    } label: {
+                        Text("Save")
+                            .font(Theme.rounded(12, .semibold))
+                            .foregroundStyle(Color.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Theme.rust))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .accessibilityLabel("Save note")
+                    .transition(.opacity)
+                }
+            }
+            if composerFocused {
+                Text("⇧↩ new line")
+                    .font(Theme.rounded(11))
+                    .foregroundStyle(Theme.bark)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, 14)

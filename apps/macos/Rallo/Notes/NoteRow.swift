@@ -1,29 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Title and preview derived from a note's text for display only; the stored
-/// text is never changed. The first non-empty line is the title.
-struct NoteParts: Equatable {
-    let title: String
-    let rest: String
-
-    init(_ text: String) {
-        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        guard let first = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else {
-            title = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            rest = ""
-            return
-        }
-        title = lines[first].trimmingCharacters(in: .whitespaces)
-        rest = lines[(first + 1)...].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// The rest flattened to one line for the collapsed preview.
-    var preview: String {
-        rest.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
-    }
-}
-
 extension ReminderSnapshot {
     var deadline: Date { Date(timeIntervalSince1970: TimeInterval(deadlineMs) / 1000) }
 
@@ -66,13 +43,14 @@ struct NoteRow: View {
     private var highlighted: Bool { model.highlightedItemID == item.id }
     private var created: Date { Date(timeIntervalSince1970: TimeInterval(item.createdAtMs) / 1000) }
 
-    /// Whether collapsing hides anything worth expanding for.
-    private var hasMore: Bool { !parts.rest.isEmpty || parts.title.count > 38 }
+    /// A collapsed row hides something: a title's body, or more than two
+    /// lines of body text.
+    private var hasMore: Bool { parts.title != nil ? !parts.body.isEmpty : parts.body.count > 76 }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             CompletionButton(completing: completing) { Task { await model.complete(item) } }
-                .accessibilityLabel("Mark “\(parts.title)” as done")
+                .accessibilityLabel("Mark “\(parts.name)” as done")
             VStack(alignment: .leading, spacing: 4) {
                 if editing {
                     ItemEditor(item: item, model: model)
@@ -122,14 +100,24 @@ struct NoteRow: View {
     @ViewBuilder
     private var content: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(parts.title)
-                .font(.system(size: 14, weight: .semibold))
-                .lineLimit(expanded ? nil : 1)
-                .truncationMode(.tail)
-                .strikethrough(completing, color: Theme.bark)
-                .foregroundStyle(completing ? Theme.bark : Theme.ink)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: expanded)
+            Group {
+                if let title = parts.title {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(expanded ? nil : 1)
+                } else {
+                    Text(parts.body)
+                        .font(.system(size: 14))
+                        .lineSpacing(2)
+                        .lineLimit(expanded ? nil : 2)
+                        .textSelection(.enabled)
+                }
+            }
+            .truncationMode(.tail)
+            .strikethrough(completing, color: Theme.bark)
+            .foregroundStyle(completing ? Theme.bark : Theme.ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             if hasMore {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .semibold))
@@ -143,9 +131,9 @@ struct NoteRow: View {
         .accessibilityHint(expanded ? "Collapses the note" : "Shows the whole note")
         .accessibilityAction { model.toggleExpanded(item) }
 
-        if !parts.rest.isEmpty {
+        if parts.title != nil {
             if expanded {
-                Text(parts.rest)
+                Text(parts.body)
                     .font(.system(size: 14))
                     .lineSpacing(2)
                     .foregroundStyle(Theme.ink)

@@ -69,6 +69,7 @@ targets:
       - path: Rallo/Notes/AgentSessionActivation.swift
       - path: Rallo/Notes/CustomRemindPreview.swift
       - path: Rallo/Notes/ReminderLabel.swift
+      - path: Rallo/Notes/NoteParts.swift
       - path: Rallo/Notes/RalloError+Display.swift
       - path: Rallo/ClickUp/ClickUpWaiting.swift
       - path: Rallo/Notifications/NotificationAdapter.swift
