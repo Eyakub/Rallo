@@ -40,14 +40,14 @@ final class CaptureService {
         unavailableMessage = message
     }
 
-    func addNote(_ text: String) async throws -> ItemSnapshot {
+    func addNote(_ text: String, images: [Data] = []) async throws -> ItemSnapshot {
         let core = try await readyCore()
-        return try await reported { try await core.createNote(text) }
+        return try await reported { try await core.createNote(text, images: images) }
     }
 
-    func addReminder(_ text: String, when: String) async throws -> ItemSnapshot {
+    func addReminder(_ text: String, when: String, images: [Data] = []) async throws -> ItemSnapshot {
         let core = try await readyCore()
-        return try await reported { try await core.createReminder(text, when: when) }
+        return try await reported { try await core.createReminder(text, when: when, images: images) }
     }
 
     /// What the core last saw of notification permission, nil if it can't say.
@@ -69,9 +69,9 @@ final class CaptureService {
 
     /// Services has no way to reply, so a failure goes to the notes panel (or a
     /// beep if no sink was set).
-    func saveSelection(_ text: String) async {
+    func saveSelection(_ text: String, images: [Data] = []) async {
         do {
-            _ = try await addNote(text)
+            _ = try await addNote(text, images: images)
         } catch {
             let message = (error as? CaptureFailure)?.message ?? error.localizedDescription
             if let showError { showError(message) } else { NSSound.beep() }

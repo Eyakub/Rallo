@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// 0017: Shortcuts, Siri and Services save through CaptureService.
@@ -130,5 +131,33 @@ final class CaptureServiceTests: XCTestCase {
             "Reminder set for Fri 5:00 PM, but it won't alert you until you allow Rallo's notifications.")
         XCTAssertEqual(reply(.authorized), "Reminder set for Fri 5:00 PM.")
         XCTAssertEqual(reply(nil), "Reminder set for Fri 5:00 PM.")
+    }
+
+    private static var png: Data {
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        )!
+        return rep.representation(using: .png, properties: [:])!
+    }
+
+    func testAddsANoteAndAReminderWithImages() async throws {
+        let service = try await attached()
+        let note = try await service.addNote("", images: [Self.png])
+        XCTAssertEqual(note.images.count, 1)
+        let reminder = try await service.addReminder("Look at this", when: "in 2 hours", images: [Self.png])
+        XCTAssertEqual(reminder.images.count, 1)
+        XCTAssertNotNil(reminder.reminder)
+    }
+
+    func testANoteWithNeitherTextNorImagesIsRefused() async throws {
+        let service = try await attached()
+        do {
+            _ = try await service.addNote("  ", images: [])
+            XCTFail("expected a refusal")
+        } catch let failure as CaptureFailure {
+            XCTAssertEqual(failure.message, "a note needs text or an image")
+        }
+        XCTAssertEqual(try savedTexts(), [])
     }
 }

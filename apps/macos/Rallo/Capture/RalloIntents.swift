@@ -11,12 +11,27 @@ struct AddNoteIntent: AppIntent {
     static let openAppWhenRun = false
 
     @Parameter(title: "Note", requestValueDialog: "What's the note?")
-    var text: String
+    var text: String?
+
+    @Parameter(title: "Images", supportedTypeIdentifiers: ["public.image"])
+    var images: [IntentFile]?
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        _ = try await CaptureService.shared.addNote(text)
+        let images = Self.storable(images)
+        // The note is optional only when images come with it (0018).
+        guard text?.isEmpty == false || !images.isEmpty else {
+            throw $text.needsValueError("What's the note?")
+        }
+        _ = try await CaptureService.shared.addNote(text ?? "", images: images)
         return .result(dialog: "Saved to Rallo.")
+    }
+
+    /// Shortcuts' files as Rallo stores them: the five stored formats as they
+    /// are, other images as PNG; anything else goes through unchanged for the
+    /// core to refuse with its message.
+    static func storable(_ files: [IntentFile]?) -> [Data] {
+        (files ?? []).map { ImageClipboard.storable($0.data) ?? $0.data }
     }
 }
 
@@ -34,13 +49,16 @@ struct AddReminderIntent: AppIntent {
     @Parameter(title: "When", requestValueDialog: "When?")
     var when: String
 
+    @Parameter(title: "Images", supportedTypeIdentifiers: ["public.image"])
+    var images: [IntentFile]?
+
     static var parameterSummary: some ParameterSummary {
         Summary("Remind me about \(\.$text) \(\.$when)")
     }
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let item = try await CaptureService.shared.addReminder(text, when: when)
+        let item = try await CaptureService.shared.addReminder(text, when: when, images: AddNoteIntent.storable(images))
         guard let reminder = item.reminder else { return .result(dialog: "Saved to Rallo.") }
         let authorization = await CaptureService.shared.notificationAuthorization()
         let label = ReminderLabel.text(for: reminder.deadline)

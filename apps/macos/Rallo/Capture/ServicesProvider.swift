@@ -1,7 +1,7 @@
 import AppKit
 
 /// Services → "New Rallo Note" (0017, Info.plist `NSServices`): the selected
-/// text becomes a note. macOS calls this on the main thread, only when the
+/// text, or an image, becomes a note. macOS calls this on the main thread, only when the
 /// user picks the item.
 @MainActor
 final class ServicesProvider: NSObject {
@@ -12,7 +12,13 @@ final class ServicesProvider: NSObject {
     }
 
     @objc func newRalloNote(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
-        // The core rejects empty text and saveSelection reports why to the panel.
-        Task { await capture.saveSelection(pasteboard.string(forType: .string) ?? "") }
+        let text = pasteboard.string(forType: .string) ?? ""
+        // 0018: selected text is saved as today; an image alone becomes a
+        // note without text. Read now: the pasteboard is only valid during this call.
+        let images = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? (try? ImageClipboard.images(from: pasteboard)) ?? []
+            : []
+        // The core rejects empty notes and saveSelection reports why to the panel.
+        Task { await capture.saveSelection(text, images: images) }
     }
 }
