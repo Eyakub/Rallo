@@ -140,13 +140,14 @@ fn free_space(dir: &Path) -> io::Result<u64> {
     Ok(u64::from(stats.f_bavail).saturating_mul(stats.f_frsize))
 }
 
-/// Refuses a zip bomb before anything is written: `zipinfo -l` gives each
-/// entry's declared uncompressed size. (Names were already checked, so none
-/// contains whitespace.) Every entry line counts whatever its mode (zips
-/// from Python carry no type bits), and the number of entries must match
+/// Refuses a zip bomb before anything is written: `zipinfo -l ZIP '*'` gives
+/// each entry's declared uncompressed size. With a filespec it prints entry
+/// lines only (no `Archive:` header, no totals), so every non-empty line must
+/// parse as an entry or the archive is refused. (Names were already checked,
+/// so none contains whitespace.) The number of entries must match
 /// `zipinfo -1`'s. Returns the declared total.
 fn check_declared_sizes(zip: &Path, expected_entries: usize) -> Result<u64, ArchiveError> {
-    let listing = Command::new("/usr/bin/zipinfo").arg("-l").arg(zip).output()?;
+    let listing = Command::new("/usr/bin/zipinfo").arg("-l").arg(zip).arg("*").output()?;
     if !listing.status.success() {
         return Err(ArchiveError::Unreadable("zipinfo could not read it".to_owned()));
     }
@@ -154,15 +155,15 @@ fn check_declared_sizes(zip: &Path, expected_entries: usize) -> Result<u64, Arch
     let mut entries = 0usize;
     for line in String::from_utf8_lossy(&listing.stdout).lines() {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        let is_entry = fields.len() >= 10
-            && fields[3].bytes().all(|b| b.is_ascii_digit())
-            && fields[1].bytes().all(|b| b.is_ascii_digit() || b == b'.');
-        if !is_entry {
-            continue; // header and summary lines
+        if fields.is_empty() {
+            continue;
+        }
+        let unreadable = || ArchiveError::Unreadable("its listing could not be checked".to_owned());
+        if fields.len() < 10 || !fields[1].bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+            return Err(unreadable());
         }
         entries += 1;
-        let size: u64 =
-            fields[3].parse().map_err(|_| ArchiveError::Unreadable("a bad size in its listing".to_owned()))?;
+        let size: u64 = fields[3].parse().map_err(|_| unreadable())?;
         let name = fields[9..].join(" ");
         if name.starts_with("images/") && size > MAX_IMAGE_ENTRY_BYTES {
             return Err(ArchiveError::UnpacksTooLarge("an image in it is over 10 MB"));
@@ -322,6 +323,56 @@ mod tests {
         assert!(matches!(unzip(&out, &target), Err(ArchiveError::UnpacksTooLarge(_))));
         assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "nothing was extracted");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Zips an 11 MiB zero-filled image entry into `dir/<file_name>`.
+    fn bomb_named(dir: &Path, file_name: &str) -> PathBuf {
+        let source = dir.join("src");
+        fs::create_dir_all(source.join("images").join(ITEM)).unwrap();
+        fs::write(source.join("rallo-export.json"), b"{}").unwrap();
+        fs::write(source.join("images").join(ITEM).join(format!("{IMAGE}.png")), vec![0u8; 11 * 1024 * 1024]).unwrap();
+        let out = dir.join(file_name);
+        zip(&source, &out).unwrap();
+        out
+    }
+
+    #[test]
+    fn an_archive_name_that_looks_like_an_entry_cannot_hide_a_bomb() {
+        for file_name in ["1 2 3 4 5 6 7 8 9 10.zip", "x\n1 2 3 4 5 6 7 8 9 10.zip"] {
+            let dir = private_temp_dir("test-name").unwrap();
+            let out = bomb_named(&dir, file_name);
+            let target = dir.join("target");
+            fs::create_dir(&target).unwrap();
+            assert!(matches!(unzip(&out, &target), Err(ArchiveError::UnpacksTooLarge(_))), "{file_name:?}");
+            assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "nothing was extracted");
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    /// A VMS-host entry with wide attributes: zipinfo prints it with 9 fields
+    /// (no version), which the listing parser can't read.
+    #[test]
+    fn a_listing_line_that_cannot_be_read_refuses_the_archive() {
+        // A plain name, and one whose second line looks like an entry line
+        // (an old `Archive:` header counted that way balanced the count).
+        for file_name in ["vms.zip", "x\n1 2 3 4 5 6 7 8 9 10.zip"] {
+            let dir = private_temp_dir("test-vms").unwrap();
+            let out = dir.join(file_name);
+            let script = format!(
+                "import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1], 'w')\n\
+                 i = zipfile.ZipInfo('images/{ITEM}/{IMAGE}.png')\ni.create_system = 2\n\
+                 i.external_attr = 0o777 << 16\nz.writestr(i, bytes(11 * 1024 * 1024))\n\
+                 z.writestr('rallo-export.json', '{{}}')\nz.close()\n"
+            );
+            let status = Command::new("/usr/bin/python3").args(["-I", "-c", &script]).arg(&out).status().unwrap();
+            assert!(status.success());
+            let target = dir.join("target");
+            fs::create_dir(&target).unwrap();
+            let refusal = unzip(&out, &target).unwrap_err().to_string();
+            assert!(refusal.contains("listing"), "{file_name:?}: {refusal}");
+            assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "nothing was extracted");
+            fs::remove_dir_all(dir).unwrap();
+        }
     }
 
     #[test]
