@@ -117,3 +117,36 @@ fn a_backup_does_not_follow_a_symlinked_directory() {
     assert_eq!(summary.images, 1);
     assert!(!dir.path().join("backups").join("manual-2.sqlite3.attachments").join("linked").exists());
 }
+
+#[test]
+fn an_expired_image_only_note_is_skipped_and_the_zip_export_still_imports() {
+    use rallo_core::items::model::MutationOptions;
+    use rallo_core::shared::clock::ManualClock;
+    let dir = tempfile::tempdir().unwrap();
+    let clock = std::sync::Arc::new(ManualClock::new(1_800_000_000_000));
+    let mut store =
+        rallo_core::Store::open(rallo_core::StoreOptions::new(dir.path()).with_clock(clock.clone())).unwrap();
+    store.create_note_with_images("caption", &[PNG.to_vec()], None).unwrap();
+    let gone = store.create_note_with_images("", &[PNG.to_vec()], None).unwrap().item;
+    store.delete(&gone.item.id.to_string(), &MutationOptions::default()).unwrap();
+    clock.advance(31 * 24 * 60 * 60 * 1000);
+    store.sweep_images().unwrap();
+
+    let export_dir = tempfile::tempdir().unwrap();
+    assert_eq!(store.export_to_dir(export_dir.path()).unwrap().items, 1);
+    let document = std::fs::read_to_string(export_dir.path().join("rallo-export.json")).unwrap();
+    assert!(!document.contains(&gone.item.id.to_string()));
+    let target_dir = tempfile::tempdir().unwrap();
+    assert!(support::open(target_dir.path()).apply_import_dir(export_dir.path()).unwrap().applied);
+}
+
+#[test]
+fn a_missing_image_file_is_named_in_the_export_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let note = store.create_note_with_images("x", &[PNG.to_vec()], None).unwrap().item;
+    std::fs::remove_file(&note.images[0].path).unwrap();
+    let export_dir = tempfile::tempdir().unwrap();
+    let message = store.export_to_dir(export_dir.path()).unwrap_err().to_string();
+    assert!(message.contains("is missing") && message.contains("rallo doctor"), "{message}");
+}

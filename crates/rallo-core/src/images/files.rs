@@ -133,10 +133,14 @@ pub(crate) fn copy_in(
     let temp = dir.join(format!(".{image_id}.tmp"));
     let bytes = fs::read(source)?;
     let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
-    file.write_all(&bytes)?;
-    file.sync_all()?;
     let path = dir.join(file_name(image_id, kind));
-    fs::rename(&temp, &path)?;
+    // A leftover temp file would block a retry (`create_new`), so remove it
+    // on any failure after creating it.
+    let written = file.write_all(&bytes).and_then(|()| file.sync_all()).and_then(|()| fs::rename(&temp, &path));
+    if let Err(error) = written {
+        let _ = fs::remove_file(&temp);
+        return Err(error.into());
+    }
     Ok(path)
 }
 
@@ -162,4 +166,22 @@ pub(crate) fn copy_tree(data_dir: &Path, to: &Path) -> CoreResult<u64> {
         }
     }
     Ok(copied)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copy_in_removes_its_temp_file_when_the_rename_fails() {
+        let data = tempfile::tempdir().unwrap();
+        let source = data.path().join("source.png");
+        fs::write(&source, b"\x89PNG\r\n\x1a\n").unwrap();
+        let (item, image) = (Uuid::new_v4(), Uuid::new_v4());
+        let dir = attachments_dir(data.path()).join(item.to_string());
+        // A directory at the final path makes the rename fail.
+        fs::create_dir_all(dir.join(file_name(image, ImageKind::Png))).unwrap();
+        assert!(copy_in(data.path(), item, image, ImageKind::Png, &source).is_err());
+        assert!(!dir.join(format!(".{image}.tmp")).exists());
+    }
 }

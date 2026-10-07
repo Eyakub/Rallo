@@ -283,12 +283,27 @@ impl Store {
         let mut items = Vec::with_capacity(rows.len());
         for (item, reminder) in &rows {
             let images = images_repository::for_item(self.conn(), item.id)?;
+            if item.text.is_empty() && images.is_empty() {
+                continue; // an image-only note whose images expired: nothing to restore (0018)
+            }
             let mut exported = Vec::with_capacity(images.len());
             for image in images {
                 let file = format!("{ARCHIVE_IMAGES_DIR}/{}/{}", item.id, image.file_name);
                 let target = dir.join(&file);
                 ensure_private_dir(target.parent().expect("has a parent"))?;
-                fs::copy(crate::images::files::file_path(self.data_dir(), item.id, &image.file_name), &target)?;
+                let source = crate::images::files::file_path(self.data_dir(), item.id, &image.file_name);
+                fs::copy(&source, &target).map_err(|error| {
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        CoreError::storage(format!(
+                            "image {} of note {} is missing ({}); run `rallo doctor`",
+                            image.id,
+                            item.id,
+                            source.display()
+                        ))
+                    } else {
+                        error.into()
+                    }
+                })?;
                 exported.push(ExportImage {
                     id: image.id,
                     file,
@@ -299,6 +314,7 @@ impl Store {
             }
             items.push(export_item(item, reminder.as_ref(), Some(exported)));
         }
+        let count = items.len() as u64;
         let document = ExportDocument {
             format: EXPORT_FORMAT_TAG,
             version: EXPORT_VERSION,
@@ -309,6 +325,6 @@ impl Store {
         };
         let path = dir.join(ARCHIVE_DOCUMENT);
         write_atomic(&path, &serde_json::to_vec_pretty(&document).expect("ExportDocument serializes"), false)?;
-        Ok(ExportSummary { items: rows.len() as u64, path, warnings: Vec::new() })
+        Ok(ExportSummary { items: count, path, warnings: Vec::new() })
     }
 }

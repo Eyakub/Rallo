@@ -22,6 +22,8 @@ pub enum ArchiveError {
     Unsafe(String),
     #[error("the archive is over 1 GB")]
     TooLarge,
+    #[error("the archive unpacks to more than Rallo accepts: {0}")]
+    UnpacksTooLarge(&'static str),
 }
 
 pub fn is_zip(path: &Path) -> io::Result<bool> {
@@ -96,21 +98,67 @@ pub fn unzip(zip: &Path, into: &Path) -> Result<(), ArchiveError> {
             return Err(ArchiveError::Unsafe(name.to_owned()));
         }
     }
-    let status = Command::new("/usr/bin/ditto").args(["-x", "-k"]).arg(zip).arg(into).status()?;
+    check_declared_sizes(zip)?;
+    let status = Command::new("/usr/bin/ditto")
+        .args(["-x", "-k", "--norsrc", "--noextattr", "--noqtn", "--noacl"])
+        .arg(zip)
+        .arg(into)
+        .status()?;
     if !status.success() {
         return Err(ArchiveError::Unreadable("ditto could not extract it".to_owned()));
     }
-    refuse_links(into)
+    refuse_extras(into, into)
 }
 
-fn refuse_links(dir: &Path) -> Result<(), ArchiveError> {
-    for entry in fs::read_dir(dir)?.flatten() {
-        let path = entry.path();
+const MAX_IMAGE_ENTRY_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_DOCUMENT_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Refuses a zip bomb before anything is written: `zipinfo -l` gives each
+/// entry's declared uncompressed size. (Names were already checked, so none
+/// contains whitespace.)
+fn check_declared_sizes(zip: &Path) -> Result<(), ArchiveError> {
+    let listing = Command::new("/usr/bin/zipinfo").arg("-l").arg(zip).output()?;
+    if !listing.status.success() {
+        return Err(ArchiveError::Unreadable("zipinfo could not read it".to_owned()));
+    }
+    let mut total = 0u64;
+    for line in String::from_utf8_lossy(&listing.stdout).lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 10 || !matches!(fields[0].chars().next(), Some('-' | 'd')) {
+            continue; // header and summary lines
+        }
+        let size: u64 =
+            fields[3].parse().map_err(|_| ArchiveError::Unreadable("a bad size in its listing".to_owned()))?;
+        let name = fields[9..].join(" ");
+        if name.starts_with("images/") && size > MAX_IMAGE_ENTRY_BYTES {
+            return Err(ArchiveError::UnpacksTooLarge("an image in it is over 10 MB"));
+        }
+        if name == "rallo-export.json" && size > MAX_DOCUMENT_ENTRY_BYTES {
+            return Err(ArchiveError::UnpacksTooLarge("its rallo-export.json is over 64 MB"));
+        }
+        total = total.saturating_add(size);
+    }
+    if total > MAX_ARCHIVE_BYTES + MAX_DOCUMENT_ENTRY_BYTES {
+        return Err(ArchiveError::UnpacksTooLarge("it unpacks to over 1 GB"));
+    }
+    Ok(())
+}
+
+/// Walks what was extracted (ditto uses the local headers' names, not the
+/// listing's): only plain files and directories, and only names `allowed`.
+fn refuse_extras(root: &Path, dir: &Path) -> Result<(), ArchiveError> {
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
         let kind = fs::symlink_metadata(&path)?.file_type();
+        let mut name = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().into_owned();
         if kind.is_dir() {
-            refuse_links(&path)?;
-        } else if !kind.is_file() {
-            return Err(ArchiveError::Unsafe(path.file_name().unwrap_or_default().to_string_lossy().into_owned()));
+            name.push('/');
+        }
+        if !(kind.is_dir() || kind.is_file()) || !allowed(&name) {
+            return Err(ArchiveError::Unsafe(name));
+        }
+        if kind.is_dir() {
+            refuse_extras(root, &path)?;
         }
     }
     Ok(())
@@ -192,6 +240,23 @@ mod tests {
         zip(&source, &out).unwrap();
         let target = private_temp_dir("test-link-dst").unwrap();
         assert!(matches!(unzip(&out, &target), Err(ArchiveError::Unsafe(_))));
+        for path in [&source, &target] {
+            fs::remove_dir_all(path).unwrap();
+        }
+        fs::remove_file(out).unwrap();
+    }
+
+    #[test]
+    fn a_zip_bomb_is_refused_before_anything_is_written() {
+        let source = private_temp_dir("test-bomb").unwrap();
+        fs::write(source.join("rallo-export.json"), b"{}").unwrap();
+        fs::create_dir_all(source.join("images").join(ITEM)).unwrap();
+        fs::write(source.join("images").join(ITEM).join(format!("{IMAGE}.png")), vec![0u8; 11 * 1024 * 1024]).unwrap();
+        let out = source.with_extension("zip");
+        zip(&source, &out).unwrap();
+        let target = private_temp_dir("test-bomb-dst").unwrap();
+        assert!(matches!(unzip(&out, &target), Err(ArchiveError::UnpacksTooLarge(_))));
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "nothing was extracted");
         for path in [&source, &target] {
             fs::remove_dir_all(path).unwrap();
         }
