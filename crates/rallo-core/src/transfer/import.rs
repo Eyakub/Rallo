@@ -188,7 +188,14 @@ fn parse_document(bytes: &[u8], archive: Option<&Path>) -> CoreResult<ParsedDocu
         .ok()
         .and_then(|value| value.get("format").and_then(Value::as_str).map(str::to_owned))
         .is_some_and(|format| format == EXPORT_FORMAT_TAG);
-    if is_backup { parse_json_document(bytes, archive) } else { parse_csv_document(bytes) }
+    match (is_backup, archive) {
+        (true, _) => parse_json_document(bytes, archive),
+        (false, Some(_)) => Err(CoreError::invalid(
+            ErrorCode::InvalidImport,
+            "not a Rallo archive: rallo-export.json isn't a Rallo export",
+        )),
+        (false, None) => parse_csv_document(bytes),
+    }
 }
 
 // --- JSON backup ---------------------------------------------------------
@@ -248,9 +255,19 @@ fn parse_json_document(bytes: &[u8], archive: Option<&Path>) -> CoreResult<Parse
         return Err(CoreError::IncompatibleSchema { found: doc.version, supported: EXPORT_VERSION });
     }
     let mut seen_ids = HashSet::new();
+    let mut seen_images = HashSet::new();
     let mut records = Vec::with_capacity(doc.items.len());
     for (index, raw) in doc.items.into_iter().enumerate() {
-        records.push(normalize_json_item(index, raw, &mut seen_ids, archive)?);
+        let record = normalize_json_item(index, raw, &mut seen_ids, archive)?;
+        for image in &record.images {
+            if !seen_images.insert(image.id) {
+                return Err(CoreError::invalid(
+                    ErrorCode::InvalidImport,
+                    format!("image ID {} appears twice", image.id),
+                ));
+            }
+        }
+        records.push(record);
     }
     Ok(ParsedDocument { format: ExportFormat::Json, records, warnings: Vec::new() })
 }
@@ -552,6 +569,14 @@ fn classify_collect(
     let mut conflicts = Vec::new();
     for record in records {
         let decision = classify_record(conn, record)?;
+        if matches!(decision, RecordDecision::New)
+            && let Some(image) = record.images.iter().find(|image| images_repository::exists(conn, image.id))
+        {
+            return Err(CoreError::invalid(
+                ErrorCode::InvalidImport,
+                format!("image ID {} is already in Rallo", image.id),
+            ));
+        }
         if matches!(decision, RecordDecision::Conflict) {
             conflicts.push(ImportConflictRecord {
                 id: record.id,

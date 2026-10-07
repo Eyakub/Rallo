@@ -29,6 +29,24 @@ pub fn file_path(data_dir: &Path, item_id: Uuid, file_name: &str) -> PathBuf {
     attachments_dir(data_dir).join(item_id.to_string()).join(file_name)
 }
 
+/// An item directory Rallo made: named by a UUID. The sweep and the audit
+/// ignore everything else under `attachments/` (a `.DS_Store`, a stray folder).
+pub(crate) fn is_item_dir(name: &std::ffi::OsStr) -> bool {
+    name.to_str().is_some_and(|name| name.len() == 36 && Uuid::parse_str(name).is_ok())
+}
+
+/// A file Rallo wrote: `<uuid>.<ext>`, or `.<uuid>.tmp` mid-write.
+pub(crate) fn is_image_file(name: &std::ffi::OsStr) -> bool {
+    let Some(name) = name.to_str() else { return false };
+    let uuid = |text: &str| text.len() == 36 && Uuid::parse_str(text).is_ok();
+    match name.strip_prefix('.') {
+        Some(temp) => temp.strip_suffix(".tmp").is_some_and(uuid),
+        None => name
+            .split_once('.')
+            .is_some_and(|(id, extension)| uuid(id) && matches!(extension, "png" | "jpg" | "heic" | "gif" | "webp")),
+    }
+}
+
 pub(crate) struct NewImage<'a> {
     pub id: Uuid,
     pub kind: ImageKind,
@@ -94,7 +112,7 @@ pub(crate) fn remove_orphans(data_dir: &Path, known: &HashSet<PathBuf>, older_th
     for item_dir in item_dirs.flatten() {
         let item_path = item_dir.path();
         // The entry's own type: a symlink to a directory is not followed.
-        if !item_dir.file_type().is_ok_and(|kind| kind.is_dir()) {
+        if !item_dir.file_type().is_ok_and(|kind| kind.is_dir()) || !is_item_dir(&item_dir.file_name()) {
             continue;
         }
         // Best-effort: skip a directory we can't read; a later sweep retries.
@@ -106,6 +124,9 @@ pub(crate) fn remove_orphans(data_dir: &Path, known: &HashSet<PathBuf>, older_th
             .unwrap_or(false);
         for entry in entries.flatten() {
             let path = entry.path();
+            if !is_image_file(&entry.file_name()) {
+                continue;
+            }
             let Ok(metadata) = fs::symlink_metadata(&path) else { continue };
             let stale = metadata.modified().map(|modified| modified < older_than).unwrap_or(false);
             if !known.contains(&path) && stale && fs::remove_file(&path).is_ok() {
@@ -170,7 +191,31 @@ pub(crate) fn copy_tree(data_dir: &Path, to: &Path) -> CoreResult<u64> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+
+    #[test]
+    fn the_sweep_ignores_what_rallo_did_not_write() {
+        let data = tempfile::tempdir().unwrap();
+        let root = attachments_dir(data.path());
+        let (item, image) = (Uuid::new_v4(), Uuid::new_v4());
+        let item_dir = root.join(item.to_string());
+        let stray_dir = root.join("Not A Uuid");
+        fs::create_dir_all(&item_dir).unwrap();
+        fs::create_dir_all(&stray_dir).unwrap();
+        fs::write(root.join(".DS_Store"), b"x").unwrap();
+        fs::write(item_dir.join(".DS_Store"), b"x").unwrap();
+        fs::write(stray_dir.join(file_name(image, ImageKind::Png)), b"x").unwrap();
+        let orphan = item_dir.join(file_name(image, ImageKind::Png));
+        fs::write(&orphan, b"x").unwrap();
+        let future = SystemTime::now() + Duration::from_secs(60);
+        assert_eq!(remove_orphans(data.path(), &HashSet::new(), future).unwrap(), 1);
+        assert!(!orphan.exists());
+        assert!(root.join(".DS_Store").exists());
+        assert!(item_dir.join(".DS_Store").exists());
+        assert!(stray_dir.join(file_name(image, ImageKind::Png)).exists());
+    }
 
     #[test]
     fn copy_in_removes_its_temp_file_when_the_rename_fails() {

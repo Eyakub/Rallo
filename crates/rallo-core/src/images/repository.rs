@@ -70,6 +70,10 @@ pub(crate) fn for_item(conn: &Connection, item_id: Uuid) -> CoreResult<Vec<Image
     Ok(rows)
 }
 
+pub(crate) fn exists(conn: &Connection, image_id: Uuid) -> bool {
+    conn.query_row("SELECT 1 FROM attachments WHERE id = ?1", [image_id.to_string()], |_| Ok(())).is_ok()
+}
+
 pub(crate) fn count(conn: &Connection, item_id: Uuid) -> CoreResult<usize> {
     let count: i64 =
         conn.query_row("SELECT COUNT(*) FROM attachments WHERE item_id = ?1", [item_id.to_string()], |row| row.get(0))?;

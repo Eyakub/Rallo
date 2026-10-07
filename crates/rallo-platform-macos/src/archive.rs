@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const MAX_ARCHIVE_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_ENTRIES: usize = 100_000;
+/// Free space that must remain after unpacking.
+const FREE_SPACE_MARGIN: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ArchiveError {
@@ -20,8 +22,8 @@ pub enum ArchiveError {
     Unreadable(String),
     #[error("not a Rallo archive: it contains \"{0}\"")]
     Unsafe(String),
-    #[error("the archive is over 1 GB")]
-    TooLarge,
+    #[error("not enough free space to unpack this archive: it needs {0} MB")]
+    NoSpace(u64),
     #[error("the archive unpacks to more than Rallo accepts: {0}")]
     UnpacksTooLarge(&'static str),
 }
@@ -86,19 +88,26 @@ pub fn read_zip<T, E: From<ArchiveError>>(archive: &Path, read: impl FnOnce(&Pat
 /// directory), then refuses anything extracted that isn't a plain file or
 /// directory.
 pub fn unzip(zip: &Path, into: &Path) -> Result<(), ArchiveError> {
-    if fs::metadata(zip)?.len() > MAX_ARCHIVE_BYTES {
-        return Err(ArchiveError::TooLarge);
-    }
     let listing = Command::new("/usr/bin/zipinfo").arg("-1").arg(zip).output()?;
     if !listing.status.success() {
         return Err(ArchiveError::Unreadable("zipinfo could not read it".to_owned()));
     }
-    for name in String::from_utf8_lossy(&listing.stdout).lines() {
+    let names = String::from_utf8_lossy(&listing.stdout);
+    let mut count = 0usize;
+    for name in names.lines() {
         if !allowed(name) {
             return Err(ArchiveError::Unsafe(name.to_owned()));
         }
+        count += 1;
+        if count > MAX_ENTRIES {
+            return Err(ArchiveError::Unreadable("it has more than 100000 entries".to_owned()));
+        }
     }
-    check_declared_sizes(zip)?;
+    let total = check_declared_sizes(zip, count)?;
+    let free = free_space(into)?;
+    if !fits(total, free) {
+        return Err(ArchiveError::NoSpace(total.saturating_add(FREE_SPACE_MARGIN) / (1024 * 1024)));
+    }
     let status = Command::new("/usr/bin/ditto")
         .args(["-x", "-k", "--norsrc", "--noextattr", "--noqtn", "--noacl"])
         .arg(zip)
@@ -113,20 +122,45 @@ pub fn unzip(zip: &Path, into: &Path) -> Result<(), ArchiveError> {
 const MAX_IMAGE_ENTRY_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_DOCUMENT_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
 
+/// Whether `total` unpacked bytes fit in `free` bytes with the margin to spare.
+fn fits(total: u64, free: u64) -> bool {
+    total.saturating_add(FREE_SPACE_MARGIN) <= free
+}
+
+/// Free bytes (for unprivileged users) on the volume holding `dir`.
+fn free_space(dir: &Path) -> io::Result<u64> {
+    let path = std::ffi::CString::new(dir.as_os_str().as_encoded_bytes()).map_err(io::Error::other)?;
+    let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: `path` is a valid C string and `stats` is a writable statvfs.
+    if unsafe { libc::statvfs(path.as_ptr(), stats.as_mut_ptr()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: statvfs succeeded, so it filled `stats`.
+    let stats = unsafe { stats.assume_init() };
+    Ok(u64::from(stats.f_bavail).saturating_mul(stats.f_frsize))
+}
+
 /// Refuses a zip bomb before anything is written: `zipinfo -l` gives each
 /// entry's declared uncompressed size. (Names were already checked, so none
-/// contains whitespace.)
-fn check_declared_sizes(zip: &Path) -> Result<(), ArchiveError> {
+/// contains whitespace.) Every entry line counts whatever its mode (zips
+/// from Python carry no type bits), and the number of entries must match
+/// `zipinfo -1`'s. Returns the declared total.
+fn check_declared_sizes(zip: &Path, expected_entries: usize) -> Result<u64, ArchiveError> {
     let listing = Command::new("/usr/bin/zipinfo").arg("-l").arg(zip).output()?;
     if !listing.status.success() {
         return Err(ArchiveError::Unreadable("zipinfo could not read it".to_owned()));
     }
     let mut total = 0u64;
+    let mut entries = 0usize;
     for line in String::from_utf8_lossy(&listing.stdout).lines() {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() < 10 || !matches!(fields[0].chars().next(), Some('-' | 'd')) {
+        let is_entry = fields.len() >= 10
+            && fields[3].bytes().all(|b| b.is_ascii_digit())
+            && fields[1].bytes().all(|b| b.is_ascii_digit() || b == b'.');
+        if !is_entry {
             continue; // header and summary lines
         }
+        entries += 1;
         let size: u64 =
             fields[3].parse().map_err(|_| ArchiveError::Unreadable("a bad size in its listing".to_owned()))?;
         let name = fields[9..].join(" ");
@@ -138,10 +172,10 @@ fn check_declared_sizes(zip: &Path) -> Result<(), ArchiveError> {
         }
         total = total.saturating_add(size);
     }
-    if total > MAX_ARCHIVE_BYTES + MAX_DOCUMENT_ENTRY_BYTES {
-        return Err(ArchiveError::UnpacksTooLarge("it unpacks to over 1 GB"));
+    if entries != expected_entries {
+        return Err(ArchiveError::Unreadable("its listing could not be checked".to_owned()));
     }
-    Ok(())
+    Ok(total)
 }
 
 /// Walks what was extracted (ditto uses the local headers' names, not the
@@ -264,6 +298,33 @@ mod tests {
     }
 
     #[test]
+    fn free_space_comparison() {
+        assert!(fits(0, FREE_SPACE_MARGIN));
+        assert!(!fits(1, FREE_SPACE_MARGIN));
+        assert!(fits(1 << 40, (1 << 40) + FREE_SPACE_MARGIN));
+        assert!(!fits(u64::MAX, u64::MAX - 1));
+        assert!(free_space(&std::env::temp_dir()).unwrap() > 0);
+    }
+
+    #[test]
+    fn a_bomb_in_a_zip_without_type_bits_is_refused() {
+        let dir = private_temp_dir("test-pybomb").unwrap();
+        let out = dir.join("bomb.zip");
+        let script = format!(
+            "import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED)\n\
+             z.writestr('rallo-export.json', '{{}}')\n\
+             z.writestr('images/{ITEM}/{IMAGE}.png', bytes(11 * 1024 * 1024))\nz.close()\n"
+        );
+        let status = Command::new("/usr/bin/python3").args(["-I", "-c", &script]).arg(&out).status().unwrap();
+        assert!(status.success());
+        let target = dir.join("target");
+        fs::create_dir(&target).unwrap();
+        assert!(matches!(unzip(&out, &target), Err(ArchiveError::UnpacksTooLarge(_))));
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "nothing was extracted");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn a_text_file_is_not_a_zip() {
         let dir = private_temp_dir("test-notzip").unwrap();
         let path = dir.join("x.json");
@@ -295,7 +356,8 @@ mod tests {
         assert_eq!(document, b"{\"x\":1}");
         assert!(!opened.exists());
 
-        let failed: Result<(), ArchiveError> = write_zip(&dir.join("never.zip"), |_| Err(ArchiveError::TooLarge));
+        let failed: Result<(), ArchiveError> =
+            write_zip(&dir.join("never.zip"), |_| Err(ArchiveError::Unreadable("x".to_owned())));
         assert!(failed.is_err());
         assert!(!dir.join("never.zip").exists(), "a failed fill writes nothing");
         fs::remove_dir_all(dir).unwrap();

@@ -267,8 +267,8 @@ fn fresh_orphans_survive_the_sweep() {
     store.create_note_with_images("x", &[PNG.to_vec()], None).unwrap();
     let orphan_dir = dir.path().join("attachments").join(uuid::Uuid::new_v4().to_string());
     std::fs::create_dir_all(&orphan_dir).unwrap();
-    let old = orphan_dir.join("old.png");
-    let fresh = orphan_dir.join("fresh.png");
+    let old = orphan_dir.join(format!("{}.png", uuid::Uuid::new_v4()));
+    let fresh = orphan_dir.join(format!("{}.png", uuid::Uuid::new_v4()));
     std::fs::write(&old, PNG).unwrap();
     std::fs::write(&fresh, PNG).unwrap();
     let file = std::fs::File::options().write(true).open(&old).unwrap();
@@ -287,7 +287,9 @@ fn the_audit_counts_images_orphans_and_missing_files() {
     let mut store = support::open(dir.path());
     let note = store.create_note_with_images("x", &[PNG.to_vec(), JPEG.to_vec()], None).unwrap().item;
     std::fs::remove_file(&note.images[1].path).unwrap();
-    std::fs::write(note.images[0].path.with_file_name("stray.png"), PNG).unwrap();
+    std::fs::write(note.images[0].path.with_file_name(format!("{}.png", uuid::Uuid::new_v4())), PNG).unwrap();
+    std::fs::write(note.images[0].path.with_file_name(".DS_Store"), b"x").unwrap();
+    std::fs::create_dir(dir.path().join("attachments").join("Not A Uuid")).unwrap();
     let data_dir = dir.path().canonicalize().unwrap();
     let audit = rallo_core::images::audit(&support::raw_connection(dir.path()), &data_dir).unwrap();
     assert_eq!(audit.count, 2);

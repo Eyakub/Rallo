@@ -84,10 +84,17 @@ pub fn backup_manual(conn: &Connection, destination: &Path, overwrite: bool) -> 
 }
 
 impl Store {
+    /// The database only, no `.attachments` folder: for the pre-update
+    /// snapshot (0018 keeps pre-migration, pre-import and pre-update
+    /// snapshots database-only).
+    pub fn backup_database_to_file(&self, destination: &Path, overwrite: bool) -> CoreResult<BackupSummary> {
+        backup_manual(self.conn(), destination, overwrite)
+    }
+
     /// `rallo backup` (M4): see `backup_manual`. Never starts or signals the
     /// app; read-only against the store's own data.
     pub fn backup_to_file(&self, destination: &Path, overwrite: bool) -> CoreResult<BackupSummary> {
-        let mut summary = backup_manual(self.conn(), destination, overwrite)?;
+        let mut summary = self.backup_database_to_file(destination, overwrite)?;
         let images_to = PathBuf::from(format!("{}.attachments", destination.display()));
         if overwrite && images_to.exists() {
             fs::remove_dir_all(&images_to)?;

@@ -326,6 +326,9 @@ fn paginate(
 /// Literal substring (or, with `exact`, equality) search over `match_key`
 /// (0003 §10). No LIKE/regex; may full-scan.
 pub(crate) fn search(conn: &Connection, query: &SearchQuery) -> CoreResult<Page<ItemView>> {
+    if query.text.trim().is_empty() {
+        return Err(CoreError::invalid(ErrorCode::TextEmpty, "search text is empty"));
+    }
     text::validate_note_text(&query.text)?;
     let limit = validate_limit(query.limit)?;
     let key = text::match_key(&query.text);

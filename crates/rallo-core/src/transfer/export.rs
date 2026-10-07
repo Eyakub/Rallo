@@ -250,21 +250,23 @@ impl Store {
         encode(self, format, &rows)
     }
 
-    /// Writes the export to `path` atomically (0004): refuses to overwrite an
-    /// existing file unless `overwrite`, mode `0600`. The existence check
-    /// runs before the snapshot is read.
-    pub fn export_to_file(&self, path: &Path, format: ExportFormat, overwrite: bool) -> CoreResult<ExportSummary> {
-        refuse_existing(path, overwrite)?;
+    /// What a JSON or CSV export leaves out: images, and image-only notes
+    /// (only those that still have image rows).
+    pub fn export_warnings(&self, format: ExportFormat) -> CoreResult<Vec<String>> {
         let rows = snapshot(self)?;
-        let bytes = encode(self, format, &rows)?;
-        write_atomic(path, &bytes, overwrite)?;
-        let written =
-            |item: &Item| !item.text.is_empty() && (format == ExportFormat::Json || item.deleted_at_ms.is_none());
-        let items = rows.iter().filter(|(item, _)| written(item)).count();
-        let left_out = rows
-            .iter()
-            .filter(|(item, _)| item.text.is_empty() && (format == ExportFormat::Json || item.deleted_at_ms.is_none()))
-            .count();
+        self.plain_warnings(format, &rows)
+    }
+
+    fn plain_warnings(&self, format: ExportFormat, rows: &[(Item, Option<Reminder>)]) -> CoreResult<Vec<String>> {
+        let mut left_out = 0;
+        for (item, _) in rows {
+            if item.text.is_empty()
+                && (format == ExportFormat::Json || item.deleted_at_ms.is_none())
+                && !images_repository::for_item(self.conn(), item.id)?.is_empty()
+            {
+                left_out += 1;
+            }
+        }
         let images = images_repository::all(self.conn())?.len();
         let mut warnings = Vec::new();
         if images == 1 {
@@ -277,6 +279,21 @@ impl Store {
         } else if left_out > 1 {
             warnings.push(format!("{left_out} image-only notes were left out"));
         }
+        Ok(warnings)
+    }
+
+    /// Writes the export to `path` atomically (0004): refuses to overwrite an
+    /// existing file unless `overwrite`, mode `0600`. The existence check
+    /// runs before the snapshot is read.
+    pub fn export_to_file(&self, path: &Path, format: ExportFormat, overwrite: bool) -> CoreResult<ExportSummary> {
+        refuse_existing(path, overwrite)?;
+        let rows = snapshot(self)?;
+        let bytes = encode(self, format, &rows)?;
+        write_atomic(path, &bytes, overwrite)?;
+        let written =
+            |item: &Item| !item.text.is_empty() && (format == ExportFormat::Json || item.deleted_at_ms.is_none());
+        let items = rows.iter().filter(|(item, _)| written(item)).count();
+        let warnings = self.plain_warnings(format, &rows)?;
         Ok(ExportSummary { items: items as u64, path: path.to_path_buf(), warnings })
     }
 
@@ -287,6 +304,7 @@ impl Store {
     pub fn export_to_dir(&self, dir: &Path) -> CoreResult<ExportSummary> {
         let rows = snapshot(self)?;
         let mut items = Vec::with_capacity(rows.len());
+        let mut missing = 0;
         for (item, reminder) in &rows {
             let images = images_repository::for_item(self.conn(), item.id)?;
             if item.text.is_empty() && images.is_empty() {
@@ -298,18 +316,15 @@ impl Store {
                 let target = dir.join(&file);
                 ensure_private_dir(target.parent().expect("has a parent"))?;
                 let source = crate::images::files::file_path(self.data_dir(), item.id, &image.file_name);
-                fs::copy(&source, &target).map_err(|error| {
-                    if error.kind() == std::io::ErrorKind::NotFound {
-                        CoreError::storage(format!(
-                            "image {} of note {} is missing ({}); run `rallo doctor`",
-                            image.id,
-                            item.id,
-                            source.display()
-                        ))
-                    } else {
-                        error.into()
+                match fs::copy(&source, &target) {
+                    Ok(_) => {}
+                    // Gone (or removed by a concurrent detach or sweep): leave it out.
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        missing += 1;
+                        continue;
                     }
-                })?;
+                    Err(error) => return Err(error.into()),
+                }
                 exported.push(ExportImage {
                     id: image.id,
                     file,
@@ -317,6 +332,9 @@ impl Store {
                     bytes: image.byte_size,
                     created_at_ms: image.created_at_ms,
                 });
+            }
+            if item.text.is_empty() && exported.is_empty() {
+                continue; // every file of an image-only note is missing
             }
             items.push(export_item(item, reminder.as_ref(), Some(exported)));
         }
@@ -331,6 +349,11 @@ impl Store {
         };
         let path = dir.join(ARCHIVE_DOCUMENT);
         write_atomic(&path, &serde_json::to_vec_pretty(&document).expect("ExportDocument serializes"), false)?;
-        Ok(ExportSummary { items: count, path, warnings: Vec::new() })
+        let warnings = match missing {
+            0 => Vec::new(),
+            1 => vec!["1 image file is missing and was left out; run `rallo doctor`".to_owned()],
+            n => vec![format!("{n} image files are missing and were left out; run `rallo doctor`")],
+        };
+        Ok(ExportSummary { items: count, path, warnings })
     }
 }

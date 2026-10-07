@@ -82,11 +82,14 @@ pub fn audit(conn: &Connection, data_dir: &Path) -> CoreResult<ImageAudit> {
         .map(|path| path.display().to_string())
         .collect();
     if let Ok(item_dirs) = std::fs::read_dir(files::attachments_dir(data_dir)) {
-        for item_dir in item_dirs.flatten().filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())) {
+        let item_dirs = item_dirs.flatten().filter(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_dir()) && files::is_item_dir(&entry.file_name())
+        });
+        for item_dir in item_dirs {
             // Best-effort like the sweep: an unreadable directory is skipped.
             let Ok(entries) = std::fs::read_dir(item_dir.path()) else { continue };
             for entry in entries.flatten() {
-                if !known.contains(&entry.path()) {
+                if files::is_image_file(&entry.file_name()) && !known.contains(&entry.path()) {
                     audit.orphan_files += 1;
                 }
             }

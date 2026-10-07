@@ -251,13 +251,13 @@ fn fallback_title_and_body() -> (String, String) {
     ("Rallo reminder".to_owned(), "Open Rallo to see it.".to_owned())
 }
 
-/// The note's title line and the rest flattened to one line, mirroring the
-/// app's `NoteParts` (`Notes/NoteRow.swift`): the first non-empty line is the
-/// title, the remaining lines are trimmed and joined with spaces.
+/// The note's title line and the rest flattened to one line: the first
+/// non-empty line is the title, the remaining lines are trimmed and joined
+/// with spaces. An image-only note (empty text) is titled "Image".
 fn title_and_body(text: &str) -> (String, String) {
     let lines: Vec<&str> = text.lines().collect();
     match lines.iter().position(|line| !line.trim().is_empty()) {
-        None => (text.trim().to_owned(), String::new()),
+        None => ("Image".to_owned(), String::new()),
         Some(index) => {
             let title = lines[index].trim().to_owned();
             let body = lines[index + 1..]
@@ -892,5 +892,17 @@ impl Store {
         let view = items_repository::build_item_view(&tx, updated_item)?;
         tx.commit()?;
         Ok(ActionOutcome::Applied(view))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::title_and_body;
+
+    #[test]
+    fn an_image_only_note_is_titled_image() {
+        assert_eq!(title_and_body(""), ("Image".to_owned(), String::new()));
+        assert_eq!(title_and_body("  \n "), ("Image".to_owned(), String::new()));
+        assert_eq!(title_and_body("Call\n me \n\n now"), ("Call".to_owned(), "me now".to_owned()));
     }
 }
