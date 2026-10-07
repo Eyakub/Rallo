@@ -6,9 +6,10 @@
 use std::fs::{self, DirBuilder};
 use std::io::{self, Read};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_ENTRIES: usize = 100_000;
 /// Free space that must remain after unpacking.
@@ -87,8 +88,27 @@ pub fn read_zip<T, E: From<ArchiveError>>(archive: &Path, read: impl FnOnce(&Pat
 /// Checks every entry name before extracting into `into` (an empty private
 /// directory), then refuses anything extracted that isn't a plain file or
 /// directory.
+///
+/// zipinfo reads its archive argument as a wildcard pattern (and a leading
+/// `-` as options) while ditto opens it literally, so the archive is first
+/// linked (or copied) to a fixed private name that both treat the same.
 pub fn unzip(zip: &Path, into: &Path) -> Result<(), ArchiveError> {
-    let listing = Command::new("/usr/bin/zipinfo").arg("-1").arg(zip).output()?;
+    let dir = private_temp_dir("import-src")?;
+    let result = unzip_private(zip, &dir.join("archive.zip"), into);
+    let _ = fs::remove_dir_all(&dir);
+    result
+}
+
+fn unzip_private(original: &Path, zip: &Path, into: &Path) -> Result<(), ArchiveError> {
+    let text = zip.to_string_lossy();
+    if !zip.is_absolute() || text.starts_with('-') || text.contains(['*', '?', '[']) {
+        return Err(ArchiveError::Unreadable("its working name is not safe".to_owned()));
+    }
+    // Copying costs disk only when the archive is on another volume.
+    if fs::hard_link(original, zip).is_err() {
+        fs::copy(original, zip)?;
+    }
+    let listing = zipinfo().arg("-1").arg(zip).output()?;
     if !listing.status.success() {
         return Err(ArchiveError::Unreadable("zipinfo could not read it".to_owned()));
     }
@@ -108,16 +128,73 @@ pub fn unzip(zip: &Path, into: &Path) -> Result<(), ArchiveError> {
     if !fits(total, free) {
         return Err(ArchiveError::NoSpace(total.saturating_add(FREE_SPACE_MARGIN) / (1024 * 1024)));
     }
-    let status = Command::new("/usr/bin/ditto")
-        .args(["-x", "-k", "--norsrc", "--noextattr", "--noqtn", "--noacl"])
-        .arg(zip)
-        .arg(into)
-        .status()?;
+    let mut command = Command::new("/usr/bin/ditto");
+    command.args(["-x", "-k", "--norsrc", "--noextattr", "--noqtn", "--noacl"]).arg(zip).arg(into);
+    // SAFETY: the closure runs between fork and exec and only calls
+    // setrlimit and signal, which are async-signal-safe.
+    unsafe {
+        command.pre_exec(|| {
+            let limit = libc::rlimit { rlim_cur: MAX_FILE_BYTES, rlim_max: MAX_FILE_BYTES };
+            if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // An oversized write then fails with EFBIG instead of killing ditto.
+            libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+            Ok(())
+        });
+    }
+    let allowed_total = total.saturating_add(SIZE_SLACK);
+    let mut child = command.spawn()?;
+    let mut last_check = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if last_check.elapsed() >= Duration::from_millis(50) {
+            last_check = std::time::Instant::now();
+            if dir_size(into) > allowed_total {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(ArchiveError::UnpacksTooLarge("it unpacks to more than it says"));
+            }
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
     if !status.success() {
         return Err(ArchiveError::Unreadable("ditto could not extract it".to_owned()));
     }
+    if dir_size(into) > allowed_total {
+        return Err(ArchiveError::UnpacksTooLarge("it unpacks to more than it says"));
+    }
     refuse_extras(into, into)
 }
+
+/// Total size of every file under `dir`, links not followed.
+fn dir_size(dir: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(dir) else { return 0 };
+    entries
+        .flatten()
+        .map(|entry| match fs::symlink_metadata(entry.path()) {
+            Ok(meta) if meta.is_dir() => dir_size(&entry.path()),
+            Ok(meta) => meta.len(),
+            Err(_) => 0,
+        })
+        .fold(0, u64::saturating_add)
+}
+
+/// A zipinfo that ignores the user's `ZIPINFO`-style options.
+fn zipinfo() -> Command {
+    let mut command = Command::new("/usr/bin/zipinfo");
+    for name in ["ZIPINFO", "ZIPINFOOPT", "UNZIP", "UNZIPOPT"] {
+        command.env_remove(name);
+    }
+    command
+}
+
+/// Per-file write limit for ditto: the largest allowed entry plus 1 MiB.
+const MAX_FILE_BYTES: libc::rlim_t = 65 * 1024 * 1024;
+/// How far past the declared total unpacking may go.
+const SIZE_SLACK: u64 = 1024 * 1024;
 
 const MAX_IMAGE_ENTRY_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_DOCUMENT_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
@@ -147,7 +224,7 @@ fn free_space(dir: &Path) -> io::Result<u64> {
 /// so none contains whitespace.) The number of entries must match
 /// `zipinfo -1`'s. Returns the declared total.
 fn check_declared_sizes(zip: &Path, expected_entries: usize) -> Result<u64, ArchiveError> {
-    let listing = Command::new("/usr/bin/zipinfo").arg("-l").arg(zip).arg("*").output()?;
+    let listing = zipinfo().arg("-l").arg(zip).arg("*").output()?;
     if !listing.status.success() {
         return Err(ArchiveError::Unreadable("zipinfo could not read it".to_owned()));
     }
@@ -323,6 +400,77 @@ mod tests {
         assert!(matches!(unzip(&out, &target), Err(ArchiveError::UnpacksTooLarge(_))));
         assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "nothing was extracted");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn zipinfo_ignores_the_users_options() {
+        let command = zipinfo();
+        let envs: Vec<_> = command.get_envs().collect();
+        for name in ["ZIPINFO", "ZIPINFOOPT", "UNZIP", "UNZIPOPT"] {
+            assert!(envs.contains(&(std::ffi::OsStr::new(name), None)), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_wildcard_archive_name_cannot_swap_in_another_archive() {
+        let dir = private_temp_dir("test-wild").unwrap();
+        let source = dir.join("src");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("rallo-export.json"), b"{}").unwrap();
+        zip(&source, &dir.join("a.zip")).unwrap();
+        let bomb = bomb_named(&dir, "[a].zip");
+        let target = dir.join("target");
+        fs::create_dir(&target).unwrap();
+        assert!(matches!(unzip(&bomb, &target), Err(ArchiveError::UnpacksTooLarge(m)) if m.contains("10 MB")));
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "nothing was extracted");
+        let prefix = format!("rallo-import-src-{}-", std::process::id());
+        let leftover = fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().starts_with(&prefix));
+        assert!(!leftover, "the private link directory is removed");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Writes a zip whose image entry really holds `mib` MiB of zeros but
+    /// declares 777 bytes in both the local header and the central directory.
+    fn under_declared(dir: &Path, mib: usize) -> PathBuf {
+        let out = dir.join("lie.zip");
+        let script = format!(
+            "import sys, zipfile, struct\nz = zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED)\n\
+             z.writestr('images/{ITEM}/{IMAGE}.png', bytes({mib} * 1024 * 1024))\n\
+             z.writestr('rallo-export.json', '{{}}')\nz.close()\n\
+             d = bytearray(open(sys.argv[1], 'rb').read())\n\
+             assert d[:4] == b'PK\\x03\\x04'\n\
+             d[22:26] = struct.pack('<I', 777)\n\
+             c = d.index(b'PK\\x01\\x02')\n\
+             d[c + 24:c + 28] = struct.pack('<I', 777)\n\
+             open(sys.argv[1], 'wb').write(d)\n"
+        );
+        let status = Command::new("/usr/bin/python3").args(["-I", "-c", &script]).arg(&out).status().unwrap();
+        assert!(status.success());
+        out
+    }
+
+    #[test]
+    fn an_under_declared_entry_is_not_unpacked() {
+        for mib in [11, 70] {
+            let dir = private_temp_dir("test-lie").unwrap();
+            let out = under_declared(&dir, mib);
+            let staging = private_temp_dir("test-lie-staging").unwrap();
+            let result = read_zip(&out, |_| -> Result<(), ArchiveError> { panic!("must not be read") });
+            assert!(result.is_err(), "{mib} MiB");
+            let direct = unzip(&out, &staging);
+            assert!(direct.is_err(), "{mib} MiB");
+            let message = direct.unwrap_err().to_string();
+            assert!(
+                message.contains("more than it says") || message.contains("ditto could not"),
+                "{mib} MiB: {message}"
+            );
+            assert!(dir_size(&staging) <= 65 * 1024 * 1024, "the file limit holds");
+            fs::remove_dir_all(dir).unwrap();
+            fs::remove_dir_all(staging).unwrap();
+        }
     }
 
     /// Zips an 11 MiB zero-filled image entry into `dir/<file_name>`.

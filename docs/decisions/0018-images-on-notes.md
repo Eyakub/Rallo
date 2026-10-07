@@ -169,7 +169,10 @@ colon). In the panel's note field, ⇧↩ inserts a line break (⌥↩ still doe
   regular file (no links). Every image is then checked (format, size,
   count) before any write; the import stays all-or-nothing behind its
   pre-import snapshot. Limits: each image ≤ 10 MiB, the JSON ≤ 64 MiB, at most 100 000 entries, and
-  enough free space to unpack it (the declared size plus 512 MiB).
+  enough free space to unpack it (the declared size plus 512 MiB). The
+  archive is listed and unpacked under a fixed private name; each unpacked
+  file is capped at 64 MiB and unpacking stops when it grows past what the
+  archive declares.
 - `rallo doctor` adds an `images` check: folder permissions, count and size
   ("38 images, 112 MB"); orphan files are a warning ("Rallo removes them the
   next time it opens"); a row whose file is missing is a problem (fix:
