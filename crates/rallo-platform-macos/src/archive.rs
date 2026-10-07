@@ -147,8 +147,14 @@ fn unzip_private(original: &Path, zip: &Path, into: &Path) -> Result<(), Archive
     let mut child = command.spawn()?;
     let mut last_check = std::time::Instant::now();
     let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error.into());
+            }
         }
         if last_check.elapsed() >= Duration::from_millis(50) {
             last_check = std::time::Instant::now();
