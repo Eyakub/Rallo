@@ -8,8 +8,9 @@ struct ItemEditor: View {
     @FocusState private var focused: Bool
 
     private var canSave: Bool {
+        // An image note's caption can be cleared; a text-only note can't be empty.
         let draft = model.editDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !draft.isEmpty && model.editDraft != item.text
+        return (!draft.isEmpty || !item.images.isEmpty) && model.editDraft != item.text
     }
 
     var body: some View {
