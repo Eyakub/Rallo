@@ -48,11 +48,19 @@ struct Toast: Identifiable {
     let undo: Undo?
 }
 
+/// An image waiting in the note field (0018).
+struct StagedImage: Identifiable {
+    let id = UUID()
+    let data: Data
+    let thumbnail: NSImage?
+}
+
 @MainActor
 final class NotesViewModel: ObservableObject {
     @Published var items: [ItemSnapshot] = []
     @Published var agentSessions: [AgentSessionSnapshot] = []
     @Published var draft = ""
+    @Published var stagedImages: [StagedImage] = []
     @Published var errorMessage: String?
     /// A failed Services save (0017); reload() leaves it alone.
     @Published var captureError: String?
@@ -184,6 +192,10 @@ final class NotesViewModel: ObservableObject {
     /// Esc steps back one level: close a swipe tray, stop editing, then
     /// collapse, then close. Returns whether it handled the key.
     func handleEscape() -> Bool {
+        if !stagedImages.isEmpty {
+            stagedImages = []
+            return true
+        }
         if openSwipe != nil {
             openSwipe = nil
             return true
@@ -228,12 +240,44 @@ final class NotesViewModel: ObservableObject {
         }
     }
 
+    /// Adds images to the note field (0018). A refusal shows in the panel and
+    /// stages nothing.
+    func stage(_ images: [Data]) {
+        guard !images.isEmpty else { return }
+        do {
+            try ImageClipboard.check(images, staged: stagedImages.count)
+            stagedImages += images.map { StagedImage(data: $0, thumbnail: Thumbnails.image(data: $0, points: 44)) }
+            errorMessage = nil
+        } catch {
+            errorMessage = (error as? ImageRefusal)?.message ?? error.localizedDescription
+        }
+    }
+
+    /// ⌘V in the note field: true when the clipboard held images (staged or
+    /// refused), so the text paste is skipped.
+    func pasteImages(from pasteboard: NSPasteboard) -> Bool {
+        do {
+            let images = try ImageClipboard.images(from: pasteboard)
+            guard !images.isEmpty else { return false }
+            stage(images)
+        } catch {
+            errorMessage = (error as? ImageRefusal)?.message ?? error.localizedDescription
+        }
+        return true
+    }
+
+    func unstage(_ id: UUID) {
+        stagedImages.removeAll { $0.id == id }
+    }
+
     func save() async {
         let text = draft
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let images = stagedImages.map(\.data)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty else { return }
         do {
-            let item = try await core.createNote(text)
+            let item = try await core.createNote(text, images: images)
             draft = ""
+            stagedImages = []
             await reload()
             highlight(item.id)
         } catch let error as RalloError {
@@ -375,6 +419,7 @@ struct NotesView: View {
     @State private var swipeMonitor = SwipeScrollMonitor()
     @StateObject private var agentsClock = AgentsClock()
     @State private var newlineMonitor: Any?
+    @State private var dropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -469,13 +514,26 @@ struct NotesView: View {
     }
 
     private var hasDraft: Bool {
-        !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.stagedImages.isEmpty
     }
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if !model.stagedImages.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(model.stagedImages.enumerated()), id: \.element.id) { index, image in
+                            StagedThumbnail(image: image, label: "Image \(index + 1) of \(model.stagedImages.count)") {
+                                model.unstage(image.id)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                    .padding(.trailing, 4)
+                }
+            }
             HStack(alignment: .bottom, spacing: 8) {
-                TextField(text: $model.draft, prompt: Text(prompt).foregroundStyle(Theme.bark), axis: .vertical) {
+                TextField(text: $model.draft, prompt: Text(model.stagedImages.isEmpty ? prompt : "Add a note, or press Return").foregroundStyle(Theme.bark), axis: .vertical) {
                     Text("New note")
                 }
                 .textFieldStyle(.plain)
@@ -486,6 +544,10 @@ struct NotesView: View {
                     // ⇧↩ inserts a line break (0018), as ⌥↩ already does; ↩ saves.
                     newlineMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                        if composerFocused, flags == .command, event.charactersIgnoringModifiers == "v",
+                           model.pasteImages(from: .general) {
+                            return nil
+                        }
                         guard composerFocused, event.keyCode == 36, flags == .shift else { return event }
                         NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
                         return nil
@@ -528,8 +590,12 @@ struct NotesView: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.field))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(composerFocused ? Theme.rust : Theme.fieldStroke, lineWidth: composerFocused ? 1.5 : 1)
+                .strokeBorder(composerFocused || dropTargeted ? Theme.rust : Theme.fieldStroke, lineWidth: composerFocused || dropTargeted ? 1.5 : 1)
         )
+        .onDrop(of: [.image], isTargeted: $dropTargeted) { providers in
+            Task { @MainActor in model.stage(await ImageClipboard.load(providers)) }
+            return true
+        }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hasDraft)
         .padding(.horizontal, 16)
         .padding(.bottom, 10)
@@ -654,5 +720,40 @@ private struct EmptyNotesView: View {
         .padding(.horizontal, 22)
         .padding(.top, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A staged image in the note field: 44 pt, rounded, × to remove (0018).
+private struct StagedThumbnail: View {
+    let image: StagedImage
+    let label: String
+    let remove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let thumbnail = image.thumbnail {
+                    Image(nsImage: thumbnail).resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    Image(systemName: "photo").foregroundStyle(Theme.bark)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.fieldStroke))
+
+            Button(action: remove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Theme.onToast)
+                    .frame(width: 16, height: 16)
+                    .background(Circle().fill(Theme.toast))
+            }
+            .buttonStyle(.plain)
+            .offset(x: 4, y: -4)
+            .accessibilityLabel("Remove \(label)")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
     }
 }
