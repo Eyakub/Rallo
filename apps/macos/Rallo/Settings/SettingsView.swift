@@ -96,6 +96,15 @@ private struct GeneralTab: View {
             Toggle("Check for updates daily", isOn: Binding(get: { model.updateCheckEnabled }, set: { model.setUpdateCheck($0) }))
                 .disabled(!model.updateCheckAllowed)
             caption("Asks GitHub once a day whether a newer Rallo is out, then tells you in the menu and with a notification. Nothing about you or your notes is sent; installing still waits for you.")
+            Toggle("Screenshot to a note (⌃⌥⌘S)",
+                   isOn: Binding(get: { model.screenshotHotkeyEnabled }, set: { model.setScreenshotHotkey($0) }))
+            caption("Select part of the screen; it opens in the notes panel ready to save. macOS asks once for Screen Recording access.")
+            if model.screenshotHotkeyEnabled, model.screenshotShortcutTaken {
+                HStack {
+                    Text("Another app is using ⌃⌥⌘S").font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.error)
+                    Button("Try Again") { model.setScreenshotHotkey(true) }
+                }
+            }
             Divider()
             Text("Terminal command").font(Theme.rounded(13, .semibold))
             HStack {

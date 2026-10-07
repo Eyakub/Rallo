@@ -30,6 +30,7 @@ final class AppCoordinator {
     private var systemObservers: [NSObjectProtocol] = []
 
     private var storageReady = false
+    private var capturingScreenshot = false
     private var checking = false
     private var lastRevision: Int64?
     private var visibility: PetVisibility?
@@ -138,6 +139,7 @@ final class AppCoordinator {
             if notes.isOpen { notes.close() } else { openNotes(highlighting: nil) }
         }
         globalShortcuts.onVoice = { [weak self] in self?.voice.toggle() }
+        globalShortcuts.onScreenshot = { [weak self] in Task { await self?.takeScreenshot() } }
         voice.onListening = { [weak self] in self?.pet.setListening($0) }
         voice.onTyped = { [weak self] in self?.pet.heard() }
         voice.petFrame = { [weak self] in
@@ -146,6 +148,7 @@ final class AppCoordinator {
         }
         globalShortcuts.register()
         globalShortcuts.setVoice(enabled: Self.voiceTypingEnabled)
+        globalShortcuts.setScreenshot(enabled: Self.screenshotHotkeyEnabled)
         observer.onPossibleChange = { [weak self] in Task { await self?.checkForChanges() } }
         observer.onShowRequest = { [weak self] in Task { await self?.handleShowRequest() } }
         observer.onDiagnosticsRequest = { [weak self] in self?.writeWindowReport() }
@@ -440,6 +443,8 @@ final class AppCoordinator {
             model.voiceTypingEnabled = Self.voiceTypingEnabled
             model.voiceAccessibilityMissing = !VoicePermissions.accessibilityAllowed(prompt: false)
             model.voiceShortcutTaken = Self.voiceTypingEnabled && !globalShortcuts.voiceRegistered
+            model.screenshotHotkeyEnabled = Self.screenshotHotkeyEnabled
+            model.screenshotShortcutTaken = Self.screenshotHotkeyEnabled && !globalShortcuts.screenshotRegistered
         }
         model.toggleLoginItem = { [weak self] in
             guard let self else { return }
@@ -474,6 +479,12 @@ final class AppCoordinator {
             }
             settingsModel.refresh()
         }
+        model.setScreenshotHotkey = { [weak self] enabled in
+            guard let self else { return }
+            UserDefaults.standard.set(enabled, forKey: "screenshotHotkeyEnabled")
+            globalShortcuts.setScreenshot(enabled: enabled)
+            settingsModel.refresh()
+        }
         model.setUpdateCheck = { [weak self] enabled in
             self?.updateChecker.setEnabled(enabled)
             self?.settingsModel.refresh()
@@ -481,6 +492,7 @@ final class AppCoordinator {
     }
 
     private static var voiceTypingEnabled: Bool { UserDefaults.standard.bool(forKey: "voiceTypingEnabled") }
+    private static var screenshotHotkeyEnabled: Bool { UserDefaults.standard.bool(forKey: "screenshotHotkeyEnabled") }
 
     /// Agent sessions are runtime state (0009): keep them out of Time
     /// Machine. The core creates the folder when it opens the store.
@@ -548,6 +560,32 @@ final class AppCoordinator {
     private func showCaptureError(_ message: String) {
         openNotes(highlighting: nil)
         notesModel.captureError = message
+    }
+
+    /// ⌃⌥⌘S (0018): the capture opens in the note field with the cursor in
+    /// the text; Return saves, Escape discards. The panel steps aside while
+    /// the user selects.
+    private func takeScreenshot() async {
+        guard storageReady, !capturingScreenshot else { return }
+        capturingScreenshot = true
+        defer { capturingScreenshot = false }
+        notes.close()
+        let outcome = await ScreenshotCapture.capture()
+        log.record("screenshot", ["outcome": outcome.name])
+        switch outcome {
+        case let .captured(data):
+            do {
+                try ImageClipboard.check([data], staged: notesModel.stagedImages.count)
+                openNotes(highlighting: nil)
+                notesModel.stage([data])
+            } catch {
+                showCaptureError((error as? ImageRefusal)?.message ?? error.localizedDescription)
+            }
+        case .needsPermission:
+            showCaptureError(ScreenshotCapture.permissionMessage)
+        case .cancelled:
+            break
+        }
     }
 
     private func openNotes(highlighting itemID: String?) {

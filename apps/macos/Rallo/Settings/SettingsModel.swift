@@ -26,6 +26,9 @@ final class SettingsModel: ObservableObject {
     @Published var voiceAccessibilityMissing = false
     /// Voice typing is on but another app owns ⌃⌥⌘V.
     @Published var voiceShortcutTaken = false
+    @Published var screenshotHotkeyEnabled = false
+    /// The screenshot hot key is on but another app owns ⌃⌥⌘S.
+    @Published var screenshotShortcutTaken = false
     var dataPath = ""
 
     enum WhisperModelState: Equatable {
@@ -67,6 +70,7 @@ final class SettingsModel: ObservableObject {
     var importNotes: () -> Void = {}
     var setUpdateCheck: (Bool) -> Void = { _ in }
     var setVoiceTyping: (Bool) -> Void = { _ in }
+    var setScreenshotHotkey: (Bool) -> Void = { _ in }
 
     func openAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
