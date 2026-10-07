@@ -203,3 +203,43 @@ fn doctor_reports_a_missing_image_file() {
     assert_eq!(check["status"], "problem");
     assert!(check["summary"].as_str().unwrap().contains("1 missing"));
 }
+
+#[test]
+fn a_zip_dry_run_reports_the_zip_format() {
+    let cli = Cli::new();
+    let shot = png(&cli, "shot.png");
+    cli.json(&["note", "with image", "--image", &shot, "--json"]);
+    let archive = cli.dir.path().join("export.zip");
+    cli.json(&["export", "--output", archive.to_str().unwrap(), "--json"]);
+    let other = Cli::new();
+    let (code, report) = other.json(&["import", "--file", archive.to_str().unwrap(), "--dry-run", "--json"]);
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(report["format"], "zip");
+}
+
+#[test]
+fn searching_for_blank_text_says_the_search_text_is_empty() {
+    let cli = Cli::new();
+    let (code, json) = cli.json(&["search", " ", "--json"]);
+    assert_eq!(code, 2);
+    assert_eq!(json["error"]["message"], "search text is empty");
+}
+
+#[test]
+fn an_endless_image_file_is_refused_as_too_large() {
+    let cli = Cli::new();
+    let (code, json) = cli.json(&["note", "x", "--image", "/dev/zero", "--json"]);
+    assert_eq!(code, 2, "{json}");
+    assert_eq!(json["error"]["code"], "IMAGE_TOO_LARGE");
+}
+
+#[test]
+fn export_to_stdout_warns_on_stderr_about_left_out_notes() {
+    let cli = Cli::new();
+    let shot = png(&cli, "shot.png");
+    cli.json(&["note", "--image", &shot, "--json"]);
+    let output = cli.run(&["export", "--output", "-"]);
+    assert!(output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("1 image-only note was left out"), "{stderr}");
+}

@@ -228,8 +228,9 @@ pub enum Command {
         /// Full ID or unique prefix. Omit for the app/storage overview.
         id: Option<String>,
     },
-    /// Export notes and reminders. JSON is a lossless backup; CSV is
-    /// spreadsheet-friendly but excludes deleted items and some reminder detail.
+    /// Export notes and reminders. JSON keeps everything except images (a zip
+    /// keeps those too); CSV is spreadsheet-friendly but excludes deleted
+    /// items and some reminder detail.
     Export {
         /// Destination path, or "-" for stdout.
         #[arg(long, value_name = "PATH")]

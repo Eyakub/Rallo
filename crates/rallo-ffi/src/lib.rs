@@ -93,8 +93,7 @@ pub struct RalloStore {
     inner: Mutex<Store>,
 }
 
-/// Reads one byte past the cap so the core reports an oversized file with
-/// its documented message instead of silently truncating it.
+/// Whether `path` is a zip export (by its first bytes).
 fn is_archive(path: &str) -> Result<bool, RalloError> {
     archive::is_zip(Path::new(path)).map_err(|error| RalloError::InvalidInput {
         code: "INVALID_INPUT".into(),
@@ -102,6 +101,8 @@ fn is_archive(path: &str) -> Result<bool, RalloError> {
     })
 }
 
+/// Reads one byte past the cap so the core reports an oversized file with
+/// its documented message instead of silently truncating it.
 fn read_import_file(path: &str) -> Result<Vec<u8>, RalloError> {
     let unreadable = |error: std::io::Error| RalloError::InvalidInput {
         code: "INVALID_INPUT".into(),

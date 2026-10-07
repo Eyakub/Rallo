@@ -84,7 +84,7 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>, check: bool) -> CommandRes
     let backup_path = if data_dir.is_dir() {
         let store = Store::open(StoreOptions::new(data_dir.clone()))?;
         let destination = default_manual_backup_path(store.data_dir(), store.now_ms());
-        Some(store.backup_to_file(&destination, false)?.path)
+        Some(store.backup_database_to_file(&destination, false)?.path)
     } else {
         None
     };

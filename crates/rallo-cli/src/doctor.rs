@@ -492,7 +492,7 @@ fn check_images(inspection: Option<&StoreInspection>) -> Check {
             "images",
             CheckStatus::Problem,
             format!("{summary}; {} missing: {}", audit.missing.len(), audit.missing.join(", ")),
-            Some("Restore the files from a backup, or remove them from their notes with `rallo detach`.".to_owned()),
+            Some("Restore the files from a backup, or remove them from their notes with `rallo detach ID IMAGE_ID` (a note with nothing else in it: `rallo delete ID`).".to_owned()),
         );
     }
     if audit.orphan_files > 0 {

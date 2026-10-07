@@ -24,8 +24,8 @@ restorable copy of everything, and it works whether or not the app is
 currently running.
 
 `rallo export` is a different kind of document: a versioned, human-readable
-snapshot of items and reminder *intent* (JSON is lossless; CSV excludes
-deleted items and most reminder detail). It never carries native
+snapshot of items and reminder *intent* (JSON keeps everything except images,
+which a zip export keeps too; CSV excludes deleted items and most reminder detail). It never carries native
 scheduling/delivery evidence, and importing it always leaves reminders
 disabled until you explicitly reschedule them (see `docs/cli-contract.md`).
 Prefer `rallo backup` when you want to restore exactly what you had; prefer

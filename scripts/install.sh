@@ -10,7 +10,7 @@
 #                                    when the installed version has it, else
 #                                    removes the app and its terminal command);
 #                                    --purge also deletes your notes (after
-#                                    saving a JSON export to ~/Downloads)
+#                                    saving a zip export with images to ~/Downloads)
 #
 # Downloads made by curl or gh are not quarantined, so the ad-hoc-signed app
 # opens without a Gatekeeper prompt. Every download is checked against the

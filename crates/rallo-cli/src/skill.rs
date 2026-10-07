@@ -19,7 +19,7 @@ pub const SKILL: &str = include_str!("../../../skills/rallo/SKILL.md");
 /// Subcommands (0003) safe to pre-approve for Codex without asking: everyday
 /// notes/reminders only. Never `update`, `setup`, `backup`, `import`,
 /// `export`, or `doctor`.
-const RULES_COMMANDS: [&str; 16] = [
+const RULES_COMMANDS: [&str; 18] = [
     "note",
     "remind",
     "list",
@@ -33,6 +33,8 @@ const RULES_COMMANDS: [&str; 16] = [
     "cancel-reminder",
     "edit",
     "delete",
+    "attach",
+    "detach",
     "restore",
     "show",
     "hide",

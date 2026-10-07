@@ -493,7 +493,19 @@ fn read_images(paths: &[PathBuf]) -> Result<Vec<Vec<u8>>, Failure> {
                     format!("{} is {:.1} MB; the limit is 10 MB", path.display(), size as f64 / (1024.0 * 1024.0)),
                 ));
             }
-            std::fs::read(path).map_err(unreadable)
+            // Bounded read: a device or FIFO reports a length of 0 and never ends.
+            let mut bytes = Vec::new();
+            std::fs::File::open(path)
+                .and_then(|file| file.take(rallo_core::images::MAX_IMAGE_BYTES as u64 + 1).read_to_end(&mut bytes))
+                .map_err(unreadable)?;
+            if bytes.len() > rallo_core::images::MAX_IMAGE_BYTES {
+                return Err(Failure::new(
+                    Exit::InvalidInput,
+                    "IMAGE_TOO_LARGE",
+                    format!("{} is over 10 MB; the limit is 10 MB", path.display()),
+                ));
+            }
+            Ok(bytes)
         })
         .collect()
 }
@@ -996,6 +1008,9 @@ pub fn export(
     if output == "-" {
         let bytes = store.export_bytes(format)?;
         io::stdout().lock().write_all(&bytes)?;
+        for warning in store.export_warnings(format)? {
+            eprintln!("warning: {warning}");
+        }
         return Ok(());
     }
     let summary = store.export_to_file(Path::new(output), format, force)?;
@@ -1036,9 +1051,9 @@ fn read_import_bytes(file: &str) -> Result<Vec<u8>, Failure> {
     Ok(bytes)
 }
 
-fn import_fields(report: &ImportReport) -> Value {
+fn import_fields(report: &ImportReport, zip: bool) -> Value {
     json!({
-        "format": report.format,
+        "format": if zip { json!("zip") } else { json!(report.format) },
         "total_records": report.total_records,
         "new": report.new,
         "identical": report.identical,
@@ -1070,7 +1085,8 @@ fn import_human(report: &ImportReport, dry_run: bool) -> String {
 /// the app; a successful, non-dry-run import signals one that is already
 /// running (the same helper `hide` uses).
 pub fn import(out: &Output, store: &mut Store, file: &str, dry_run: bool) -> CommandResult {
-    let report = if file != "-" && archive::is_zip(Path::new(file)).unwrap_or(false) {
+    let zip = file != "-" && archive::is_zip(Path::new(file)).unwrap_or(false);
+    let report = if zip {
         archive::read_zip(Path::new(file), |dir| -> Result<ImportReport, Failure> {
             Ok(if dry_run { store.preview_import_dir(dir)? } else { store.apply_import_dir(dir)? })
         })?
@@ -1082,7 +1098,7 @@ pub fn import(out: &Output, store: &mut Store, file: &str, dry_run: bool) -> Com
         signal_if_running(store.data_dir());
     }
     let warnings = report.warnings.clone();
-    out.success(import_fields(&report), &warnings, || import_human(&report, dry_run));
+    out.success(import_fields(&report, zip), &warnings, || import_human(&report, dry_run));
     Ok(())
 }
 

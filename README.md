@@ -148,7 +148,7 @@ the same interface you do. `rallo --help` lists them all;
   without text; if it can't be saved, the notes panel opens and says why. Give it a
   key in System Settings → Keyboard → Keyboard Shortcuts → Services.
 
-Rallo sees only the text sent with the request, when the item is used. If Rallo isn't running,
+Rallo sees only the text or image sent with the request, when the item is used. If Rallo isn't running,
 macOS starts it first.
 
 ## Coding agents
@@ -206,8 +206,8 @@ message text. Channel @mentions and task comments aren't covered yet
   and never leave your Mac. Agents read them by path (`rallo get ID --json`); Rallo's agent skill
   tells them never to upload or send them unless you ask. ⌃⌥⌘S uses macOS's own screenshot tool
   and needs Screen Recording access, used only while you select.
-- **Siri and Services.** Rallo reads text only when New Rallo Note is used, and only the text
-  sent with it. Siri turns your voice into text (that part is Apple's); Rallo receives only the
+- **Siri and Services.** Rallo reads a request only when New Rallo Note is used, and only the text or
+  image sent with it. Siri turns your voice into text (that part is Apple's); Rallo receives only the
   text. Like any Services item, other apps on your Mac can call it too; all it can do is add a
   note.
 - **Agent and ClickUp rows** live in a separate throwaway file that is never backed up,

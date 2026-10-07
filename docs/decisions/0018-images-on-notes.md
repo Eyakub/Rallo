@@ -59,7 +59,8 @@ colon). In the panel's note field, ⇧↩ inserts a line break (⌥↩ still doe
 - **Formats** are recognised by their first bytes, never the file name: PNG,
   JPEG, HEIC (`ftyp` `heic`/`heix`/`mif1`), GIF, WebP. Anything else:
   `IMAGE_UNSUPPORTED` ("not an image Rallo can store: use PNG, JPEG, HEIC,
-  GIF or WebP").
+  GIF or WebP"). In the app, an image over 10 MB that Rallo can re-encode is
+  saved as HEIC so it fits; the CLI stores files byte-for-byte.
 - **Limits:** 10 MiB per image (`IMAGE_TOO_LARGE`), 10 images per note
   (`TOO_MANY_IMAGES`). Over a limit, nothing is saved.
 - **A note needs text or at least one image.** The empty-text check
@@ -167,7 +168,8 @@ colon). In the panel's note field, ⇧↩ inserts a line break (⌥↩ still doe
   into a private temp directory with `ditto -x -k`, every entry must be a
   regular file (no links). Every image is then checked (format, size,
   count) before any write; the import stays all-or-nothing behind its
-  pre-import snapshot. Limits: archive ≤ 1 GiB, JSON ≤ 64 MiB (as today).
+  pre-import snapshot. Limits: each image ≤ 10 MiB, the JSON ≤ 64 MiB, at most 100 000 entries, and
+  enough free space to unpack it (the declared size plus 512 MiB).
 - `rallo doctor` adds an `images` check: folder permissions, count and size
   ("38 images, 112 MB"); orphan files are a warning ("Rallo removes them the
   next time it opens"); a row whose file is missing is a problem (fix:
