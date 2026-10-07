@@ -461,6 +461,7 @@ final class AppCoordinator {
             return try await clickUp.connect(token: token)
         }
         model.disconnectClickUp = { [weak self] in await self?.clickUp.disconnect() }
+        model.exportArchive = { [weak self] in self?.transfer.export(.zip) }
         model.exportBackup = { [weak self] in self?.transfer.export(.json) }
         model.exportSpreadsheet = { [weak self] in self?.transfer.export(.csv) }
         model.importNotes = { [weak self] in self?.transfer.importFile() }

@@ -484,9 +484,10 @@ private struct DataTab: View {
 
     var body: some View {
         Page {
-            row("Export Backup (JSON)…", "Everything in one file Rallo can restore.", model.exportBackup)
+            row("Export Archive with Images (ZIP)…", "Everything, images included, in one file Rallo can restore.", model.exportArchive)
+            row("Export Backup (JSON)…", "Your notes in one file Rallo can restore; images aren’t included.", model.exportBackup)
             row("Export Spreadsheet (CSV)…", "Your notes as rows for Numbers or Excel.", model.exportSpreadsheet)
-            row("Import Notes…", "Bring notes in from a backup or spreadsheet; you review them first.", model.importNotes)
+            row("Import Notes…", "Bring notes in from an archive, backup or spreadsheet; you review them first.", model.importNotes)
         }
     }
 

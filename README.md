@@ -95,6 +95,7 @@ If the installer adds `~/.local/bin` to your PATH, open a new terminal window be
 
 ```sh
 rallo note "Call the dentist"
+rallo note "Login button does nothing" --image ~/Desktop/shot.png   # PNG, JPEG, HEIC, GIF, WebP
 rallo remind "Stretch" --in 20m
 rallo remind "Standup notes" --at "tomorrow 9:30am"   # or "fri 5pm", "oct 20", RFC 3339
 rallo list                     # open notes; --due, --all, --deleted
@@ -117,9 +118,10 @@ the same interface you do. `rallo --help` lists them all;
 
 | | |
 |---|---|
-| **Notes panel** | Click the pet or press **⌃⌥⌘N**. Add, edit, complete, and snooze notes. **Remind Me** offers 20 minutes, 1 hour, tomorrow at 9:00, or **Custom…**, where you type a time ("fri 5pm") and see when it lands before you set it. A "Waiting for you" section lists agents and people who need you; swipe one sideways to dismiss it. |
+| **Notes panel** | Click the pet or press **⌃⌥⌘N**. Add, edit, complete, and snooze notes. **Remind Me** offers 20 minutes, 1 hour, tomorrow at 9:00, or **Custom…**, where you type a time ("fri 5pm") and see when it lands before you set it. A "Waiting for you" section lists agents and people who need you; swipe one sideways to dismiss it. Paste (⌘V) or drop screenshots into the note field, or drop them on a note; click a thumbnail for Quick Look, drag it out to share it. Start a new line with ⇧↩; a short first line (or text before ": ") becomes the note's title. |
+| **Screenshot to a note** | Turn it on in Settings → General, then press **⌃⌥⌘S**, select part of the screen, and the capture waits in the notes panel: add a few words and press Return. Needs Screen Recording access (macOS asks the first time). |
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
-| **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, voice typing, export and import, updates (including an opt-in daily check). |
+| **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, voice typing, screenshots, export (with images) and import, updates (including an opt-in daily check). |
 | **Voice typing (experimental)** | Turn it on in Settings → Voice, then press **⌃⌥⌘V**, talk, and Rallo types into whatever app has focus; press again to stop (it also stops after 10 s of silence). Pick Apple's built-in engine (macOS 26), Whisper large-v3 turbo (macOS 14+, a 1.6 GB download you start yourself), or a cloud engine that uses your own Groq, OpenAI or compatible API key (macOS 14+). It never presses Return, so a dictated command waits for you in the terminal. Add names it should know ("Rallo", your teammates) under Words to recognize; "um"s and stutters ("like like") are dropped. The pet cups an ear while it listens. Needs Microphone and Accessibility access. |
 | **Reminders** | Delivered by macOS Notification Center, even after Rallo quits. Up to 32 active at once. |
 
@@ -134,6 +136,7 @@ the same interface you do. `rallo --help` lists them all;
   "in 2 hours") or an ISO 8601 date and time with its offset (Shortcuts' Format Date → ISO 8601).
   A Date from another action works too ("Oct 9, 2026 at 5:00 PM"), and so do Siri's spelled-out
   numbers ("in two hours").
+  Both take **Images** too (Note is optional on Add Rallo Note when images are given).
   Both run in the background and reply "Saved to Rallo." or "Reminder set for …".
 - **Spotlight:** on macOS 26, press **⌘Space** and type "Add Rallo Note" or "Add Rallo Reminder".
 - **Siri:** on a Mac, Siri doesn't run an app's built-in phrases (Apple supports those on iPhone
@@ -141,7 +144,8 @@ the same interface you do. `rallo --help` lists them all;
   set Note and When to **Ask Each Time**, name it "Remind me in Rallo", and say "Hey Siri,
   remind me in Rallo".
 - **Any app:** select text, right-click, and choose **Services → New Rallo Note**. The pet
-  smiles when it's saved; if it can't be saved, the notes panel opens and says why. Give it a
+  smiles when it's saved; it works on a selected image too (Preview, Photos), making a note
+  without text; if it can't be saved, the notes panel opens and says why. Give it a
   key in System Settings → Keyboard → Keyboard Shortcuts → Services.
 
 Rallo sees only the text sent with the request, when the item is used. If Rallo isn't running,
@@ -198,6 +202,10 @@ message text. Channel @mentions and task comments aren't covered yet
 - **Cloud voice engine.** Only if you choose it and add your own API key, each dictated phrase is
   sent to that provider (Groq, OpenAI or the address you set) to be transcribed. The key stays in
   your Keychain. Nothing else sends audio anywhere.
+- **Images.** Screenshots and images you add are copied into `attachments/` in the data folder
+  and never leave your Mac. Agents read them by path (`rallo get ID --json`); Rallo's agent skill
+  tells them never to upload or send them unless you ask. ⌃⌥⌘S uses macOS's own screenshot tool
+  and needs Screen Recording access, used only while you select.
 - **Siri and Services.** Rallo reads text only when New Rallo Note is used, and only the text
   sent with it. Siri turns your voice into text (that part is Apple's); Rallo receives only the
   text. Like any Services item, other apps on your Mac can call it too; all it can do is add a
@@ -206,6 +214,7 @@ message text. Channel @mentions and task comments aren't covered yet
   exported, or included in Time Machine, and is cleared as soon as nobody is waiting.
 - **Backups.** Rallo snapshots your notes before every schema change and every update;
   `rallo backup` makes one on demand, and `rallo export` writes JSON or CSV.
+  `rallo export --format zip` (or Settings → Data) keeps images; JSON and CSV leave them out.
   See [docs/backup-and-restore.md](docs/backup-and-restore.md).
 
 ## Update and uninstall
@@ -215,7 +224,7 @@ rallo update --check   # is there a newer release?
 rallo update           # install it (backs up your notes first)
 
 rallo uninstall        # remove Rallo; keeps your notes
-rallo uninstall --purge  # also delete your notes (after exporting them to ~/Downloads)
+rallo uninstall --purge  # also delete your notes (after exporting them, with images, to a zip in ~/Downloads)
 ```
 
 Settings → General has an opt-in "Check for updates daily" that tells you when a release is out;
@@ -228,7 +237,7 @@ script instead:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Eyakub/Rallo/master/scripts/install.sh | bash -s -- --uninstall
-# add --purge to also delete your notes (after exporting them to ~/Downloads)
+# add --purge to also delete your notes (after exporting them, with images, to a zip in ~/Downloads)
 ```
 
 ## Build from source

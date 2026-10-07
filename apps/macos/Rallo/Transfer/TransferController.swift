@@ -57,8 +57,8 @@ final class TransferController {
         NSApp.activate()
         let open = NSOpenPanel()
         open.title = "Import Notes"
-        open.message = "Choose a Rallo backup (.json) or a spreadsheet (.csv)."
-        open.allowedContentTypes = [.json, .commaSeparatedText]
+        open.message = "Choose a Rallo archive (.zip), backup (.json) or spreadsheet (.csv)."
+        open.allowedContentTypes = [.zip, .json, .commaSeparatedText]
         open.allowsMultipleSelection = false
         open.canChooseDirectories = false
         open.level = .floating
@@ -225,8 +225,11 @@ struct TransferView: View {
         switch model.stage {
         case .idle, .importing:
             EmptyView()
-        case let .exported(_, url):
+        case let .exported(result, url):
             paragraph(url.lastPathComponent)
+            ForEach(result.warnings, id: \.self) { warning in
+                Text(warning).font(Theme.rounded(12)).foregroundStyle(Theme.bark)
+            }
         case let .review(summary, url):
             if !summary.conflicts.isEmpty {
                 paragraph("\(Self.records(summary.conflictTotal)) in \(url.lastPathComponent) share an ID with a note in Rallo but differ from it, so nothing will be imported.")

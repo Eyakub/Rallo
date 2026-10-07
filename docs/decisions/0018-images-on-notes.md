@@ -1,7 +1,6 @@
 # 0018 — Images on notes
 
-- **Status:** proposed (design agreed with the user 2026-10-07; this record
-  awaits their review).
+- **Status:** accepted (user, 2026-10-07)
 - **Date:** 2026-10-07
 
 ## Context

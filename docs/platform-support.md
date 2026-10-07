@@ -35,3 +35,4 @@ Nothing here claims support that has not been verified.
   and completed/deleted items do not count. Notes have no count limit.
   See `reminder-semantics.md` for the M0 capacity measurements behind it.
 - Note text: 64 KiB of UTF-8.
+- Images: PNG, JPEG, HEIC, GIF or WebP, up to 10 MB each and 10 per note (0018).

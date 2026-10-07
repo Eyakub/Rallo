@@ -37,7 +37,7 @@ shell / agent ──► rallo (CLI, Rust) ────────────�
 |---|---|
 | `rallo-core` | Domain rules, storage (open, pragmas, migrations, backup), IDs, text rules, preferences, instance lock, change-signal names. Injectable `Clock`. |
 | `rallo-cli` | Clap parsing, JSON/human output, exit codes, post-commit app nudges. Binary name `rallo`. |
-| `rallo-platform-macos` | Locating the app bundle that contains the CLI, `open -g` launch, `notify_post`, and local wall-clock time ↔ instants (`local_time`, 0016; also linked into the app through `rallo-ffi`). |
+| `rallo-platform-macos` | Locating the app bundle that contains the CLI, `open -g` launch, `notify_post`, and local wall-clock time ↔ instants (`local_time`, 0016; also linked into the app through `rallo-ffi`), zip archives with `ditto`/`zipinfo` (`archive`, 0018). |
 | `rallo-ffi` | UniFFI definitions (staticlib) and the pinned Swift binding generator. |
 
 ## Storage
@@ -56,6 +56,10 @@ shell / agent ──► rallo (CLI, Rust) ────────────�
   tagged release.
 - `metadata.change_revision` is a monotonic global revision bumped only when
   state actually changes. Observers read it to decide whether to reload.
+- Images are files under `<data dir>/attachments/<item id>/<image id>.<ext>`
+  (`0700`/`0600`), listed in the schema-v5 `attachments` table; files are
+  written before their rows, and a sweep at app launch and daily removes
+  images of notes deleted 30+ days ago and files no row owns (0018).
 - Agent sessions are runtime state in `<data dir>/runtime/agents.sqlite3`,
   attached as `runtime`: never backed up, exported or migrated (0009).
 

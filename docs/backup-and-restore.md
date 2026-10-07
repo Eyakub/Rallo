@@ -12,7 +12,9 @@ steps to restore from one.
 | Pre-migration snapshot | Automatic, once, the first time an older on-disk schema is opened by a newer build | `<data dir>/backups/pre-migration-v<found>-<now_ms>.sqlite3` |
 | Pre-import snapshot | Automatic, before `rallo import` (without `--dry-run`) writes anything | `<data dir>/backups/pre-import-<now_ms>.sqlite3` |
 | Manual backup | `rallo backup` | `<data dir>/backups/manual-<now_ms>.sqlite3` by default, or `--output PATH` |
+| Manual backup, images | `rallo backup` also copies `attachments/` | `<output>.attachments/` beside the backup |
 | Export | `rallo export --output PATH [--format json\|csv]` | wherever `--output` points |
+| Export with images | `rallo export --format zip` | a zip with `rallo-export.json` (version 2) and `images/` |
 
 The two automatic snapshots and `rallo backup` are all full, consistent
 copies of the SQLite database file (via SQLite's online backup API, which
@@ -52,10 +54,21 @@ means putting it back in place of the live database.
    cp <data dir>/backups/manual-<timestamp>.sqlite3 rallo.sqlite3
    chmod 600 rallo.sqlite3
    ```
-5. Reopen Rallo (`rallo show`, or launch it normally).
-6. Run `rallo doctor` to confirm the restored store is healthy (schema
+5. If the backup has a `manual-<timestamp>.sqlite3.attachments` folder beside
+   it, put it back too:
+   ```sh
+   mv attachments quarantine/ 2>/dev/null; cp -R <backup>.attachments attachments; chmod 700 attachments
+   ```
+6. Reopen Rallo (`rallo show`, or launch it normally).
+7. Run `rallo doctor` to confirm the restored store is healthy (schema
    version, integrity check, permissions) before relying on it. Once you are
    satisfied, delete the `quarantine/` directory.
+
+Pre-migration and pre-import snapshots hold only the database; image files
+are never changed after they are written. After restoring one, images added
+since are files no note owns, and the app removes them an hour later. Images a
+restored note refers to but whose files were removed since show as missing in
+`rallo doctor`.
 
 Restoring does not bring back notifications macOS has already delivered —
 those are gone once dismissed or acted on, independent of the database. The
@@ -63,9 +76,10 @@ app re-schedules any still-future reminders it finds enabled when it next
 launches; past-due reminders follow the normal overdue handling
 (`docs/decisions/0005-notification-protocol.md`), not an automatic replay.
 
-## Restoring from a JSON export
+## Restoring from an export
 
-An export is not a drop-in replacement for the database file; it is applied
+A `.zip` is imported the same way (`rallo import --file rallo-export.zip`),
+images included. An export is not a drop-in replacement for the database file; it is applied
 through `rallo import`, which validates the whole document before writing
 anything and never overwrites conflicting existing records.
 

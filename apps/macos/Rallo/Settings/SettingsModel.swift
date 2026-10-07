@@ -65,6 +65,7 @@ final class SettingsModel: ObservableObject {
     var toggleNotifyLongWait: () async -> Void = {}
     var connectClickUp: (String) async throws -> String = { _ in "" }
     var disconnectClickUp: () async -> Void = {}
+    var exportArchive: () -> Void = {}
     var exportBackup: () -> Void = {}
     var exportSpreadsheet: () -> Void = {}
     var importNotes: () -> Void = {}
