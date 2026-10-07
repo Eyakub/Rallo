@@ -200,6 +200,23 @@ fn purge_with_an_unreadable_store_removes_nothing() {
 }
 
 #[test]
+fn purge_fails_cleanly_when_the_zip_cannot_be_written() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    assert!(fixture.run(&["note", "precious"]).status.success());
+    let downloads = fixture.home.join("Downloads");
+    fs::create_dir_all(&downloads).unwrap();
+    fs::set_permissions(&downloads, fs::Permissions::from_mode(0o500)).unwrap();
+    let (code, doc) = fixture.json(&["uninstall", "--yes", "--purge", "--json"]);
+    fs::set_permissions(&downloads, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(code, 5, "{doc}");
+    assert_eq!(doc["error"]["code"], "UNINSTALL_EXPORT_FAILED");
+    assert!(doc["error"]["message"].as_str().unwrap().starts_with("couldn't save a final export"));
+    assert!(fixture.app.exists());
+    assert!(fixture.db().exists());
+}
+
+#[test]
 fn the_apps_cleanup_report_is_passed_through() {
     let fixture = Fixture::new();
     fixture.fake_app_script(

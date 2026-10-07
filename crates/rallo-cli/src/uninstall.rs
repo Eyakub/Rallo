@@ -87,7 +87,8 @@ fn save_final_export(data_dir: &Path, home: &Path) -> Result<PathBuf, Failure> {
     fs::create_dir_all(&downloads).map_err(export_failed)?;
     let path = downloads.join(format!("rallo-export-{}.zip", file_stamp(store.now_ms())));
     rallo_core::transfer::export::refuse_existing(&path, false).map_err(export_failed)?;
-    archive::write_zip(&path, |dir| -> Result<_, Failure> { store.export_to_dir(dir).map_err(export_failed) })?;
+    type AnyError = Box<dyn std::error::Error + Send + Sync>;
+    archive::write_zip(&path, |dir| -> Result<_, AnyError> { Ok(store.export_to_dir(dir)?) }).map_err(export_failed)?;
     Ok(path)
 }
 

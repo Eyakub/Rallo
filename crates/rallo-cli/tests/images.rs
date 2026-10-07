@@ -129,6 +129,37 @@ fn a_zip_export_imports_into_another_data_directory() {
 }
 
 #[test]
+fn a_reminder_with_an_image() {
+    let cli = Cli::new();
+    let shot = png(&cli, "shot.png");
+    let (code, json) = cli.json(&["remind", "x", "--in", "1h", "--image", &shot, "--json"]);
+    assert_eq!(code, 0, "{json}");
+    assert_eq!(json["item"]["images"].as_array().unwrap().len(), 1);
+    assert!(json["item"]["reminder"].is_object());
+}
+
+#[test]
+fn a_hostile_zip_is_refused_and_imports_nothing() {
+    let cli = Cli::new();
+    let build = cli.dir.path().join("build");
+    std::fs::create_dir(&build).unwrap();
+    std::fs::write(build.join("rallo-export.json"), b"{}").unwrap();
+    std::fs::write(build.join("notes.txt"), b"hi").unwrap();
+    let archive = cli.dir.path().join("bad.zip");
+    let status = Command::new("/usr/bin/zip")
+        .current_dir(&build)
+        .args(["-q", archive.to_str().unwrap(), "rallo-export.json", "notes.txt"])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let (code, json) = cli.json(&["import", "--file", archive.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 2, "{json}");
+    assert_eq!(json["error"]["code"], "INVALID_IMPORT");
+    let (_, list) = cli.json(&["list", "--all", "--json"]);
+    assert_eq!(list["items"].as_array().unwrap().len(), 0);
+}
+
+#[test]
 fn a_json_export_warns_about_images() {
     let cli = Cli::new();
     let shot = png(&cli, "shot.png");
