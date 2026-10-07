@@ -33,7 +33,9 @@
 Rallo is a small Mac app for the thoughts you'd otherwise lose: "call the dentist",
 "check the CI flake", "stretch in 20 minutes". You save them in a second, from the
 terminal, Siri, Shortcuts, or any app's right-click menu, and a red panda sitting on
-your desktop keeps them quietly in view. When something needs you, a reminder coming
+your desktop keeps them quietly in view. A note can be words, a screenshot, or both:
+paste or drop an image into it, or press **⌃⌥⌘S** to capture part of the screen straight
+into a new note. When something needs you, a reminder coming
 due, an agent asking for permission, or a teammate's message, it waves. And when typing
 is slower than talking, press **⌃⌥⌘V** and speak: Rallo types for you in any app, from
 the terminal to the browser.
@@ -96,6 +98,8 @@ If the installer adds `~/.local/bin` to your PATH, open a new terminal window be
 ```sh
 rallo note "Call the dentist"
 rallo note "Login button does nothing" --image ~/Desktop/shot.png   # PNG, JPEG, HEIC, GIF, WebP
+rallo note --image ~/Desktop/whiteboard.heic   # an image on its own is a note too
+rallo attach <id> ~/Desktop/after.png          # up to 10 images per note, 10 MB each
 rallo remind "Stretch" --in 20m
 rallo remind "Standup notes" --at "tomorrow 9:30am"   # or "fri 5pm", "oct 20", RFC 3339
 rallo list                     # open notes; --due, --all, --deleted
@@ -157,8 +161,9 @@ Rallo works with [Claude Code](https://claude.com/claude-code), Codex, Grok, and
 
 **Let agents save notes for you.** `rallo setup skill` installs a skill that teaches
 Claude Code, Cursor, Codex, Grok, and Gemini CLI to use `rallo` when you ask ("remind me to check the
-deploy in an hour"). Agents only act when asked, and treat note text as data, never
-as instructions.
+deploy in an hour"). An agent that takes a screenshot saves it with the note (`--image`), and
+can open a note's images when it picks the note up. Agents only act when asked, treat note
+text as data, never as instructions, and never upload or send your images unless you ask.
 
 **Know when an agent is waiting.** `rallo setup hooks` adds Rallo's hook to Claude Code,
 Codex, Grok, and Gemini CLI. When an agent asks for permission or has a question, the pet waves, the
