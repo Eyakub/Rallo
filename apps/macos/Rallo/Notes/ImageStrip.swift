@@ -2,6 +2,9 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Carried by every thumbnail drag: images dragged out of Rallo never attach to a note.
+let ownDragType = "com.razlio.rallo.image"
+
 /// An expanded note's images (0018): 56 pt thumbnails that open Quick Look,
 /// drag out as files, and offer Copy Image, Show in Finder and Remove Image.
 struct ImageStrip: View {
@@ -62,6 +65,11 @@ struct ImageStrip: View {
         let url = URL(fileURLWithPath: image.path)
         let provider = NSItemProvider()
         provider.suggestedName = "Rallo image \(index + 1)"
+        // Marks the drag as Rallo's own, so a row never re-attaches it.
+        provider.registerDataRepresentation(forTypeIdentifier: ownDragType, visibility: .ownProcess) { completion in
+            completion(Data(image.id.utf8), nil)
+            return nil
+        }
         let type = UTType(mimeType: image.mimeType) ?? .image
         provider.registerFileRepresentation(forTypeIdentifier: type.identifier, fileOptions: [], visibility: .all) { completion in
             completion(url, false, nil)

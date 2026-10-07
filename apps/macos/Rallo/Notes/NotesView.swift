@@ -141,7 +141,8 @@ final class NotesViewModel: ObservableObject {
 
     func saveEdit(_ item: ItemSnapshot) async {
         let text = editDraft
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // An image note's caption can be cleared; a text-only note can't be empty.
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !item.images.isEmpty else { return }
         do {
             let updated = try await core.editItemText(item, text: text)
             editingID = nil

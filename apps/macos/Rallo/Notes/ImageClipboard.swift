@@ -9,7 +9,9 @@ struct ImageRefusal: Error, Equatable {
 
 /// Turns what the user pastes or drops into bytes the core stores (0018).
 /// PNG, JPEG, HEIC, GIF and WebP pass through untouched; any other image
-/// ImageIO reads (TIFF is what many apps copy) becomes PNG. The core checks
+/// ImageIO reads (TIFF is what many apps copy) becomes PNG; one over 10 MB is
+/// re-encoded as HEIC (JPEG if HEIC isn't available) when that makes it fit,
+/// as screenshots from a 5K or 6K display can. The core checks
 /// formats and limits again; the checks here only make the panel's refusal
 /// immediate.
 enum ImageClipboard {
@@ -44,6 +46,29 @@ enum ImageClipboard {
 
     /// `data` as Rallo stores it, or nil when it isn't an image.
     static func storable(_ data: Data) -> Data? {
+        normalized(data).map(fitted)
+    }
+
+    /// An image over 10 MB re-encoded at full resolution (HEIC, else JPEG, at
+    /// quality 0.85) if the result fits; otherwise `data` unchanged, so
+    /// `check` refuses it with its message.
+    static func fitted(_ data: Data) -> Data {
+        guard data.count > maxBytes,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return data }
+        for type in [UTType.heic, UTType.jpeg] {
+            let encoded = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(encoded, type.identifier as CFString, 1, nil) else { continue }
+            CGImageDestinationAddImage(
+                destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary
+            )
+            if CGImageDestinationFinalize(destination), encoded.length <= maxBytes { return encoded as Data }
+        }
+        return data
+    }
+
+    private static func normalized(_ data: Data) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let type = CGImageSourceGetType(source) as String?
         else { return nil }

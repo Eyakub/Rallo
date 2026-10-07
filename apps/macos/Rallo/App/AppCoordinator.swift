@@ -362,9 +362,6 @@ final class AppCoordinator {
 
     // MARK: Agent attention reach (0008, 0009)
 
-    /// While an agent waits, looks every 30 s for one whose process has gone
-    /// (a terminal closed without a clean exit): reading sessions prunes it,
-    /// and the revision bump reloads every view.
     /// 0018: images of notes deleted 30+ days ago, and files no note owns,
     /// are removed at launch and once a day.
     private func startImageSweep() {
@@ -387,6 +384,9 @@ final class AppCoordinator {
         }
     }
 
+    /// While an agent waits, looks every 30 s for one whose process has gone
+    /// (a terminal closed without a clean exit): reading sessions prunes it,
+    /// and the revision bump reloads every view.
     private func armLivenessTimer() {
         if agentSessions.isEmpty {
             livenessTimer?.invalidate()
@@ -574,7 +574,8 @@ final class AppCoordinator {
         let outcome = await ScreenshotCapture.capture()
         log.record("screenshot", ["outcome": outcome.name])
         switch outcome {
-        case let .captured(data):
+        case let .captured(capture):
+            let data = ImageClipboard.storable(capture) ?? capture
             do {
                 try ImageClipboard.check([data], staged: notesModel.stagedImages.count)
                 openNotes(highlighting: nil)

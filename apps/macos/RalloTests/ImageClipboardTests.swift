@@ -32,6 +32,33 @@ final class ImageClipboardTests: XCTestCase {
         XCTAssertEqual(ImageClipboard.storable(jpeg), jpeg)
     }
 
+    /// A 4000×3000 PNG of low-amplitude random noise: far over 10 MiB as PNG,
+    /// but it compresses well as HEIC or JPEG. Built once per test.
+    private func noisyPNG() -> Data {
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 4000, pixelsHigh: 3000, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        )!
+        let pixels = rep.bitmapData!
+        var generator = SystemRandomNumberGenerator()
+        for index in 0..<(rep.bytesPerRow * rep.pixelsHigh) {
+            pixels[index] = index % 4 == 3 ? 255 : UInt8.random(in: 100...115, using: &generator)
+        }
+        return rep.representation(using: .png, properties: [:])!
+    }
+
+    func testAnImageOver10MBIsReEncodedToFit() throws {
+        let big = noisyPNG()
+        XCTAssertGreaterThan(big.count, ImageClipboard.maxBytes, "the fixture must be too big as PNG")
+        let stored = try XCTUnwrap(ImageClipboard.storable(big))
+        XCTAssertLessThanOrEqual(stored.count, ImageClipboard.maxBytes)
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(stored as CFData, nil))
+        let type = CGImageSourceGetType(source) as String?
+        XCTAssertTrue([UTType.heic.identifier, UTType.jpeg.identifier].contains(type ?? ""), "\(type ?? "nil")")
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        XCTAssertEqual(image.width, 4000, "full resolution")
+    }
+
     func testTIFFBecomesPNG() throws {
         let png = try XCTUnwrap(ImageClipboard.storable(image(.tiff)))
         XCTAssertEqual(Array(png.prefix(8)), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])

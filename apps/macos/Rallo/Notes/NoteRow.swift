@@ -72,7 +72,9 @@ struct NoteRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onDrop(of: [.image], isTargeted: $dropTargeted) { providers in
-            Task { @MainActor in await model.attach(await ImageClipboard.load(providers), to: item) }
+            let outside = providers.filter { !$0.hasItemConformingToTypeIdentifier(ownDragType) }
+            guard !outside.isEmpty else { return false }
+            Task { @MainActor in await model.attach(await ImageClipboard.load(outside), to: item) }
             return true
         }
         .onTapGesture {
