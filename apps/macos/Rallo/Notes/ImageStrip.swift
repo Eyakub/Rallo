@@ -39,6 +39,9 @@ struct ImageStrip: View {
             }
         }
         .frame(height: ThumbnailCache.points)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: ImageStripFrameKey.self, value: proxy.frame(in: .named(ImageStripFrameKey.space)))
+        })
         .onChange(of: focused) { _, id in model.thumbnailFocused = id != nil }
         .onDisappear { model.thumbnailFocused = false }
     }

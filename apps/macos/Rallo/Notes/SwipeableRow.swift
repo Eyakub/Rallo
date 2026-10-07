@@ -38,6 +38,17 @@ enum SwipeMetrics {
     }
 }
 
+/// Where an expanded row's image strip sits, in the row's coordinate space.
+/// A mouse drag that starts there drags an image out: AppKit takes it over
+/// and the row's gesture never ends, so it must not swipe the row.
+struct ImageStripFrameKey: PreferenceKey {
+    static let space = "swipeableRow"
+    static let defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = value ?? nextValue()
+    }
+}
+
 /// Swipe right for reminder presets, left to delete. Works with a mouse
 /// (click and drag) and a trackpad (two-finger swipe, via `SwipeScrollMonitor`),
 /// because SwiftUI's `swipeActions` only responds to the trackpad.
@@ -48,6 +59,7 @@ struct SwipeableRow<Content: View>: View {
     @State private var dragAxis: Axis?
     @State private var dragStart: CGFloat = 0
     @State private var rowWidth: CGFloat = 340
+    @State private var stripFrame: CGRect?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isLive: Bool { model.liveSwipe?.id == item.id }
@@ -86,12 +98,15 @@ struct SwipeableRow<Content: View>: View {
         .accessibilityAction(named: "Remind Me in 20 Minutes") { Task { await model.remind(item, .inTwentyMinutes) } }
         .accessibilityAction(named: "Remind Me in 1 Hour") { Task { await model.remind(item, .inOneHour) } }
         .accessibilityAction(named: "Remind Me Tomorrow at 9:00") { Task { await model.remind(item, .tomorrowMorning) } }
+        .onPreferenceChange(ImageStripFrameKey.self) { stripFrame = $0 }
+        .coordinateSpace(.named(ImageStripFrameKey.space))
     }
 
     private var drag: some Gesture {
-        DragGesture(minimumDistance: 8)
+        DragGesture(minimumDistance: 8, coordinateSpace: .named(ImageStripFrameKey.space))
             .onChanged { value in
                 if dragAxis == nil {
+                    if stripFrame?.contains(value.startLocation) == true { return }
                     dragAxis = abs(value.translation.width) > abs(value.translation.height) ? .horizontal : .vertical
                     dragStart = offset
                 }
