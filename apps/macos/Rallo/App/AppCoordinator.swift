@@ -40,6 +40,7 @@ final class AppCoordinator {
     private var notifyLongWaitEnabled = false
     private var agentJumpState = AgentJumpState()
     private var livenessTimer: Timer?
+    private var sweepTimer: Timer?
     private var demoOpen: String?
     /// Started with a --data-dir other than the default (tests, demos). The
     /// CLI launches the real app with --data-dir set to the default folder,
@@ -154,6 +155,7 @@ final class AppCoordinator {
             try await core.open()
             storageReady = true
             excludeRuntimeFromBackups()
+            startImageSweep()
             clickUp.onChange = { [weak self] in Task { await self?.checkForChanges() } }
             clickUp.start()
         } catch {
@@ -360,6 +362,28 @@ final class AppCoordinator {
     /// While an agent waits, looks every 30 s for one whose process has gone
     /// (a terminal closed without a clean exit): reading sessions prunes it,
     /// and the revision bump reloads every view.
+    /// 0018: images of notes deleted 30+ days ago, and files no note owns,
+    /// are removed at launch and once a day.
+    private func startImageSweep() {
+        sweepImages()
+        sweepTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sweepImages() }
+        }
+    }
+
+    private func sweepImages() {
+        Task {
+            do {
+                let result = try await core.sweepImages()
+                if result.expiredImages + result.orphanFiles > 0 {
+                    log.record("images_swept", ["expired": result.expiredImages, "orphans": result.orphanFiles])
+                }
+            } catch {
+                log.record("image_sweep_failed", ["error": "\(error)"])
+            }
+        }
+    }
+
     private func armLivenessTimer() {
         if agentSessions.isEmpty {
             livenessTimer?.invalidate()

@@ -28,6 +28,27 @@ final class CoreClient {
         try await worker.perform { try $0.createReminder(text: text, when: when) }
     }
 
+    /// A note with images (0018); `text` may be empty when there are images.
+    func createNote(_ text: String, images: [Data]) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.createNoteWithImages(text: text, images: images) }
+    }
+
+    func createReminder(_ text: String, when: String, images: [Data]) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.createReminderWithImages(text: text, when: when, images: images) }
+    }
+
+    func attachImages(_ item: ItemSnapshot, images: [Data]) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.attachImages(id: item.id, images: images, ifRevision: item.revision) }
+    }
+
+    func detachImage(_ item: ItemSnapshot, imageID: String) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.detachImage(id: item.id, imageId: imageID, ifRevision: item.revision) }
+    }
+
+    func sweepImages() async throws -> SweepResult {
+        try await worker.perform { try $0.sweepImages() }
+    }
+
     func completeItem(_ item: ItemSnapshot) async throws -> ItemSnapshot {
         try await worker.perform { try $0.completeItem(id: item.id, ifRevision: item.revision) }
     }

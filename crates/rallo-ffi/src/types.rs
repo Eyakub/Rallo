@@ -1,11 +1,13 @@
-use rallo_core::CoreError;
 use rallo_core::agents as core_agents;
+use rallo_core::images::{ImageView, SweepSummary};
 use rallo_core::items::{ItemStatus as CoreItemStatus, ItemView};
 use rallo_core::pet as core_pet;
 use rallo_core::preferences;
 use rallo_core::reminders;
 use rallo_core::reminders::protocol as core_protocol;
 use rallo_core::transfer::{ExportFormat, ImportConflictRecord, ImportReport};
+use rallo_core::{CoreError, ErrorCode};
+use rallo_platform_macos::archive::ArchiveError;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RalloError {
@@ -65,6 +67,7 @@ pub struct ItemSnapshot {
     pub deleted_at_ms: Option<i64>,
     pub revision: i64,
     pub reminder: Option<ReminderSnapshot>,
+    pub images: Vec<ImageSnapshot>,
 }
 
 impl From<ItemView> for ItemSnapshot {
@@ -83,6 +86,7 @@ impl From<ItemView> for ItemSnapshot {
             completed_at_ms: item.completed_at_ms,
             deleted_at_ms: item.deleted_at_ms,
             revision: item.revision,
+            images: view.images.into_iter().map(Into::into).collect(),
             reminder: view.reminder.map(|reminder| ReminderSnapshot {
                 id: reminder.id.to_string(),
                 deadline_ms: reminder.deadline_ms,
@@ -90,6 +94,49 @@ impl From<ItemView> for ItemSnapshot {
                 scheduling_state: None,
                 scheduling_reason: None,
             }),
+        }
+    }
+}
+
+/// One image on a note (0018); `path` is absolute, inside Rallo's data
+/// directory.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ImageSnapshot {
+    pub id: String,
+    pub path: String,
+    pub mime_type: String,
+    pub byte_size: i64,
+}
+
+impl From<ImageView> for ImageSnapshot {
+    fn from(image: ImageView) -> Self {
+        Self {
+            id: image.id.to_string(),
+            path: image.path.display().to_string(),
+            mime_type: image.mime_type,
+            byte_size: image.byte_size,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct SweepResult {
+    pub expired_images: u64,
+    pub orphan_files: u64,
+}
+
+impl From<SweepSummary> for SweepResult {
+    fn from(summary: SweepSummary) -> Self {
+        Self { expired_images: summary.expired_images, orphan_files: summary.orphan_files }
+    }
+}
+
+impl From<ArchiveError> for RalloError {
+    fn from(error: ArchiveError) -> Self {
+        let message = error.to_string();
+        match error {
+            ArchiveError::Io(_) => Self::Storage { code: ErrorCode::StorageUnavailable.as_str().to_owned(), message },
+            _ => Self::InvalidInput { code: ErrorCode::InvalidImport.as_str().to_owned(), message },
         }
     }
 }
@@ -417,13 +464,16 @@ pub enum ActionOutcome {
 pub enum TransferFormat {
     Json,
     Csv,
+    Zip,
 }
 
-impl From<TransferFormat> for ExportFormat {
-    fn from(format: TransferFormat) -> Self {
-        match format {
-            TransferFormat::Json => Self::Json,
-            TransferFormat::Csv => Self::Csv,
+impl TransferFormat {
+    /// The core's format for a single-file export; `None` for a zip.
+    pub(crate) fn plain(self) -> Option<ExportFormat> {
+        match self {
+            Self::Json => Some(ExportFormat::Json),
+            Self::Csv => Some(ExportFormat::Csv),
+            Self::Zip => None,
         }
     }
 }
@@ -441,6 +491,7 @@ impl From<ExportFormat> for TransferFormat {
 pub struct ExportResult {
     pub items: u64,
     pub path: String,
+    pub warnings: Vec<String>,
 }
 
 /// Where a conflicting record is in the file; never its note text.

@@ -138,4 +138,79 @@ final class CoreBridgeTests: XCTestCase {
         }
         XCTAssertEqual(try store.listOpenItems(limit: 50).map(\.text), ["Stretch"], "a refused time saves no note")
     }
+
+    /// Image paths are under the canonical directory (/private/var/...);
+    /// `resolvingSymlinksInPath` would strip the /private.
+    private static func canonical(_ url: URL) -> String {
+        url.path.withCString { realpath($0, nil).map { String(cString: $0) } } ?? url.path
+    }
+
+    private static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D]) + Data("IHDRfake".utf8)
+
+    func testANoteWithImagesRoundTrips() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        let item = try store.createNoteWithImages(text: "", images: [Self.png, Self.png])
+        XCTAssertEqual(item.text, "")
+        XCTAssertEqual(item.images.count, 2)
+        let first = try XCTUnwrap(item.images.first)
+        XCTAssertEqual(first.mimeType, "image/png")
+        XCTAssertEqual(first.byteSize, Int64(Self.png.count))
+        XCTAssertTrue(first.path.hasPrefix(Self.canonical(dataDir)), "Rallo keeps its own copy in its data directory")
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: first.path)), Self.png)
+        XCTAssertEqual(try store.listOpenItems(limit: 50).first?.images.map(\.id), item.images.map(\.id))
+    }
+
+    func testAttachAndDetachMoveTheRevision() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        let note = try store.createNote(text: "Login broken")
+        XCTAssertEqual(note.images, [])
+        let attached = try store.attachImages(id: note.id, images: [Self.png], ifRevision: note.revision)
+        XCTAssertEqual(attached.images.count, 1)
+        XCTAssertEqual(attached.revision, note.revision + 1)
+        let detached = try store.detachImage(id: note.id, imageId: attached.images[0].id, ifRevision: attached.revision)
+        XCTAssertEqual(detached.images, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: attached.images[0].path))
+    }
+
+    func testAnUnsupportedImageIsRefusedAndNothingIsSaved() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        XCTAssertThrowsError(try store.createNoteWithImages(text: "x", images: [Data("not an image".utf8)])) { error in
+            guard case let RalloError.InvalidInput(code, _) = error else { return XCTFail("unexpected \(error)") }
+            XCTAssertEqual(code, "IMAGE_UNSUPPORTED")
+        }
+        XCTAssertEqual(try store.listOpenItems(limit: 50).count, 0)
+    }
+
+    func testAZipExportImportsIntoAnotherStore() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        _ = try store.createNoteWithImages(text: "with image", images: [Self.png])
+        let archive = dataDir.appendingPathComponent("export.zip")
+        let result = try store.exportToFile(path: archive.path, format: .zip, overwrite: false)
+        XCTAssertEqual(result.items, 1)
+        XCTAssertEqual(result.path, archive.path)
+
+        let otherDir = dataDir.appendingPathComponent("other")
+        let other = try RalloStore.open(dataDir: otherDir.path)
+        let preview = try other.previewImportFile(path: archive.path)
+        XCTAssertEqual(preview.new, 1)
+        XCTAssertEqual(preview.format, .zip)
+        _ = try other.applyImportFile(path: archive.path)
+        let image = try XCTUnwrap(other.listOpenItems(limit: 50).first?.images.first)
+        XCTAssertTrue(image.path.hasPrefix(Self.canonical(otherDir)))
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: image.path)), Self.png)
+    }
+
+    func testAJsonExportWarnsThatImagesAreLeftOut() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        _ = try store.createNoteWithImages(text: "with image", images: [Self.png])
+        let result = try store.exportToFile(path: dataDir.appendingPathComponent("x.json").path, format: .json, overwrite: false)
+        XCTAssertEqual(result.warnings, ["1 image isn't included; use --format zip"])
+    }
+
+    func testTheSweepRunsOnAnEmptyStore() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        let result = try store.sweepImages()
+        XCTAssertEqual(result.expiredImages, 0)
+        XCTAssertEqual(result.orphanFiles, 0)
+    }
 }

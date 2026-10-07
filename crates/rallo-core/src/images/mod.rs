@@ -1,8 +1,5 @@
 //! Images on notes (0018).
 
-// Tasks 3-7 use the write, check and sweep helpers that nothing calls yet.
-#![allow(dead_code)]
-
 pub mod files;
 pub mod format;
 pub(crate) mod repository;

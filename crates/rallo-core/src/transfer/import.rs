@@ -677,7 +677,17 @@ impl Store {
     /// review can show them. Writes nothing.
     pub fn inspect_import(&self, bytes: &[u8]) -> CoreResult<ImportReport> {
         validate_size(bytes)?;
-        let parsed = parse_document(bytes, None)?;
+        self.inspect_parsed(parse_document(bytes, None)?)
+    }
+
+    /// `inspect_import` for an unzipped archive (0018): conflicts are in
+    /// the report, nothing is written.
+    pub fn inspect_import_dir(&self, dir: &Path) -> CoreResult<ImportReport> {
+        let bytes = read_archive_document(dir)?;
+        self.inspect_parsed(parse_document(&bytes, Some(dir))?)
+    }
+
+    fn inspect_parsed(&self, parsed: ParsedDocument) -> CoreResult<ImportReport> {
         let (decisions, conflicts, total) = classify_collect(self.conn(), &parsed.records)?;
         let mut report = build_report(&parsed, &decisions, false, None);
         report.conflicts = conflicts;

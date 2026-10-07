@@ -20,7 +20,7 @@ use rallo_core::shared::signal;
 use rallo_core::storage::{instance_lock, migrations, paths};
 use rallo_core::transfer::MAX_IMPORT_BYTES;
 use rallo_core::{ErrorCode, Store, StoreOptions};
-use rallo_platform_macos::local_time;
+use rallo_platform_macos::{archive, local_time};
 
 pub use types::*;
 
@@ -95,6 +95,13 @@ pub struct RalloStore {
 
 /// Reads one byte past the cap so the core reports an oversized file with
 /// its documented message instead of silently truncating it.
+fn is_archive(path: &str) -> Result<bool, RalloError> {
+    archive::is_zip(Path::new(path)).map_err(|error| RalloError::InvalidInput {
+        code: "INVALID_INPUT".into(),
+        message: format!("could not read {path}: {error}"),
+    })
+}
+
 fn read_import_file(path: &str) -> Result<Vec<u8>, RalloError> {
     let unreadable = |error: std::io::Error| RalloError::InvalidInput {
         code: "INVALID_INPUT".into(),
@@ -160,15 +167,55 @@ impl RalloStore {
     }
 
     pub fn create_note(&self, text: String) -> Result<ItemSnapshot, RalloError> {
-        Ok(from_outcome(self.store().create_note(&text, None)?))
+        self.create_note_with_images(text, Vec::new())
+    }
+
+    /// A note with images (0018); `text` may be empty when there are images.
+    pub fn create_note_with_images(&self, text: String, images: Vec<Vec<u8>>) -> Result<ItemSnapshot, RalloError> {
+        Ok(from_outcome(self.store().create_note_with_images(&text, &images, None)?))
     }
 
     /// A note and its reminder in one write, as `rallo remind TEXT --at WHEN`
     /// (0017): `when` is RFC 3339 or a 0016 phrase such as "fri 5pm".
     pub fn create_reminder(&self, text: String, when: String) -> Result<ItemSnapshot, RalloError> {
+        self.create_reminder_with_images(text, when, Vec::new())
+    }
+
+    pub fn create_reminder_with_images(
+        &self,
+        text: String,
+        when: String,
+        images: Vec<Vec<u8>>,
+    ) -> Result<ItemSnapshot, RalloError> {
         let mut store = self.store();
         let spec = phrase::time_spec(&when, store.now_ms(), local_time::wall_clock, local_time::instant)?;
-        Ok(from_outcome(store.create_reminder(&text, &spec, None)?))
+        Ok(from_outcome(store.create_reminder_with_images(&text, &spec, &images, None)?))
+    }
+
+    pub fn attach_images(
+        &self,
+        id: String,
+        images: Vec<Vec<u8>>,
+        if_revision: Option<i64>,
+    ) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(from_outcome(self.store().attach_images(&id, &images, &opts)?))
+    }
+
+    pub fn detach_image(
+        &self,
+        id: String,
+        image_id: String,
+        if_revision: Option<i64>,
+    ) -> Result<ItemSnapshot, RalloError> {
+        let opts = MutationOptions { request_id: None, if_revision };
+        Ok(from_outcome(self.store().detach_image(&id, &image_id, &opts)?))
+    }
+
+    /// Removes images of notes deleted 30+ days ago and stray files (0018);
+    /// the app runs it at launch and once a day.
+    pub fn sweep_images(&self) -> Result<SweepResult, RalloError> {
+        Ok(self.store().sweep_images()?.into())
     }
 
     pub fn list_open_items(&self, limit: u32) -> Result<Vec<ItemSnapshot>, RalloError> {
@@ -177,21 +224,35 @@ impl RalloStore {
         page.items.into_iter().map(|view| from_view(&store, view)).collect()
     }
 
-    /// Writes a JSON backup or CSV atomically with mode 0600; refuses to
-    /// replace an existing file unless `overwrite`.
+    /// Writes a JSON backup, CSV or zip archive atomically with mode 0600;
+    /// refuses to replace an existing file unless `overwrite`.
     pub fn export_to_file(
         &self,
         path: String,
         format: TransferFormat,
         overwrite: bool,
     ) -> Result<ExportResult, RalloError> {
-        let summary = self.store().export_to_file(Path::new(&path), format.into(), overwrite)?;
-        Ok(ExportResult { items: summary.items, path: summary.path.display().to_string() })
+        let store = self.store();
+        let path = Path::new(&path);
+        let summary = match format.plain() {
+            Some(plain) => store.export_to_file(path, plain, overwrite)?,
+            None => {
+                rallo_core::transfer::export::refuse_existing(path, overwrite)?;
+                archive::write_zip(path, |dir| -> Result<_, RalloError> { Ok(store.export_to_dir(dir)?) })?
+            }
+        };
+        Ok(ExportResult { items: summary.items, path: path.display().to_string(), warnings: summary.warnings })
     }
 
     /// Validates and classifies a file without writing anything. Conflicts
     /// are reported in the summary for review, not thrown.
     pub fn preview_import_file(&self, path: String) -> Result<ImportSummary, RalloError> {
+        if is_archive(&path)? {
+            let report = archive::read_zip(Path::new(&path), |dir| -> Result<_, RalloError> {
+                Ok(self.store().inspect_import_dir(dir)?)
+            })?;
+            return Ok(ImportSummary { format: TransferFormat::Zip, ..ImportSummary::from(report) });
+        }
         let bytes = read_import_file(&path)?;
         Ok(self.store().inspect_import(&bytes)?.into())
     }
@@ -199,6 +260,12 @@ impl RalloStore {
     /// Imports atomically after a pre-import snapshot; any conflict aborts
     /// before anything is written.
     pub fn apply_import_file(&self, path: String) -> Result<ImportSummary, RalloError> {
+        if is_archive(&path)? {
+            let report = archive::read_zip(Path::new(&path), |dir| -> Result<_, RalloError> {
+                Ok(self.store().apply_import_dir(dir)?)
+            })?;
+            return Ok(ImportSummary { format: TransferFormat::Zip, ..ImportSummary::from(report) });
+        }
         let bytes = read_import_file(&path)?;
         Ok(self.store().apply_import(&bytes)?.into())
     }

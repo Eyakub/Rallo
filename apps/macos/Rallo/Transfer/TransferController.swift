@@ -39,6 +39,10 @@ final class TransferController {
             save.title = "Export Spreadsheet"
             save.nameFieldStringValue = "Rallo Notes \(date).csv"
             save.allowedContentTypes = [.commaSeparatedText]
+        case .zip:
+            save.title = "Export Archive"
+            save.nameFieldStringValue = "Rallo Archive \(date).zip"
+            save.allowedContentTypes = [.zip]
         }
         save.canCreateDirectories = true
         save.level = .floating
