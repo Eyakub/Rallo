@@ -51,6 +51,8 @@ pub struct ItemView {
     pub item: Item,
     pub display_id: String,
     pub reminder: Option<Reminder>,
+    /// The note's images in order (0018); `[]` when it has none.
+    pub images: Vec<crate::images::ImageView>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

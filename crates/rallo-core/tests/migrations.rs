@@ -29,7 +29,7 @@ fn v1_database_migrates_to_current_schema_keeps_data_and_backs_up() {
 
     let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
     assert_eq!(version, SCHEMA_VERSION);
-    assert_eq!(version, 4, "0002 through 0004 must be registered");
+    assert_eq!(version, 5, "0002 through 0005 must be registered");
 
     let text: String =
         conn.query_row("SELECT text FROM items WHERE id = ?1", [id.to_string()], |row| row.get(0)).unwrap();

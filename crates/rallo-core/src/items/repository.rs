@@ -174,7 +174,8 @@ pub(crate) fn display_id(conn: &Connection, item: &Item) -> CoreResult<String> {
 pub(crate) fn build_item_view(conn: &Connection, item: Item) -> CoreResult<ItemView> {
     let display_id = display_id(conn, &item)?;
     let reminder = reminders::repository::fetch_by_item(conn, item.id)?;
-    Ok(ItemView { item, display_id, reminder })
+    let images = crate::images::views(conn, item.id)?;
+    Ok(ItemView { item, display_id, reminder, images })
 }
 
 fn validate_limit(limit: u32) -> CoreResult<u32> {
@@ -426,8 +427,8 @@ pub(crate) fn mark_restored(tx: &Transaction<'_>, item_id: Uuid, now_ms: i64) ->
 /// by reminder-only mutations (`reschedule`, `snooze`, `acknowledge`,
 /// `cancel-reminder`) whose state change lives entirely in the `reminders`
 /// table but which must still bump the item's revision exactly once (0003
-/// §3).
-pub(crate) fn touch(tx: &Transaction<'_>, item_id: Uuid, now_ms: i64) -> CoreResult<()> {
+/// §3). Also used for image add/remove (0018).
+pub(crate) fn touch(tx: &Connection, item_id: Uuid, now_ms: i64) -> CoreResult<()> {
     tx.execute(
         "UPDATE items SET updated_at_ms = ?2, revision = revision + 1 WHERE id = ?1",
         params![item_id.to_string(), now_ms],

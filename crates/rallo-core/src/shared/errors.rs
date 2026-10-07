@@ -27,6 +27,11 @@ pub enum ErrorCode {
     InvalidImport,
     ImportConflict,
     FileExists,
+    ImageUnsupported,
+    ImageTooLarge,
+    TooManyImages,
+    ImageUnreadable,
+    ImageNotFound,
 }
 
 impl ErrorCode {
@@ -52,6 +57,11 @@ impl ErrorCode {
             Self::InvalidImport => "INVALID_IMPORT",
             Self::ImportConflict => "IMPORT_CONFLICT",
             Self::FileExists => "FILE_EXISTS",
+            Self::ImageUnsupported => "IMAGE_UNSUPPORTED",
+            Self::ImageTooLarge => "IMAGE_TOO_LARGE",
+            Self::TooManyImages => "TOO_MANY_IMAGES",
+            Self::ImageUnreadable => "IMAGE_UNREADABLE",
+            Self::ImageNotFound => "IMAGE_NOT_FOUND",
         }
     }
 }
