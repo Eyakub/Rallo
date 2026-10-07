@@ -1,7 +1,7 @@
 //! The `attachments` table (0018).
 
 use rusqlite::types::Type;
-use rusqlite::{Connection, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
 
 use super::files::{NewImage, file_name};
@@ -83,7 +83,7 @@ pub(crate) fn delete_one(conn: &Connection, item_id: Uuid, image_id: Uuid) -> Co
             params![item_id.to_string(), image_id.to_string()],
             image_row,
         )
-        .ok();
+        .optional()?;
     if row.is_some() {
         conn.execute("DELETE FROM attachments WHERE id = ?1", [image_id.to_string()])?;
     }

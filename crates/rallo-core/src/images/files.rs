@@ -46,8 +46,11 @@ pub(crate) struct Written(Vec<PathBuf>);
 
 impl Written {
     pub(crate) fn discard(self) {
-        for path in self.0 {
+        for path in &self.0 {
             let _ = fs::remove_file(path);
+        }
+        if let Some(dir) = self.0.first().and_then(|path| path.parent()) {
+            let _ = fs::remove_dir(dir); // non-recursive: stays if other images are there
         }
     }
 }
@@ -93,7 +96,14 @@ pub(crate) fn remove_orphans(data_dir: &Path, known: &HashSet<PathBuf>, older_th
         if !item_path.is_dir() {
             continue;
         }
-        for entry in fs::read_dir(&item_path)?.flatten() {
+        // Best-effort: skip a directory we can't read; a later sweep retries.
+        let Ok(entries) = fs::read_dir(&item_path) else { continue };
+        // Taken before removing files, which would make it look fresh.
+        let dir_stale = fs::metadata(&item_path)
+            .and_then(|metadata| metadata.modified())
+            .map(|modified| modified < older_than)
+            .unwrap_or(false);
+        for entry in entries.flatten() {
             let path = entry.path();
             let Ok(metadata) = fs::symlink_metadata(&path) else { continue };
             let stale = metadata.modified().map(|modified| modified < older_than).unwrap_or(false);
@@ -101,7 +111,9 @@ pub(crate) fn remove_orphans(data_dir: &Path, known: &HashSet<PathBuf>, older_th
                 removed += 1;
             }
         }
-        let _ = fs::remove_dir(&item_path); // only succeeds when empty
+        if dir_stale {
+            let _ = fs::remove_dir(&item_path); // only succeeds when empty
+        }
     }
     Ok(removed)
 }

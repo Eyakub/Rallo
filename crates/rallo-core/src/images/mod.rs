@@ -6,6 +6,7 @@
 pub mod files;
 pub mod format;
 pub(crate) mod repository;
+mod service;
 
 use std::path::{Path, PathBuf};
 
@@ -15,6 +16,7 @@ use uuid::Uuid;
 
 pub use files::ATTACHMENTS_DIR;
 pub use format::{ImageKind, MAX_IMAGE_BYTES, MAX_IMAGES_PER_NOTE};
+pub use service::{DELETED_IMAGE_RETENTION_MS, SweepSummary};
 
 use crate::shared::errors::CoreResult;
 
@@ -49,4 +51,49 @@ pub(crate) fn views(conn: &Connection, item_id: Uuid) -> CoreResult<Vec<ImageVie
             byte_size: row.byte_size,
         })
         .collect())
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ImageAudit {
+    pub count: u64,
+    pub bytes: u64,
+    pub orphan_files: u64,
+    /// Paths of images whose file is gone.
+    pub missing: Vec<String>,
+}
+
+/// What `rallo doctor` reports (0018). Read-only; `conn` may be a read-only
+/// connection to a database older than schema 5, which has no images.
+pub fn audit(conn: &Connection, data_dir: &Path) -> CoreResult<ImageAudit> {
+    let has_table: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'attachments')",
+        [],
+        |row| row.get(0),
+    )?;
+    let rows = if has_table { repository::all(conn)? } else { Vec::new() };
+    let known: std::collections::HashSet<PathBuf> =
+        rows.iter().map(|row| files::file_path(data_dir, row.item_id, &row.file_name)).collect();
+    let mut audit = ImageAudit {
+        count: rows.len() as u64,
+        bytes: rows.iter().map(|row| row.byte_size as u64).sum(),
+        ..ImageAudit::default()
+    };
+    audit.missing = rows
+        .iter()
+        .map(|row| files::file_path(data_dir, row.item_id, &row.file_name))
+        .filter(|path| !path.exists())
+        .map(|path| path.display().to_string())
+        .collect();
+    if let Ok(item_dirs) = std::fs::read_dir(files::attachments_dir(data_dir)) {
+        for item_dir in item_dirs.flatten().filter(|entry| entry.path().is_dir()) {
+            // Best-effort like the sweep: an unreadable directory is skipped.
+            let Ok(entries) = std::fs::read_dir(item_dir.path()) else { continue };
+            for entry in entries.flatten() {
+                if !known.contains(&entry.path()) {
+                    audit.orphan_files += 1;
+                }
+            }
+        }
+    }
+    Ok(audit)
 }

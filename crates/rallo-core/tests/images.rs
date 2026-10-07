@@ -172,3 +172,168 @@ fn a_text_less_note_without_images_cannot_be_restored() {
     assert_eq!(error.code(), ErrorCode::TextEmpty);
     assert_eq!(error.to_string(), "nothing left to restore: its images were removed 30 days after it was deleted");
 }
+
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
+use rallo_core::StoreOptions;
+use rallo_core::shared::clock::ManualClock;
+
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+fn store_at(dir: &std::path::Path, clock: &Arc<ManualClock>) -> rallo_core::Store {
+    rallo_core::Store::open(StoreOptions::new(dir).with_clock(clock.clone())).unwrap()
+}
+
+#[test]
+fn attach_adds_after_the_existing_images_and_moves_the_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let note = store.create_note_with_images("x", &[PNG.to_vec()], None).unwrap().item;
+    let id = note.item.id.to_string();
+    let attached = store.attach_images(&id, &[GIF.to_vec(), WEBP.to_vec()], &MutationOptions::default()).unwrap();
+    let types: Vec<_> = attached.item.images.iter().map(|image| image.mime_type.as_str()).collect();
+    assert_eq!(types, ["image/png", "image/gif", "image/webp"]);
+    assert_eq!(attached.item.item.revision, note.item.revision + 1);
+    assert!(attached.changed);
+}
+
+#[test]
+fn attach_refusals_write_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let id = store.create_note_with_images("x", &vec![PNG.to_vec(); 9], None).unwrap().item.item.id.to_string();
+    let error = store.attach_images(&id, &[PNG.to_vec(), PNG.to_vec()], &MutationOptions::default()).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::TooManyImages);
+    assert_eq!(attachments(dir.path()).len(), 9);
+    store.delete(&id, &MutationOptions::default()).unwrap();
+    let error = store.attach_images(&id, &[PNG.to_vec()], &MutationOptions::default()).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::ItemDeleted);
+    assert_eq!(attachments(dir.path()).len(), 9);
+}
+
+#[test]
+fn detach_removes_the_row_and_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let note = store.create_note_with_images("x", &[PNG.to_vec(), JPEG.to_vec()], None).unwrap().item;
+    let id = note.item.id.to_string();
+    let first = &note.images[0];
+    let outcome = store.detach_image(&id, &first.id.to_string(), &MutationOptions::default()).unwrap();
+    assert_eq!(outcome.item.images.len(), 1);
+    assert!(!first.path.exists());
+    let error = store.detach_image(&id, &first.id.to_string(), &MutationOptions::default()).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::ImageNotFound);
+}
+
+#[test]
+fn the_last_image_of_a_text_less_note_stays() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let note = store.create_note_with_images("", &[PNG.to_vec()], None).unwrap().item;
+    let error = store
+        .detach_image(&note.item.id.to_string(), &note.images[0].id.to_string(), &MutationOptions::default())
+        .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::TextEmpty);
+    assert_eq!(error.to_string(), "a note needs text or an image; delete the note instead");
+    assert!(note.images[0].path.exists());
+}
+
+#[test]
+fn deleted_notes_keep_images_for_thirty_days() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = Arc::new(ManualClock::new(1_800_000_000_000));
+    let mut store = store_at(dir.path(), &clock);
+    let note = store.create_note_with_images("caption", &[PNG.to_vec()], None).unwrap().item;
+    let id = note.item.id.to_string();
+    store.delete(&id, &MutationOptions::default()).unwrap();
+
+    clock.advance(29 * DAY_MS);
+    assert_eq!(store.sweep_images().unwrap().expired_images, 0);
+    assert!(note.images[0].path.exists());
+
+    clock.advance(2 * DAY_MS);
+    assert_eq!(store.sweep_images().unwrap().expired_images, 1);
+    assert!(!note.images[0].path.exists());
+    let restored = store.restore(&id, &MutationOptions::default()).unwrap();
+    assert_eq!(restored.item.item.text, "caption");
+    assert!(restored.item.images.is_empty());
+}
+
+#[test]
+fn fresh_orphans_survive_the_sweep() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    store.create_note_with_images("x", &[PNG.to_vec()], None).unwrap();
+    let orphan_dir = dir.path().join("attachments").join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&orphan_dir).unwrap();
+    let old = orphan_dir.join("old.png");
+    let fresh = orphan_dir.join("fresh.png");
+    std::fs::write(&old, PNG).unwrap();
+    std::fs::write(&fresh, PNG).unwrap();
+    let file = std::fs::File::options().write(true).open(&old).unwrap();
+    file.set_modified(SystemTime::now() - Duration::from_secs(2 * 60 * 60)).unwrap();
+
+    let summary = store.sweep_images().unwrap();
+    assert_eq!(summary.orphan_files, 1);
+    assert!(!old.exists());
+    assert!(fresh.exists());
+    assert_eq!(attachments(dir.path()).len(), 2, "the note's own image and the fresh orphan");
+}
+
+#[test]
+fn the_audit_counts_images_orphans_and_missing_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let note = store.create_note_with_images("x", &[PNG.to_vec(), JPEG.to_vec()], None).unwrap().item;
+    std::fs::remove_file(&note.images[1].path).unwrap();
+    std::fs::write(note.images[0].path.with_file_name("stray.png"), PNG).unwrap();
+    let data_dir = dir.path().canonicalize().unwrap();
+    let audit = rallo_core::images::audit(&support::raw_connection(dir.path()), &data_dir).unwrap();
+    assert_eq!(audit.count, 2);
+    assert_eq!(audit.bytes, (PNG.len() + JPEG.len()) as u64);
+    assert_eq!(audit.orphan_files, 1);
+    assert_eq!(audit.missing, vec![note.images[1].path.display().to_string()]);
+}
+
+fn item_dirs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    match std::fs::read_dir(dir.join("attachments")) {
+        Ok(items) => items.flatten().map(|entry| entry.path()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[test]
+fn a_replayed_create_leaves_no_empty_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    store.create_note_with_images("x", &[PNG.to_vec()], Some("req-1")).unwrap();
+    store.create_note_with_images("x", &[PNG.to_vec()], Some("req-1")).unwrap();
+    assert_eq!(item_dirs(dir.path()).len(), 1, "only the first note's directory");
+    assert_eq!(attachments(dir.path()).len(), 1);
+}
+
+#[test]
+fn the_sweep_skips_an_unreadable_directory_and_removes_stale_empty_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let root = dir.path().join("attachments");
+    std::fs::create_dir_all(&root).unwrap();
+    let old = SystemTime::now() - Duration::from_secs(2 * 60 * 60);
+
+    let locked = root.join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let stale_empty = root.join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir(&stale_empty).unwrap();
+    std::fs::File::open(&stale_empty).unwrap().set_modified(old).unwrap();
+    let fresh_empty = root.join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir(&fresh_empty).unwrap();
+
+    let result = store.sweep_images();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    result.unwrap();
+    assert!(!stale_empty.exists());
+    assert!(fresh_empty.exists(), "a just-created directory may be a CLI write in progress");
+    assert!(locked.exists());
+}
