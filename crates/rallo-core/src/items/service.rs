@@ -21,6 +21,8 @@ pub const DEFAULT_PAGE_SIZE: u32 = 50;
 struct CreateNoteInputs<'a> {
     command: &'static str,
     text: &'a str,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    images: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -215,11 +217,42 @@ impl Store {
     /// Durably stores a new open note. Never has a reminder or preexisting
     /// candidates, so scheduling/cancellation are always `None`.
     pub fn create_note(&mut self, note_text: &str, request_id: Option<&str>) -> CoreResult<MutationOutcome> {
-        let note_text = text::validate_note_text(note_text)?.to_owned();
+        self.create_note_with_images(note_text, &[], request_id)
+    }
+
+    /// `rallo note … --image` (0018): the image files are written first, then
+    /// one transaction inserts the note and their rows; if that doesn't
+    /// commit (or replays), the files are removed again.
+    pub fn create_note_with_images(
+        &mut self,
+        note_text: &str,
+        images: &[Vec<u8>],
+        request_id: Option<&str>,
+    ) -> CoreResult<MutationOutcome> {
+        let note_text = text::validate_note_content(note_text, !images.is_empty())?.to_owned();
+        let kinds = crate::images::format::check_batch(images, 0)?;
+        let id = ids::new_id();
+        let new_images = crate::images::files::new_images(images, &kinds);
+        let written = crate::images::files::write_all(self.data_dir(), id, &new_images)?;
+        let result = self.insert_note(id, &note_text, &new_images, crate::images::format::digests(images), request_id);
+        if !matches!(&result, Ok(outcome) if !outcome.replayed) {
+            written.discard();
+        }
+        result
+    }
+
+    fn insert_note(
+        &mut self,
+        id: Uuid,
+        note_text: &str,
+        new_images: &[crate::images::files::NewImage<'_>],
+        digests: Vec<String>,
+        request_id: Option<&str>,
+    ) -> CoreResult<MutationOutcome> {
         let now = self.now_ms();
         let tx = self.write_tx()?;
 
-        let inputs = CreateNoteInputs { command: "create_note", text: &note_text };
+        let inputs = CreateNoteInputs { command: "create_note", text: note_text, images: digests };
         let fingerprint = match check_receipt(&tx, request_id, &inputs)? {
             ReceiptLookup::Replay(replayed) => {
                 tx.commit()?;
@@ -229,11 +262,10 @@ impl Store {
             ReceiptLookup::None => None,
         };
 
-        let id = ids::new_id();
         let item = Item {
             short_key: ids::short_key(&id),
             id,
-            text: note_text.clone(),
+            text: note_text.to_owned(),
             status: ItemStatus::Open,
             created_at_ms: now,
             updated_at_ms: now,
@@ -241,7 +273,8 @@ impl Store {
             deleted_at_ms: None,
             revision: 1,
         };
-        repository::insert(&tx, &item, &text::match_key(&note_text))?;
+        repository::insert(&tx, &item, &text::match_key(note_text))?;
+        crate::images::repository::insert(&tx, id, new_images, now)?;
         crate::pet::increment_save_seq(&tx)?;
         bump_revision(&tx)?;
         let view = repository::build_item_view(&tx, item)?;
@@ -280,7 +313,7 @@ impl Store {
     /// reminder is active with a future deadline, queues a same-deadline
     /// payload refresh.
     pub fn edit_text(&mut self, selector: &str, new_text: &str, opts: &MutationOptions) -> CoreResult<MutationOutcome> {
-        let new_text = text::validate_note_text(new_text)?.to_owned();
+        let new_text = text::validate_note_length(new_text)?.to_owned();
         let preview_enabled = self.preview_text_enabled()?;
         let inputs = EditTextInputs { command: "edit_text", selector, text: &new_text, if_revision: opts.if_revision };
         mutate_by_selector(
@@ -289,7 +322,13 @@ impl Store {
             selector,
             opts,
             &inputs,
-            deleted_precondition,
+            |tx, item| {
+                deleted_precondition(tx, item)?;
+                if new_text.is_empty() && crate::images::repository::count(tx, item.id)? == 0 {
+                    return Err(CoreError::invalid(ErrorCode::TextEmpty, "a note needs text or an image"));
+                }
+                Ok(())
+            },
             |_tx, item| Ok(item.text == new_text),
             |tx, item, now| {
                 let match_key = text::match_key(&new_text);
@@ -377,7 +416,18 @@ impl Store {
             selector,
             opts,
             &inputs,
-            no_precondition,
+            |tx, item| {
+                if item.deleted_at_ms.is_some()
+                    && item.text.trim().is_empty()
+                    && crate::images::repository::count(tx, item.id)? == 0
+                {
+                    return Err(CoreError::invalid(
+                        ErrorCode::TextEmpty,
+                        "nothing left to restore: its images were removed 30 days after it was deleted",
+                    ));
+                }
+                Ok(())
+            },
             |_tx, item| Ok(item.deleted_at_ms.is_none()),
             |tx, item, now| {
                 repository::mark_restored(tx, item.id, now)?;

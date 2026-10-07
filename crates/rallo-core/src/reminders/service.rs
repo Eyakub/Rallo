@@ -17,6 +17,8 @@ struct CreateReminderInputs<'a> {
     text: &'a str,
     #[serde(flatten)]
     time: &'a TimeSpec,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    images: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -103,12 +105,47 @@ impl Store {
         when: &TimeSpec,
         request_id: Option<&str>,
     ) -> CoreResult<MutationOutcome> {
-        let note_text = text::validate_note_text(text_input)?.to_owned();
+        self.create_reminder_with_images(text_input, when, &[], request_id)
+    }
+
+    /// Like `create_reminder`, with images (0018): files are written first and
+    /// removed again unless a fresh reminder commits.
+    pub fn create_reminder_with_images(
+        &mut self,
+        text_input: &str,
+        when: &TimeSpec,
+        images: &[Vec<u8>],
+        request_id: Option<&str>,
+    ) -> CoreResult<MutationOutcome> {
+        let note_text = text::validate_note_content(text_input, !images.is_empty())?.to_owned();
         let parsed_time = time::parse(when)?;
+        let kinds = crate::images::format::check_batch(images, 0)?;
+        let id = ids::new_id();
+        let new_images = crate::images::files::new_images(images, &kinds);
+        let written = crate::images::files::write_all(self.data_dir(), id, &new_images)?;
+        let digests = crate::images::format::digests(images);
+        let result = self.insert_reminder(id, &note_text, when, parsed_time, &new_images, digests, request_id);
+        if !matches!(&result, Ok(outcome) if !outcome.replayed) {
+            written.discard();
+        }
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn insert_reminder(
+        &mut self,
+        id: uuid::Uuid,
+        note_text: &str,
+        when: &TimeSpec,
+        parsed_time: time::ParsedTime,
+        new_images: &[crate::images::files::NewImage<'_>],
+        digests: Vec<String>,
+        request_id: Option<&str>,
+    ) -> CoreResult<MutationOutcome> {
         let now = self.now_ms();
         let tx = self.write_tx()?;
 
-        let inputs = CreateReminderInputs { command: "create_reminder", text: &note_text, time: when };
+        let inputs = CreateReminderInputs { command: "create_reminder", text: note_text, time: when, images: digests };
         let fingerprint = match items_service::check_receipt(&tx, request_id, &inputs)? {
             items_service::ReceiptLookup::Replay(replayed) => {
                 tx.commit()?;
@@ -121,11 +158,10 @@ impl Store {
         repository::check_capacity(&tx)?;
         let resolved = parsed_time.resolve(now)?;
 
-        let id = ids::new_id();
         let item = Item {
             short_key: ids::short_key(&id),
             id,
-            text: note_text.clone(),
+            text: note_text.to_owned(),
             status: ItemStatus::Open,
             created_at_ms: now,
             updated_at_ms: now,
@@ -133,7 +169,8 @@ impl Store {
             deleted_at_ms: None,
             revision: 1,
         };
-        items_repository::insert(&tx, &item, &text::match_key(&note_text))?;
+        items_repository::insert(&tx, &item, &text::match_key(note_text))?;
+        crate::images::repository::insert(&tx, id, new_images, now)?;
         repository::insert_new(
             &tx,
             id,

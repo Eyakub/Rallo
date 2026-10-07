@@ -9,7 +9,7 @@ pub const MAX_TEXT_BYTES: usize = 64 * 1024;
 /// Validates note text at an external boundary. Stored text is kept verbatim.
 pub fn validate_note_text(text: &str) -> CoreResult<&str> {
     if text.trim().is_empty() {
-        return Err(CoreError::invalid(ErrorCode::TextEmpty, "note text is empty"));
+        return Err(CoreError::invalid(ErrorCode::TextEmpty, "a note needs text or an image"));
     }
     if text.len() > MAX_TEXT_BYTES {
         return Err(CoreError::invalid(
@@ -18,6 +18,24 @@ pub fn validate_note_text(text: &str) -> CoreResult<&str> {
         ));
     }
     Ok(text)
+}
+
+/// 0018: a note needs text or at least one image. With images, blank text is
+/// stored as "".
+pub fn validate_note_content(text: &str, has_images: bool) -> CoreResult<&str> {
+    if has_images && text.trim().is_empty() {
+        return Ok("");
+    }
+    validate_note_text(text)
+}
+
+/// Size only: for edits, where whether blank text is allowed depends on the
+/// note's images.
+pub fn validate_note_length(text: &str) -> CoreResult<&str> {
+    if text.trim().is_empty() {
+        return Ok("");
+    }
+    validate_note_text(text)
 }
 
 /// Normalised form used for exact-text selection and literal search:

@@ -58,3 +58,117 @@ fn private_permissions_constant_is_what_we_think() {
     std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o700);
 }
+
+use rallo_core::ErrorCode;
+use rallo_core::items::model::MutationOptions;
+use rallo_core::items::{ListFilter, ListQuery};
+
+fn attachments(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let root = dir.join("attachments");
+    let Ok(items) = std::fs::read_dir(&root) else { return Vec::new() };
+    items
+        .flatten()
+        .flat_map(|item| {
+            std::fs::read_dir(item.path()).unwrap().flatten().map(|entry| entry.path()).collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[test]
+fn a_note_with_images_writes_private_files_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let outcome = store.create_note_with_images("Login broken", &[PNG.to_vec(), JPEG.to_vec()], None).unwrap();
+    let images = &outcome.item.images;
+    assert_eq!(images.len(), 2);
+    assert_eq!(images[0].mime_type, "image/png");
+    assert_eq!(images[1].mime_type, "image/jpeg");
+    assert_eq!(std::fs::read(&images[0].path).unwrap(), PNG);
+    assert!(
+        images[0]
+            .path
+            .starts_with(dir.path().canonicalize().unwrap().join("attachments").join(outcome.item.item.id.to_string()))
+    );
+    assert_eq!(std::fs::metadata(&images[0].path).unwrap().permissions().mode() & 0o777, 0o600);
+    let item_dir = images[0].path.parent().unwrap();
+    assert_eq!(std::fs::metadata(item_dir).unwrap().permissions().mode() & 0o777, 0o700);
+    let json = serde_json::to_value(&outcome.item).unwrap();
+    assert_eq!(json["images"][0]["type"], "image/png");
+    assert_eq!(json["images"][0]["bytes"], PNG.len());
+    assert_eq!(json["images"][0]["path"], images[0].path.to_str().unwrap());
+}
+
+#[test]
+fn an_image_alone_is_a_note_but_nothing_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let outcome = store.create_note_with_images("  ", &[PNG.to_vec()], None).unwrap();
+    assert_eq!(outcome.item.item.text, "");
+    let error = store.create_note_with_images(" ", &[], None).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::TextEmpty);
+    assert_eq!(error.to_string(), "a note needs text or an image");
+}
+
+#[test]
+fn a_refused_batch_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    assert_eq!(
+        store.create_note_with_images("x", &vec![PNG.to_vec(); 11], None).unwrap_err().code(),
+        ErrorCode::TooManyImages
+    );
+    assert_eq!(
+        store.create_note_with_images("x", &[PNG.to_vec(), b"text".to_vec()], None).unwrap_err().code(),
+        ErrorCode::ImageUnsupported
+    );
+    assert!(attachments(dir.path()).is_empty());
+    assert_eq!(store.list(ListQuery { filter: ListFilter::Open, limit: 50, cursor: None }).unwrap().items.len(), 0);
+}
+
+#[test]
+fn a_retry_with_the_same_images_replays_and_writes_no_more_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let first = store.create_note_with_images("x", &[PNG.to_vec()], Some("req-1")).unwrap();
+    let again = store.create_note_with_images("x", &[PNG.to_vec()], Some("req-1")).unwrap();
+    assert!(again.replayed);
+    assert_eq!(again.item.item.id, first.item.item.id);
+    assert_eq!(attachments(dir.path()).len(), 1);
+    let different = store.create_note_with_images("x", &[JPEG.to_vec()], Some("req-1")).unwrap_err();
+    assert_eq!(different.code(), ErrorCode::RequestIdConflict);
+    assert_eq!(attachments(dir.path()).len(), 1);
+}
+
+#[test]
+fn a_reminder_can_carry_images() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let when = rallo_core::reminders::TimeSpec::In("3600s".to_owned());
+    let outcome = store.create_reminder_with_images("Check this", &when, &[GIF.to_vec()], None).unwrap();
+    assert!(outcome.item.reminder.is_some());
+    assert_eq!(outcome.item.images.len(), 1);
+}
+
+#[test]
+fn editing_to_empty_text_needs_an_image() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let plain = store.create_note("plain", None).unwrap().item.item.id.to_string();
+    let error = store.edit_text(&plain, "", &MutationOptions::default()).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::TextEmpty);
+    let pictured = store.create_note_with_images("caption", &[PNG.to_vec()], None).unwrap().item.item.id.to_string();
+    let edited = store.edit_text(&pictured, " ", &MutationOptions::default()).unwrap();
+    assert_eq!(edited.item.item.text, "");
+}
+
+#[test]
+fn a_text_less_note_without_images_cannot_be_restored() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let id = store.create_note_with_images("", &[PNG.to_vec()], None).unwrap().item.item.id.to_string();
+    store.delete(&id, &MutationOptions::default()).unwrap();
+    support::raw_connection(dir.path()).execute("DELETE FROM attachments", []).unwrap();
+    let error = store.restore(&id, &MutationOptions::default()).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::TextEmpty);
+    assert_eq!(error.to_string(), "nothing left to restore: its images were removed 30 days after it was deleted");
+}
