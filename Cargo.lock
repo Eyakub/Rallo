@@ -575,7 +575,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rallo-cli"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "clap",
  "indexmap",
@@ -590,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "rallo-core"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "caseless",
  "csv",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "rallo-ffi"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "rallo-core",
  "rallo-platform-macos",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "rallo-platform-macos"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "libc",
  "serde",
