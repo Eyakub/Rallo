@@ -81,6 +81,8 @@ final class NotesViewModel: ObservableObject {
     @Published var openSwipe: OpenSwipe?
     @Published var liveSwipe: (id: String, offset: CGFloat)?
     var hoveredID: String?
+    /// A row thumbnail has keyboard focus and handles Space itself.
+    var thumbnailFocused = false
     var rowWidth: CGFloat = 340
     @Published var authorization: NotificationAuthorization?
     /// Asks for permission (never asked yet) or opens System Settings (denied).
@@ -574,11 +576,14 @@ struct NotesView: View {
                     // ⇧↩ inserts a line break (0018), as ⌥↩ already does; ↩ saves.
                     newlineMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                        // Local monitors see every window (popovers, Settings): act on the notes panel only.
+                        guard event.window is NotesWindow else { return event }
                         if composerFocused, flags == .command, event.charactersIgnoringModifiers == "v",
                            model.pasteImages(from: .general) {
                             return nil
                         }
-                        if !composerFocused, model.editingID == nil, event.keyCode == 49, flags.isEmpty,
+                        if !composerFocused, !model.thumbnailFocused, model.editingID == nil, event.keyCode == 49, flags.isEmpty,
+                           !(event.window?.firstResponder is NSText),
                            let item = model.items.first(where: { $0.id == model.expandedID }), !item.images.isEmpty {
                             QuickLookPresenter.shared.toggle(item.images)
                             return nil

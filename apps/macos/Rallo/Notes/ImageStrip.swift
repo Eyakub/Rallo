@@ -7,12 +7,19 @@ import UniformTypeIdentifiers
 struct ImageStrip: View {
     let item: ItemSnapshot
     @ObservedObject var model: NotesViewModel
+    @FocusState private var focused: String?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(Array(item.images.enumerated()), id: \.element.id) { index, image in
                     RowThumbnail(image: image, label: "Image \(index + 1) of \(item.images.count), \(Self.kind(image))")
+                        .focusable()
+                        .focused($focused, equals: image.id)
+                        .onKeyPress(.space) { open(index) }
+                        .onKeyPress(.return) { open(index) }
+                        .onKeyPress(.delete) { remove(image) }
+                        .onKeyPress(.deleteForward) { remove(image) }
                         .onTapGesture { QuickLookPresenter.shared.show(item.images, at: index) }
                         .onDrag { Self.dragProvider(image, index: index) }
                         .contextMenu {
@@ -29,6 +36,18 @@ struct ImageStrip: View {
             }
         }
         .frame(height: ThumbnailCache.points)
+        .onChange(of: focused) { _, id in model.thumbnailFocused = id != nil }
+        .onDisappear { model.thumbnailFocused = false }
+    }
+
+    private func open(_ index: Int) -> KeyPress.Result {
+        QuickLookPresenter.shared.show(item.images, at: index)
+        return .handled
+    }
+
+    private func remove(_ image: ImageSnapshot) -> KeyPress.Result {
+        Task { await model.removeImage(image, from: item) }
+        return .handled
     }
 
     /// "PNG", "JPEG", "HEIC", "GIF", "WEBP" for VoiceOver.

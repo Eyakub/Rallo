@@ -78,7 +78,7 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
 
 /// Esc steps back (stop editing, collapse a note) and finally closes the
 /// panel, as the escape route from any panel should.
-private final class NotesWindow: NSPanel {
+final class NotesWindow: NSPanel {
     var onEscape: () -> Bool = { false }
 
     override func cancelOperation(_ sender: Any?) {

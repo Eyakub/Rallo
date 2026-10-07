@@ -113,4 +113,16 @@ final class ImageClipboardTests: XCTestCase {
         let second = await cache.image(for: url.path)
         XCTAssertTrue(first === second)
     }
+
+    @MainActor
+    func testDeletedFileDropsOutOfTheCache() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rallo-tests-\(UUID().uuidString).png")
+        try image(.png).write(to: url)
+        let cache = ThumbnailCache()
+        let cached = await cache.image(for: url.path)
+        XCTAssertNotNil(cached)
+        try FileManager.default.removeItem(at: url)
+        let after = await cache.image(for: url.path)
+        XCTAssertNil(after)
+    }
 }
