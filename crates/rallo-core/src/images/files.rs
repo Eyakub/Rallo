@@ -93,7 +93,8 @@ pub(crate) fn remove_orphans(data_dir: &Path, known: &HashSet<PathBuf>, older_th
     let mut removed = 0;
     for item_dir in item_dirs.flatten() {
         let item_path = item_dir.path();
-        if !item_path.is_dir() {
+        // The entry's own type: a symlink to a directory is not followed.
+        if !item_dir.file_type().is_ok_and(|kind| kind.is_dir()) {
             continue;
         }
         // Best-effort: skip a directory we can't read; a later sweep retries.

@@ -337,3 +337,42 @@ fn the_sweep_skips_an_unreadable_directory_and_removes_stale_empty_ones() {
     assert!(fresh_empty.exists(), "a just-created directory may be a CLI write in progress");
     assert!(locked.exists());
 }
+
+fn age_two_hours(path: &std::path::Path) {
+    let file = std::fs::File::options().write(true).open(path).unwrap();
+    file.set_modified(SystemTime::now() - Duration::from_secs(2 * 60 * 60)).unwrap();
+}
+
+#[test]
+fn the_sweep_spares_old_files_that_a_row_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = Arc::new(ManualClock::new(1_800_000_000_000));
+    let mut store = store_at(dir.path(), &clock);
+    let live = store.create_note_with_images("live", &[PNG.to_vec()], None).unwrap().item;
+    let deleted = store.create_note_with_images("gone", &[JPEG.to_vec()], None).unwrap().item;
+    store.delete(&deleted.item.id.to_string(), &MutationOptions::default()).unwrap();
+    clock.advance(10 * DAY_MS);
+    age_two_hours(&live.images[0].path);
+    age_two_hours(&deleted.images[0].path);
+    let summary = store.sweep_images().unwrap();
+    assert_eq!(summary, rallo_core::images::SweepSummary { expired_images: 0, orphan_files: 0 });
+    assert!(live.images[0].path.exists());
+    assert!(deleted.images[0].path.exists());
+}
+
+#[test]
+fn the_sweep_does_not_follow_a_symlinked_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let mut store = support::open(dir.path());
+    let stranger = outside.path().join("precious.png");
+    std::fs::write(&stranger, PNG).unwrap();
+    age_two_hours(&stranger);
+    let root = dir.path().join("attachments");
+    std::fs::create_dir_all(&root).unwrap();
+    std::os::unix::fs::symlink(outside.path(), root.join(uuid::Uuid::new_v4().to_string())).unwrap();
+    assert_eq!(store.sweep_images().unwrap().orphan_files, 0);
+    assert!(stranger.exists());
+    let audit = rallo_core::images::audit(&support::raw_connection(dir.path()), dir.path()).unwrap();
+    assert_eq!(audit.orphan_files, 0);
+}
