@@ -33,11 +33,14 @@ pub enum Command {
     /// Save a note.
     Note {
         /// Note text. Use --stdin for arbitrary text.
-        #[arg(required_unless_present = "stdin", conflicts_with = "stdin")]
+        #[arg(required_unless_present_any = ["stdin", "images"], conflicts_with = "stdin")]
         text: Option<String>,
         /// Read the note text from standard input (one trailing newline is dropped).
         #[arg(long)]
         stdin: bool,
+        /// Attach an image file (PNG, JPEG, HEIC, GIF or WebP; 10 MB each, up to 10). Rallo keeps its own copy.
+        #[arg(long = "image", value_name = "PATH")]
+        images: Vec<PathBuf>,
         /// Idempotency key: retrying with the same key and inputs replays the original result.
         #[arg(long, value_name = "KEY")]
         request_id: Option<String>,
@@ -57,6 +60,9 @@ pub enum Command {
         /// phrase such as "fri 5pm", "tomorrow 9am", "oct 20", "in 2 hours".
         #[arg(long, value_name = "WHEN")]
         at: Option<String>,
+        /// Attach an image file (PNG, JPEG, HEIC, GIF or WebP; 10 MB each, up to 10). Rallo keeps its own copy.
+        #[arg(long = "image", value_name = "PATH")]
+        images: Vec<PathBuf>,
         /// Idempotency key: retrying a relative "--in" duration must not move the deadline again.
         #[arg(long, value_name = "KEY")]
         request_id: Option<String>,
@@ -105,6 +111,28 @@ pub enum Command {
         #[arg(long, value_name = "KEY")]
         request_id: Option<String>,
         /// Fail with a conflict unless the item is currently at this revision.
+        #[arg(long, value_name = "N")]
+        if_revision: Option<i64>,
+    },
+    /// Add images to a note (PNG, JPEG, HEIC, GIF or WebP; 10 MB each, 10 per note).
+    Attach {
+        /// Full ID or unique prefix.
+        id: String,
+        /// Image files. Rallo keeps its own copies.
+        #[arg(required = true, value_name = "PATH")]
+        paths: Vec<PathBuf>,
+        #[arg(long, value_name = "KEY")]
+        request_id: Option<String>,
+        #[arg(long, value_name = "N")]
+        if_revision: Option<i64>,
+    },
+    /// Remove one image from a note (IDs are in `rallo get ID --json`).
+    Detach {
+        /// Full ID or unique prefix.
+        id: String,
+        image_id: String,
+        #[arg(long, value_name = "KEY")]
+        request_id: Option<String>,
         #[arg(long, value_name = "N")]
         if_revision: Option<i64>,
     },
@@ -206,7 +234,7 @@ pub enum Command {
         /// Destination path, or "-" for stdout.
         #[arg(long, value_name = "PATH")]
         output: String,
-        /// Defaults from the output extension: ".csv" is CSV, anything else is JSON.
+        /// Defaults from the output extension: `.csv` is CSV, `.zip` is a zip with images, anything else is JSON.
         #[arg(long, value_enum)]
         format: Option<ExportFormatArg>,
         /// Overwrite an existing file at --output.
@@ -252,7 +280,7 @@ pub enum Command {
     /// Remove Rallo from this Mac: the app, its terminal command, agent hooks and skill, Open at Login,
     /// scheduled reminders, the ClickUp token, and voice API keys. Keeps your notes unless --purge.
     Uninstall {
-        /// Also delete your notes and settings, after saving a final JSON export to ~/Downloads.
+        /// Also delete your notes and settings, after saving a final zip export (with images) to ~/Downloads.
         #[arg(long)]
         purge: bool,
         /// Don't ask for confirmation.
@@ -334,4 +362,5 @@ pub enum SetupCommand {
 pub enum ExportFormatArg {
     Json,
     Csv,
+    Zip,
 }

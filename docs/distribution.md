@@ -138,7 +138,7 @@ or closes the notes panel.
 
 ```sh
 rallo uninstall          # keeps your notes
-rallo uninstall --purge  # also deletes them, after a JSON export to ~/Downloads
+rallo uninstall --purge  # also deletes them, after a zip export to ~/Downloads
 ```
 
 Also available as Settings → About → Uninstall Rallo…. It removes the app, the
@@ -153,7 +153,7 @@ removing just the app and its terminal command for older versions):
 
 ```sh
 bash scripts/install.sh --uninstall          # keeps your notes
-bash scripts/install.sh --uninstall --purge  # also deletes them, after a JSON export to ~/Downloads
+bash scripts/install.sh --uninstall --purge  # also deletes them, after a zip export to ~/Downloads
 ```
 
 ## Signing

@@ -1,7 +1,7 @@
 //! `rallo uninstall [--purge] [--yes]`: removes the installed app and
 //! everything Rallo put outside it (terminal link, agent hooks and skill,
 //! Open at Login, scheduled reminders, the ClickUp token). Notes are kept
-//! unless `--purge`, which first saves a final JSON export to `~/Downloads`.
+//! unless `--purge`, which first saves a final zip export (with images) to `~/Downloads`.
 //! Nothing is removed until every step that can fail safely has succeeded:
 //! confirmation, the export, quitting the app, and the app-owned cleanup.
 
@@ -13,8 +13,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rallo_core::storage::paths;
-use rallo_core::transfer::ExportFormat;
 use rallo_core::{Store, StoreOptions};
+use rallo_platform_macos::archive;
 use rallo_platform_macos::terminal_command;
 use rallo_platform_macos::update;
 use serde_json::{Value, json};
@@ -85,8 +85,9 @@ fn save_final_export(data_dir: &Path, home: &Path) -> Result<PathBuf, Failure> {
     let store = Store::open(StoreOptions::new(data_dir.to_path_buf())).map_err(export_failed)?;
     let downloads = home.join("Downloads");
     fs::create_dir_all(&downloads).map_err(export_failed)?;
-    let path = downloads.join(format!("rallo-export-{}.json", file_stamp(store.now_ms())));
-    store.export_to_file(&path, ExportFormat::Json, false).map_err(export_failed)?;
+    let path = downloads.join(format!("rallo-export-{}.zip", file_stamp(store.now_ms())));
+    rallo_core::transfer::export::refuse_existing(&path, false).map_err(export_failed)?;
+    archive::write_zip(&path, |dir| -> Result<_, Failure> { store.export_to_dir(dir).map_err(export_failed) })?;
     Ok(path)
 }
 

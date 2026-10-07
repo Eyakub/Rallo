@@ -176,7 +176,9 @@ fn purge_saves_an_export_then_deletes_the_data() {
     assert_eq!(doc["uninstall"]["data"], "deleted");
     let export = PathBuf::from(doc["uninstall"]["export_path"].as_str().unwrap());
     assert_eq!(export.parent().unwrap(), fixture.home.join("Downloads"));
-    assert!(fs::read_to_string(&export).unwrap().contains("remember the milk"));
+    assert_eq!(export.extension().unwrap(), "zip");
+    let document = std::process::Command::new("/usr/bin/unzip").arg("-p").arg(&export).output().unwrap();
+    assert!(String::from_utf8_lossy(&document.stdout).contains("remember the milk"));
     assert!(!fixture.data_dir.exists());
     assert!(!fixture.app.exists());
 }

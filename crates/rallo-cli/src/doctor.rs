@@ -89,6 +89,7 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>) -> Result<ExitCode, Failur
     let notifications = check_notifications(inspection.as_ref(), now_ms);
     let reminders = check_reminders(inspection.as_ref(), running, now_ms);
     let backups_check = check_backups(&backups, now_ms);
+    let images = check_images(inspection.as_ref());
 
     let checks = [
         app_install,
@@ -96,6 +97,7 @@ pub fn run(out: &Output, data_dir_arg: Option<&Path>) -> Result<ExitCode, Failur
         agent_skill,
         agent_hooks,
         data_directory,
+        images,
         app_running,
         notifications,
         reminders,
@@ -473,6 +475,37 @@ fn human_size(bytes: u64) -> String {
     }
 }
 
+/// `images` (0018): how many and how big; files no note owns are a warning
+/// (the app sweeps them), a note whose file is gone is a problem.
+fn check_images(inspection: Option<&StoreInspection>) -> Check {
+    let Some(inspection) = inspection else {
+        return Check::new("images", CheckStatus::Ok, "no images yet", None);
+    };
+    let audit = &inspection.images;
+    let summary = format!(
+        "{}, {}",
+        if audit.count == 1 { "1 image".to_owned() } else { format!("{} images", audit.count) },
+        human_size(audit.bytes)
+    );
+    if !audit.missing.is_empty() {
+        return Check::new(
+            "images",
+            CheckStatus::Problem,
+            format!("{summary}; {} missing: {}", audit.missing.len(), audit.missing.join(", ")),
+            Some("Restore the files from a backup, or remove them from their notes with `rallo detach`.".to_owned()),
+        );
+    }
+    if audit.orphan_files > 0 {
+        return Check::new(
+            "images",
+            CheckStatus::Warning,
+            format!("{summary}; {} file(s) belong to no note", audit.orphan_files),
+            Some("Rallo removes them the next time it opens.".to_owned()),
+        );
+    }
+    Check::new("images", CheckStatus::Ok, summary, None)
+}
+
 /// `data_directory`: the path, directory/file permissions, schema version
 /// versus what this build supports, `PRAGMA quick_check`, and database size.
 fn check_data_directory(data_dir: &Path, inspection: Option<&StoreInspection>) -> Check {
@@ -489,6 +522,7 @@ fn check_data_directory(data_dir: &Path, inspection: Option<&StoreInspection>) -
         (Some(&inspection.db_stat), 0o600),
         (inspection.wal_stat.as_ref(), 0o600),
         (inspection.shm_stat.as_ref(), 0o600),
+        (inspection.attachments_stat.as_ref(), 0o700),
     ] {
         if let Some(stat) = stat
             && stat.mode & 0o077 != 0
@@ -520,7 +554,7 @@ fn check_data_directory(data_dir: &Path, inspection: Option<&StoreInspection>) -
     // In WAL mode recent writes live in -wal until a checkpoint, so the
     // main file alone can look empty.
     let wal_bytes = inspection.wal_stat.as_ref().map_or(0, |wal| wal.size_bytes);
-    notes.push(format!("{} on disk", human_size(inspection.db_stat.size_bytes + wal_bytes)));
+    notes.push(format!("{} on disk", human_size(inspection.db_stat.size_bytes + wal_bytes + inspection.images.bytes)));
 
     let summary = format!("{} — {}", data_dir.display(), notes.join("; "));
     let fix = (!fixes.is_empty()).then(|| fixes.join("; "));

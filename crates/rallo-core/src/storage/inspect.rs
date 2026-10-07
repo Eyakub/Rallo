@@ -58,6 +58,10 @@ pub struct StoreInspection {
     pub db_stat: FileStat,
     pub wal_stat: Option<FileStat>,
     pub shm_stat: Option<FileStat>,
+    /// `attachments/` (0018); `None` before the first image.
+    pub attachments_stat: Option<FileStat>,
+    /// Images listed, their bytes, files no row owns, rows whose file is gone.
+    pub images: crate::images::ImageAudit,
     pub schema_version_found: u32,
     /// `"ok"`, or the (semicolon-joined) problems `PRAGMA quick_check` reported.
     pub quick_check: String,
@@ -106,6 +110,8 @@ impl StoreInspection {
         let wal_stat = stat(&PathBuf::from(format!("{}-wal", db_path.display())));
         let shm_stat = stat(&PathBuf::from(format!("{}-shm", db_path.display())));
 
+        let attachments_stat = stat(&data_dir.join(crate::images::ATTACHMENTS_DIR));
+
         let conn = Connection::open_with_flags(
             &db_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI,
@@ -145,6 +151,7 @@ impl StoreInspection {
             IntentsSummary::default()
         };
 
+        let images = crate::images::audit(&conn, data_dir)?;
         let notifications_authorization = read_metadata_i64(&conn, "notifications.authorization")?;
         let notifications_authorization_observed_at_ms =
             read_metadata_i64(&conn, "notifications.authorization_observed_at_ms")?;
@@ -154,6 +161,8 @@ impl StoreInspection {
             db_stat,
             wal_stat,
             shm_stat,
+            attachments_stat,
+            images,
             schema_version_found,
             quick_check,
             active_reminders,

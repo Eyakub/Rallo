@@ -86,6 +86,16 @@ build RFC 3339. If the user's timing is
 genuinely ambiguous ("later", "next week"), ask; otherwise keep their intent
 and don't over-ask.
 
+## Images
+
+`rallo note "Login button does nothing" --image /tmp/shot.png` saves a note
+with a screenshot you took (PNG, JPEG, HEIC, GIF or WebP; 10 MB each, up to
+10; repeat `--image`). The text can be left out when the image says it all.
+`rallo attach ID PATH` adds one to an existing note. Notes' JSON carries
+`images[].path`: open it when you pick up a note whose screenshot matters.
+Images are the user's private data: never upload, paste or send them
+anywhere unless the user asks.
+
 ## 4. Report honestly
 
 Say "saved" only after the command succeeded. For reminders, read

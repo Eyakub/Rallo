@@ -6,6 +6,8 @@ use rallo_core::shared::errors::ConflictDetail;
 use rallo_core::{CoreError, ErrorCode};
 use serde_json::{Map, Value, json};
 
+use rallo_platform_macos::archive::ArchiveError;
+
 use crate::local_time::format_local;
 
 /// Process exit codes; part of the CLI contract.
@@ -71,6 +73,15 @@ impl From<CoreError> for Failure {
             );
         }
         Self { exit, code, message, detail }
+    }
+}
+
+impl From<ArchiveError> for Failure {
+    fn from(error: ArchiveError) -> Self {
+        match error {
+            ArchiveError::Io(_) => Self::new(Exit::Storage, ErrorCode::StorageUnavailable.as_str(), error.to_string()),
+            _ => Self::new(Exit::InvalidInput, ErrorCode::InvalidImport.as_str(), error.to_string()),
+        }
     }
 }
 

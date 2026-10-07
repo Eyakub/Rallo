@@ -234,6 +234,14 @@ fn file_exists_error(path: &Path) -> CoreError {
     )
 }
 
+/// Refuses to replace `path` unless `overwrite` (0004's `FILE_EXISTS`).
+pub fn refuse_existing(path: &Path, overwrite: bool) -> CoreResult<()> {
+    if !overwrite && path.exists() {
+        return Err(file_exists_error(path));
+    }
+    Ok(())
+}
+
 impl Store {
     /// The export document as bytes, for callers (the CLI's `--output -`,
     /// and later FFI) that want the content without touching a file.
@@ -246,9 +254,7 @@ impl Store {
     /// existing file unless `overwrite`, mode `0600`. The existence check
     /// runs before the snapshot is read.
     pub fn export_to_file(&self, path: &Path, format: ExportFormat, overwrite: bool) -> CoreResult<ExportSummary> {
-        if !overwrite && path.exists() {
-            return Err(file_exists_error(path));
-        }
+        refuse_existing(path, overwrite)?;
         let rows = snapshot(self)?;
         let bytes = encode(self, format, &rows)?;
         write_atomic(path, &bytes, overwrite)?;

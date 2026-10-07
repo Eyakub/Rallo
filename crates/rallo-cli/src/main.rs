@@ -91,9 +91,11 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
     let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
     let mut store = Store::open(StoreOptions::new(data_dir))?;
     let result: commands::CommandResult = match command {
-        Command::Note { text, stdin, request_id } => commands::note(out, &mut store, text, stdin, request_id),
-        Command::Remind { text, stdin, in_, at, request_id } => {
-            commands::remind(out, &mut store, text, stdin, time_spec(in_, at)?, request_id)
+        Command::Note { text, stdin, images, request_id } => {
+            commands::note(out, &mut store, text, stdin, images, request_id)
+        }
+        Command::Remind { text, stdin, images, in_, at, request_id } => {
+            commands::remind(out, &mut store, text, stdin, images, time_spec(in_, at)?, request_id)
         }
         Command::List { all, deleted, due, limit, cursor } => {
             commands::list(out, &store, all, deleted, due, limit, cursor)
@@ -104,6 +106,12 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
         }
         Command::Edit { id, text, request_id, if_revision } => {
             commands::edit(out, &mut store, &id, &text, MutationOptions { request_id, if_revision })
+        }
+        Command::Attach { id, paths, request_id, if_revision } => {
+            commands::attach(out, &mut store, &id, &paths, MutationOptions { request_id, if_revision })
+        }
+        Command::Detach { id, image_id, request_id, if_revision } => {
+            commands::detach(out, &mut store, &id, &image_id, MutationOptions { request_id, if_revision })
         }
         Command::Done { id, request_id, if_revision } => {
             commands::done(out, &mut store, &id, MutationOptions { request_id, if_revision })

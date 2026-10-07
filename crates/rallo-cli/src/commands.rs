@@ -11,7 +11,7 @@ use rallo_core::storage::instance_lock::InstanceLock;
 use rallo_core::storage::migrations::SCHEMA_VERSION;
 use rallo_core::transfer::{ExportFormat, ImportReport, MAX_IMPORT_BYTES};
 use rallo_core::{ErrorCode, Store};
-use rallo_platform_macos::{change_signal, launch, process_ancestry, terminal_command};
+use rallo_platform_macos::{archive, change_signal, launch, process_ancestry, terminal_command};
 use serde_json::{Value, json};
 
 use crate::args::ExportFormatArg;
@@ -476,21 +476,62 @@ fn resolve_text(arg_text: Option<String>, from_stdin: bool) -> Result<String, Fa
     }
 }
 
+/// Reads `--image` files (0018): the size is checked before reading, so a
+/// huge file is refused without loading it.
+fn read_images(paths: &[PathBuf]) -> Result<Vec<Vec<u8>>, Failure> {
+    paths
+        .iter()
+        .map(|path| {
+            let unreadable = |error: std::io::Error| {
+                Failure::new(Exit::InvalidInput, "IMAGE_UNREADABLE", format!("can't read {}: {error}", path.display()))
+            };
+            let size = std::fs::metadata(path).map_err(unreadable)?.len();
+            if size > rallo_core::images::MAX_IMAGE_BYTES as u64 {
+                return Err(Failure::new(
+                    Exit::InvalidInput,
+                    "IMAGE_TOO_LARGE",
+                    format!("{} is {:.1} MB; the limit is 10 MB", path.display(), size as f64 / (1024.0 * 1024.0)),
+                ));
+            }
+            std::fs::read(path).map_err(unreadable)
+        })
+        .collect()
+}
+
+fn images_suffix(view: &ItemView) -> String {
+    match view.images.len() {
+        0 => String::new(),
+        1 => " · 1 image".to_owned(),
+        n => format!(" · {n} images"),
+    }
+}
+
+/// The note's text for a human line; a text-less (image-only) note reads `(image)`.
+fn quoted(view: &ItemView, max: usize) -> String {
+    if view.item.text.is_empty() { "(image)".to_owned() } else { format!("“{}”", preview(&view.item.text, max)) }
+}
+
 pub fn note(
     out: &Output,
     store: &mut Store,
     arg_text: Option<String>,
     from_stdin: bool,
+    images: Vec<PathBuf>,
     request_id: Option<String>,
 ) -> CommandResult {
-    let note_text = resolve_text(arg_text, from_stdin)?;
-    let outcome = store.create_note(&note_text, request_id.as_deref())?;
+    let images = read_images(&images)?;
+    let note_text = if arg_text.is_none() && !from_stdin { String::new() } else { resolve_text(arg_text, from_stdin)? };
+    let outcome = store.create_note_with_images(&note_text, &images, request_id.as_deref())?;
     let view = &outcome.item;
     // Committed. Everything below is a best-effort nudge to the app.
     let mut warnings = Vec::new();
     nudge_passive(store, &mut warnings);
     out.success(mutation_fields(&outcome), &warnings, || {
-        format!("Saved “{}” ({})", preview(&view.item.text, 80), view.display_id)
+        if view.item.text.is_empty() {
+            format!("Saved an image note ({})", view.display_id)
+        } else {
+            format!("Saved {} ({}){}", quoted(view, 80), view.display_id, images_suffix(view))
+        }
     });
     Ok(())
 }
@@ -503,11 +544,13 @@ pub fn remind(
     store: &mut Store,
     arg_text: Option<String>,
     from_stdin: bool,
+    images: Vec<PathBuf>,
     when: TimeSpec,
     request_id: Option<String>,
 ) -> CommandResult {
-    let note_text = resolve_text(arg_text, from_stdin)?;
-    let outcome = store.create_reminder(&note_text, &when, request_id.as_deref())?;
+    let images = read_images(&images)?;
+    let note_text = if arg_text.is_none() && !from_stdin { String::new() } else { resolve_text(arg_text, from_stdin)? };
+    let outcome = store.create_reminder_with_images(&note_text, &when, &images, request_id.as_deref())?;
     let view = &outcome.item;
     let mut warnings = Vec::new();
     nudge_reminder_intent(store, &mut warnings);
@@ -515,9 +558,10 @@ pub fn remind(
     out.success(mutation_fields(&outcome), &warnings, || {
         // Never "Reminder set": the app has not yet confirmed native scheduling (M2).
         format!(
-            "Saved “{}” ({}); reminder at {} — scheduling pending",
-            preview(&view.item.text, 80),
+            "Saved {} ({}){}; reminder at {} — scheduling pending",
+            quoted(view, 80),
             view.display_id,
+            images_suffix(view),
             format_local(deadline_ms)
         )
     });
@@ -580,7 +624,8 @@ fn list_line(view: &ItemView) -> String {
     let marker = if view.item.status.as_str() == "done" { "[done] " } else { "" };
     let reminder =
         view.reminder.as_ref().map(|r| format!("  (reminder {})", format_local(r.deadline_ms))).unwrap_or_default();
-    format!("{}  {marker}{}{reminder}", view.display_id, preview(&view.item.text, 100))
+    let text = if view.item.text.is_empty() { "(image)".to_owned() } else { preview(&view.item.text, 100) };
+    format!("{}  {marker}{text}{reminder}{}", view.display_id, images_suffix(view))
 }
 
 pub fn get(out: &Output, store: &Store, id: &str) -> CommandResult {
@@ -602,8 +647,11 @@ fn item_human(
 ) -> String {
     let mut lines = vec![
         format!("{}  {}  revision {}", view.display_id, view.item.status.as_str(), view.item.revision),
-        format!("“{}”", preview(&view.item.text, 200)),
+        quoted(view, 200),
     ];
+    for image in &view.images {
+        lines.push(format!("Image: {} {}", image.mime_type, image.path.display()));
+    }
     if let Some(reminder) = &view.reminder {
         lines.push(format!("Reminder: {} ({})", format_local(reminder.deadline_ms), reminder.state().as_str()));
         if let Some(scheduling) = scheduling {
@@ -623,10 +671,34 @@ pub fn edit(out: &Output, store: &mut Store, id: &str, new_text: &str, opts: Mut
     let view = &outcome.item;
     out.success(mutation_fields(&outcome), &warnings, || {
         if outcome.changed {
-            format!("Updated “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("Updated {} ({})", quoted(view, 80), view.display_id)
         } else {
-            format!("No change: “{}” ({}) already matches.", preview(&view.item.text, 80), view.display_id)
+            format!("No change: {} ({}) already matches.", quoted(view, 80), view.display_id)
         }
+    });
+    Ok(())
+}
+
+pub fn attach(out: &Output, store: &mut Store, id: &str, paths: &[PathBuf], opts: MutationOptions) -> CommandResult {
+    let images = read_images(paths)?;
+    let outcome = store.attach_images(id, &images, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_after(store, &outcome, &mut warnings);
+    let view = &outcome.item;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        let added = if images.len() == 1 { "1 image".to_owned() } else { format!("{} images", images.len()) };
+        format!("Added {added} to {}{}", view.display_id, images_suffix(view))
+    });
+    Ok(())
+}
+
+pub fn detach(out: &Output, store: &mut Store, id: &str, image_id: &str, opts: MutationOptions) -> CommandResult {
+    let outcome = store.detach_image(id, image_id, &opts)?;
+    let mut warnings = Vec::new();
+    nudge_after(store, &outcome, &mut warnings);
+    let view = &outcome.item;
+    out.success(mutation_fields(&outcome), &warnings, || {
+        format!("Removed the image from {}{}", view.display_id, images_suffix(view))
     });
     Ok(())
 }
@@ -638,9 +710,9 @@ pub fn done(out: &Output, store: &mut Store, id: &str, opts: MutationOptions) ->
     let view = &outcome.item;
     out.success(mutation_fields(&outcome), &warnings, || {
         if outcome.changed {
-            format!("Done: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("Done: {} ({})", quoted(view, 80), view.display_id)
         } else {
-            format!("Already done: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("Already done: {} ({})", quoted(view, 80), view.display_id)
         }
     });
     Ok(())
@@ -653,9 +725,9 @@ pub fn reopen(out: &Output, store: &mut Store, id: &str, opts: MutationOptions) 
     let view = &outcome.item;
     out.success(mutation_fields(&outcome), &warnings, || {
         if outcome.changed {
-            format!("Reopened “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("Reopened {} ({})", quoted(view, 80), view.display_id)
         } else {
-            format!("Already open: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("Already open: {} ({})", quoted(view, 80), view.display_id)
         }
     });
     Ok(())
@@ -670,9 +742,9 @@ pub fn restore(out: &Output, store: &mut Store, id: &str, opts: MutationOptions)
     let reminder_note = view.reminder.as_ref().map(|_| " (its old reminder was not re-enabled)").unwrap_or("");
     out.success(mutation_fields(&outcome), &warnings, || {
         if outcome.changed {
-            format!("Restored “{}” ({}){reminder_note}", preview(&view.item.text, 80), view.display_id)
+            format!("Restored {} ({}){reminder_note}", quoted(view, 80), view.display_id)
         } else {
-            format!("Not deleted: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("Not deleted: {} ({})", quoted(view, 80), view.display_id)
         }
     });
     Ok(())
@@ -686,8 +758,8 @@ pub fn reschedule(out: &Output, store: &mut Store, id: &str, when: TimeSpec, opt
     let deadline_ms = view.reminder.as_ref().expect("reschedule always attaches a reminder").deadline_ms;
     out.success(mutation_fields(&outcome), &warnings, || {
         format!(
-            "Rescheduled “{}” ({}); reminder at {} — scheduling pending",
-            preview(&view.item.text, 80),
+            "Rescheduled {} ({}); reminder at {} — scheduling pending",
+            quoted(view, 80),
             view.display_id,
             format_local(deadline_ms)
         )
@@ -703,8 +775,8 @@ pub fn snooze(out: &Output, store: &mut Store, id: &str, duration: &str, opts: M
     let deadline_ms = view.reminder.as_ref().expect("snooze always keeps a reminder").deadline_ms;
     out.success(mutation_fields(&outcome), &warnings, || {
         format!(
-            "Snoozed “{}” ({}); reminder at {} — scheduling pending",
-            preview(&view.item.text, 80),
+            "Snoozed {} ({}); reminder at {} — scheduling pending",
+            quoted(view, 80),
             view.display_id,
             format_local(deadline_ms)
         )
@@ -719,9 +791,9 @@ pub fn acknowledge(out: &Output, store: &mut Store, id: &str, opts: MutationOpti
     let view = &outcome.item;
     out.success(mutation_fields(&outcome), &warnings, || {
         if outcome.changed {
-            format!("Acknowledged “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("Acknowledged {} ({})", quoted(view, 80), view.display_id)
         } else {
-            format!("No active reminder to acknowledge: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("No active reminder to acknowledge: {} ({})", quoted(view, 80), view.display_id)
         }
     });
     Ok(())
@@ -734,9 +806,9 @@ pub fn cancel_reminder(out: &Output, store: &mut Store, id: &str, opts: Mutation
     let view = &outcome.item;
     out.success(mutation_fields(&outcome), &warnings, || {
         if outcome.changed {
-            format!("Reminder cancelled for “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("Reminder cancelled for {} ({})", quoted(view, 80), view.display_id)
         } else {
-            format!("No active reminder to cancel: “{}” ({})", preview(&view.item.text, 80), view.display_id)
+            format!("No active reminder to cancel: {} ({})", quoted(view, 80), view.display_id)
         }
     });
     Ok(())
@@ -771,9 +843,9 @@ pub fn delete(
     let reminder_deleted = view.reminder.as_ref().is_some_and(|r| r.state() == ReminderState::Deleted);
     out.success(fields, &warnings, || {
         let headline = if outcome.changed {
-            format!("Deleted “{}”. Undo: rallo restore {}", preview(&view.item.text, 80), view.display_id)
+            format!("Deleted {}. Undo: rallo restore {}", quoted(view, 80), view.display_id)
         } else {
-            format!("Already deleted: “{}”. Undo: rallo restore {}", preview(&view.item.text, 80), view.display_id)
+            format!("Already deleted: {}. Undo: rallo restore {}", quoted(view, 80), view.display_id)
         };
         if reminder_deleted {
             format!(
@@ -867,14 +939,44 @@ fn export_format_name(format: ExportFormat) -> &'static str {
 }
 
 /// Format defaults from the `--output` extension (build plan §5, 0004):
-/// `.csv` is CSV, anything else (including "-" for stdout) is JSON.
-fn infer_export_format(output: &str, explicit: Option<ExportFormatArg>) -> ExportFormat {
+/// `.csv` is CSV, `.zip` a zip, anything else (including "-" for stdout) is
+/// JSON. `None` is a zip archive (0018); the core has no single-file format for it.
+fn infer_export_format(output: &str, explicit: Option<ExportFormatArg>) -> Option<ExportFormat> {
+    let lower = output.to_ascii_lowercase();
     match explicit {
-        Some(ExportFormatArg::Json) => ExportFormat::Json,
-        Some(ExportFormatArg::Csv) => ExportFormat::Csv,
-        None if output.to_ascii_lowercase().ends_with(".csv") => ExportFormat::Csv,
-        None => ExportFormat::Json,
+        Some(ExportFormatArg::Json) => Some(ExportFormat::Json),
+        Some(ExportFormatArg::Csv) => Some(ExportFormat::Csv),
+        Some(ExportFormatArg::Zip) => None,
+        None if lower.ends_with(".csv") => Some(ExportFormat::Csv),
+        None if lower.ends_with(".zip") => None,
+        None => Some(ExportFormat::Json),
     }
+}
+
+fn export_zip(out: &Output, store: &Store, output: &str, force: bool) -> CommandResult {
+    if output == "-" {
+        return Err(Failure::new(
+            Exit::InvalidInput,
+            ErrorCode::InvalidInput.as_str(),
+            "a zip export needs a file path, not \"-\"",
+        ));
+    }
+    let path = Path::new(output);
+    rallo_core::transfer::export::refuse_existing(path, force)?;
+    let summary = archive::write_zip(path, |dir| -> Result<_, Failure> { Ok(store.export_to_dir(dir)?) })?;
+    out.success(
+        json!({ "export": { "items": summary.items, "path": path, "format": "zip" } }),
+        &summary.warnings,
+        || {
+            format!(
+                "Exported {} note{} with their images to {} (zip).",
+                summary.items,
+                if summary.items == 1 { "" } else { "s" },
+                path.display()
+            )
+        },
+    );
+    Ok(())
 }
 
 /// `rallo export --output PATH [--format json|csv] [--force]` (0004). Never
@@ -888,22 +990,28 @@ pub fn export(
     format: Option<ExportFormatArg>,
     force: bool,
 ) -> CommandResult {
-    let format = infer_export_format(output, format);
+    let Some(format) = infer_export_format(output, format) else {
+        return export_zip(out, store, output, force);
+    };
     if output == "-" {
         let bytes = store.export_bytes(format)?;
         io::stdout().lock().write_all(&bytes)?;
         return Ok(());
     }
     let summary = store.export_to_file(Path::new(output), format, force)?;
-    out.success(json!({ "export": { "items": summary.items, "path": summary.path, "format": format } }), &[], || {
-        format!(
-            "Exported {} note{} to {} ({}).",
-            summary.items,
-            if summary.items == 1 { "" } else { "s" },
-            summary.path.display(),
-            export_format_name(format)
-        )
-    });
+    out.success(
+        json!({ "export": { "items": summary.items, "path": summary.path, "format": format } }),
+        &summary.warnings,
+        || {
+            format!(
+                "Exported {} note{} to {} ({}).",
+                summary.items,
+                if summary.items == 1 { "" } else { "s" },
+                summary.path.display(),
+                export_format_name(format)
+            )
+        },
+    );
     Ok(())
 }
 
@@ -962,8 +1070,14 @@ fn import_human(report: &ImportReport, dry_run: bool) -> String {
 /// the app; a successful, non-dry-run import signals one that is already
 /// running (the same helper `hide` uses).
 pub fn import(out: &Output, store: &mut Store, file: &str, dry_run: bool) -> CommandResult {
-    let bytes = read_import_bytes(file)?;
-    let report = if dry_run { store.preview_import(&bytes)? } else { store.apply_import(&bytes)? };
+    let report = if file != "-" && archive::is_zip(Path::new(file)).unwrap_or(false) {
+        archive::read_zip(Path::new(file), |dir| -> Result<ImportReport, Failure> {
+            Ok(if dry_run { store.preview_import_dir(dir)? } else { store.apply_import_dir(dir)? })
+        })?
+    } else {
+        let bytes = read_import_bytes(file)?;
+        if dry_run { store.preview_import(&bytes)? } else { store.apply_import(&bytes)? }
+    };
     if !dry_run {
         signal_if_running(store.data_dir());
     }
@@ -981,9 +1095,14 @@ pub fn backup(out: &Output, store: &Store, output: Option<&str>, force: bool) ->
         None => rallo_core::storage::backup::default_manual_backup_path(store.data_dir(), store.now_ms()),
     };
     let summary = store.backup_to_file(&destination, force)?;
-    out.success(json!({ "backup": { "path": summary.path, "bytes": summary.bytes } }), &[], || {
-        format!("Backup saved to {} ({} bytes).", summary.path.display(), summary.bytes)
-    });
+    out.success(
+        json!({ "backup": { "path": summary.path, "bytes": summary.bytes, "images": summary.images } }),
+        &[],
+        || {
+            let images = if summary.images > 0 { format!(", {} images", summary.images) } else { String::new() };
+            format!("Backup saved to {} ({} bytes{images}).", summary.path.display(), summary.bytes)
+        },
+    );
     Ok(())
 }
 
