@@ -41,6 +41,7 @@ struct Toast: Identifiable {
     enum Undo {
         case reopen(ItemSnapshot)
         case restore(ItemSnapshot)
+        case reattach(ItemSnapshot, Data)
     }
 
     let id = UUID()
@@ -287,6 +288,34 @@ final class NotesViewModel: ObservableObject {
         }
     }
 
+    /// Remove Image (0018). The bytes are read first so Undo can attach the
+    /// image again; a file already missing is removed without an Undo.
+    func removeImage(_ image: ImageSnapshot, from item: ItemSnapshot) async {
+        let data = try? Data(contentsOf: URL(fileURLWithPath: image.path))
+        do {
+            let updated = try await core.detachImage(item, imageID: image.id)
+            show(Toast(message: "Removed the image", undo: data.map { Toast.Undo.reattach(updated, $0) }))
+            await reload()
+        } catch {
+            await report(error)
+        }
+    }
+
+    /// Images dropped on a note's row (0018).
+    func attach(_ images: [Data], to item: ItemSnapshot) async {
+        guard !images.isEmpty else { return }
+        do {
+            try ImageClipboard.check(images, staged: item.images.count)
+            let updated = try await core.attachImages(item, images: images)
+            await reload()
+            highlight(updated.id)
+        } catch let refusal as ImageRefusal {
+            errorMessage = refusal.message
+        } catch {
+            await report(error)
+        }
+    }
+
     /// Shows the check first, then removes the row, so the action reads.
     func complete(_ item: ItemSnapshot) async {
         completingIDs.insert(item.id)
@@ -294,7 +323,7 @@ final class NotesViewModel: ObservableObject {
         defer { completingIDs.remove(item.id) }
         do {
             let done = try await core.completeItem(item)
-            show(Toast(message: "Marked “\(NoteParts(done.text).name)” as done", undo: .reopen(done)))
+            show(Toast(message: "Marked “\(done.name)” as done", undo: .reopen(done)))
             await reload()
         } catch {
             await report(error)
@@ -309,7 +338,7 @@ final class NotesViewModel: ObservableObject {
             if liveSwipe?.id == item.id { liveSwipe = nil }
             if expandedID == item.id { expandedID = nil }
             if editingID == item.id { editingID = nil }
-            show(Toast(message: "Deleted “\(NoteParts(deleted.text).name)”", undo: .restore(deleted)))
+            show(Toast(message: "Deleted “\(deleted.name)”", undo: .restore(deleted)))
             await reload()
         } catch {
             await report(error)
@@ -375,6 +404,7 @@ final class NotesViewModel: ObservableObject {
             switch undo {
             case let .reopen(done): item = try await core.reopenItem(done)
             case let .restore(deleted): item = try await core.restoreItem(deleted)
+            case let .reattach(note, data): item = try await core.attachImages(note, images: [data])
             }
             await reload()
             highlight(item.id)
@@ -399,6 +429,7 @@ final class NotesViewModel: ObservableObject {
     }
 
     private func report(_ error: Error) async {
+        await reload()
         if let error = error as? RalloError {
             if case let .Conflict(code, _) = error, code == "REVISION_CONFLICT" {
                 errorMessage = "That note changed elsewhere; here’s the latest."
@@ -408,7 +439,6 @@ final class NotesViewModel: ObservableObject {
         } else {
             errorMessage = error.localizedDescription
         }
-        await reload()
     }
 }
 
@@ -546,6 +576,11 @@ struct NotesView: View {
                         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                         if composerFocused, flags == .command, event.charactersIgnoringModifiers == "v",
                            model.pasteImages(from: .general) {
+                            return nil
+                        }
+                        if !composerFocused, model.editingID == nil, event.keyCode == 49, flags.isEmpty,
+                           let item = model.items.first(where: { $0.id == model.expandedID }), !item.images.isEmpty {
+                            QuickLookPresenter.shared.toggle(item.images)
                             return nil
                         }
                         guard composerFocused, event.keyCode == 36, flags == .shift else { return event }

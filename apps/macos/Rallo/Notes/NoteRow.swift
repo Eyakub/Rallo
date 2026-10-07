@@ -35,6 +35,7 @@ struct NoteRow: View {
     let item: ItemSnapshot
     @ObservedObject var model: NotesViewModel
     @State private var hovering = false
+    @State private var dropTargeted = false
 
     private var parts: NoteParts { NoteParts(item.text) }
     private var expanded: Bool { model.expandedID == item.id }
@@ -45,12 +46,14 @@ struct NoteRow: View {
 
     /// A collapsed row hides something: a title's body, or more than two
     /// lines of body text.
-    private var hasMore: Bool { parts.title != nil ? !parts.body.isEmpty : parts.body.count > 76 }
+    private var hasMore: Bool {
+        (parts.title != nil ? !parts.body.isEmpty : parts.body.count > 76) || (!item.text.isEmpty && !item.images.isEmpty)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             CompletionButton(completing: completing) { Task { await model.complete(item) } }
-                .accessibilityLabel("Mark “\(parts.name)” as done")
+                .accessibilityLabel("Mark “\(item.name)” as done")
             VStack(alignment: .leading, spacing: 4) {
                 if editing {
                     ItemEditor(item: item, model: model)
@@ -64,10 +67,14 @@ struct NoteRow: View {
         .padding(.trailing, 12)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(highlighted ? Theme.highlight : ((hovering || expanded) ? Theme.hover : .clear))
+                .fill(highlighted || dropTargeted ? Theme.highlight : ((hovering || expanded) ? Theme.hover : .clear))
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .onDrop(of: [.image], isTargeted: $dropTargeted) { providers in
+            Task { @MainActor in await model.attach(await ImageClipboard.load(providers), to: item) }
+            return true
+        }
         .onTapGesture {
             if model.openSwipe != nil {
                 model.openSwipe = nil
@@ -101,7 +108,11 @@ struct NoteRow: View {
     private var content: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Group {
-                if let title = parts.title {
+                if item.text.isEmpty {
+                    Text("Image")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.bark)
+                } else if let title = parts.title {
                     Text(title)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(expanded ? nil : 1)
@@ -148,6 +159,10 @@ struct NoteRow: View {
             }
         }
 
+        if expanded || item.text.isEmpty, !item.images.isEmpty {
+            ImageStrip(item: item, model: model).padding(.top, 4)
+        }
+
         HStack(spacing: 10) {
             if let reminder = activeReminder {
                 reminderLabel(reminder)
@@ -155,6 +170,16 @@ struct NoteRow: View {
                 Text(created, format: .relative(presentation: .named, unitsStyle: .wide))
                     .font(Theme.rounded(12))
                     .foregroundStyle(Theme.bark)
+            }
+            if !item.images.isEmpty {
+                HStack(spacing: 3) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(item.images.count == 1 ? "1 image" : "\(item.images.count) images")
+                }
+                .font(Theme.rounded(12))
+                .foregroundStyle(Theme.bark)
+                .accessibilityElement(children: .combine)
             }
             Spacer(minLength: 0)
             if expanded {

@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import SwiftUI
 
 /// The compact notes panel. Unlike the pet, opening it is an explicit request
@@ -84,5 +85,16 @@ private final class NotesWindow: NSPanel {
         if !onEscape() {
             orderOut(sender)
         }
+    }
+
+    // Quick Look asks the responder chain who supplies its items (0018).
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = QuickLookPresenter.shared
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = nil
     }
 }

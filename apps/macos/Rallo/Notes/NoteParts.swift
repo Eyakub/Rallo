@@ -47,3 +47,9 @@ struct NoteParts: Equatable {
         return (title, body)
     }
 }
+
+extension ItemSnapshot {
+    /// What toasts and VoiceOver call a note: its title or first line, or
+    /// "Image" for a note that is only images (0018).
+    var name: String { text.isEmpty ? "Image" : NoteParts(text).name }
+}

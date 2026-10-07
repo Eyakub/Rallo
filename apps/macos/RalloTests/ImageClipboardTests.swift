@@ -95,4 +95,22 @@ final class ImageClipboardTests: XCTestCase {
         XCTAssertNil(Thumbnails.image(data: Data("x".utf8), points: 56))
         XCTAssertNil(Thumbnails.image(url: URL(fileURLWithPath: "/nonexistent.png"), points: 56))
     }
+
+    @MainActor
+    func testMissingFileHasNoThumbnail() async {
+        let image = await ThumbnailCache().image(for: "/nonexistent/\(UUID().uuidString).png")
+        XCTAssertNil(image, "the row shows its missing-file placeholder")
+    }
+
+    @MainActor
+    func testThumbnailsAreCachedByPath() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rallo-tests-\(UUID().uuidString).png")
+        try image(.png).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let cache = ThumbnailCache()
+        let first = await cache.image(for: url.path)
+        XCTAssertNotNil(first)
+        let second = await cache.image(for: url.path)
+        XCTAssertTrue(first === second)
+    }
 }
