@@ -47,7 +47,7 @@ fn a_directory_export_round_trips_images() {
     assert_eq!(summary.items, 2);
     let document: serde_json::Value =
         serde_json::from_slice(&std::fs::read(export_dir.path().join("rallo-export.json")).unwrap()).unwrap();
-    assert_eq!(document["version"], 2);
+    assert_eq!(document["version"], 3);
     let file = document["items"][0]["images"][0]["file"].as_str().unwrap().to_owned();
     assert!(file.starts_with("images/"));
     assert_eq!(std::fs::read(export_dir.path().join(&file)).unwrap(), PNG);
@@ -77,7 +77,7 @@ fn plain_json_and_csv_leave_image_only_notes_out_and_say_so() {
     assert!(summary.warnings.iter().any(|warning| warning == "2 images aren't included; use --format zip"));
     assert!(summary.warnings.iter().any(|warning| warning == "1 image-only note was left out"));
     let document: serde_json::Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
-    assert_eq!(document["version"], 1);
+    assert_eq!(document["version"], 3, "plain JSON writes the same version, just without images");
     assert!(document["items"][0].get("images").is_none());
 }
 

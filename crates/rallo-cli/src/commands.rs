@@ -1220,6 +1220,7 @@ fn import_fields(report: &ImportReport, zip: bool) -> Value {
         "total_records": report.total_records,
         "new": report.new,
         "identical": report.identical,
+        "new_folders": report.new_folders,
         "conflicts": report.conflicts,
         "applied": report.applied,
         "backup_path": report.backup_path,
@@ -1234,6 +1235,11 @@ fn import_human(report: &ImportReport, dry_run: bool) -> String {
         if report.new == 1 { "" } else { "s" },
         report.identical
     );
+    if report.new_folders > 0 {
+        let folders =
+            if report.new_folders == 1 { "1 folder".to_owned() } else { format!("{} folders", report.new_folders) };
+        line.push_str(&format!(" {} {folders}.", if dry_run { "Would create" } else { "Created" }));
+    }
     if report.new > 0 {
         line.push_str(" Imported reminders stay off until you reschedule them.");
     }

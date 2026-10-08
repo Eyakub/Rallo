@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use super::export::{ARCHIVE_DOCUMENT, EXPORT_FORMAT_TAG, EXPORT_VERSION, ExportFormat, rfc3339_utc_ms};
 use super::formula_guard::strip_formula_guard;
+use crate::folders::{self, Folder, FolderSelector, repository as folders_repository};
 use crate::images::repository as images_repository;
 use crate::images::{ImageKind, MAX_IMAGE_BYTES, MAX_IMAGES_PER_NOTE, files as image_files};
 use crate::items::model::{Item, ItemStatus};
@@ -50,8 +51,8 @@ pub const MAX_IMPORT_BYTES: usize = 64 * 1024 * 1024;
 /// `ConflictDetail::ImportConflicts` still carries the true count.
 const MAX_REPORTED_CONFLICTS: usize = 20;
 
-const CSV_KNOWN_COLUMNS: [&str; 7] =
-    ["id", "text", "status", "created_at", "completed_at", "reminder_at", "reminder_state"];
+const CSV_KNOWN_COLUMNS: [&str; 8] =
+    ["id", "text", "status", "created_at", "completed_at", "reminder_at", "reminder_state", "folder"];
 
 /// One record's classification against the bounded id/line reference used in
 /// error output. Never carries note text.
@@ -72,6 +73,8 @@ pub struct ImportReport {
     pub total_records: u64,
     pub new: u64,
     pub identical: u64,
+    /// Folders the import creates (0019 §8); a dry run reports what it would.
+    pub new_folders: u64,
     pub conflicts: Vec<ImportConflictRecord>,
     /// All conflicting records; `conflicts` lists at most 20 of them.
     pub conflict_total: u64,
@@ -131,7 +134,117 @@ struct NormalizedRecord {
     reminder: Option<NormalizedReminder>,
     /// Empty for CSV and version-1 JSON.
     images: Vec<NormalizedImage>,
+    folder: RecordFolder,
     origin: RecordOrigin,
+}
+
+/// Where a record says its note lives (0019 §8).
+#[derive(Debug, Clone)]
+enum RecordFolder {
+    /// The format doesn't carry folders (version 1 and 2 JSON, a CSV without a
+    /// `folder` column): a new note goes to Notes, and an existing note's
+    /// folder is not compared, so re-importing an old file is never a conflict.
+    Unspecified,
+    Notes,
+    /// A JSON `folder_id`, checked against the document's `folders`.
+    Imported(Uuid),
+    /// A CSV folder name; CSV has no folder ids.
+    Named(String),
+}
+
+/// A folder in the document (JSON) or named by a CSV row, already validated.
+#[derive(Debug, Clone)]
+struct ImportFolder {
+    id: Uuid,
+    name: String,
+    name_key: String,
+    /// `None` for CSV-named folders: created "now".
+    created_at_ms: Option<i64>,
+    updated_at_ms: Option<i64>,
+}
+
+/// What the import does about folders (0019 §8), worked out against the
+/// database as it is when classification runs: `apply_parsed` classifies
+/// again inside the write transaction, so this is always current.
+///
+/// Per folder in the document: (1) the same `id` exists: use it (a different
+/// name is kept as the existing one, with a warning naming both); (2) else the
+/// same `name_key` exists: map to that folder; (3) else create it with the
+/// imported id and name.
+struct FolderPlan {
+    /// To create, in document order, then CSV-named ones in row order.
+    create: Vec<ImportFolder>,
+    /// A document folder id -> the folder it lands in.
+    mapped: HashMap<Uuid, Uuid>,
+    /// Every folder's `name_key`, existing or about to be created -> its id.
+    by_key: HashMap<String, Uuid>,
+    warnings: Vec<String>,
+}
+
+impl FolderPlan {
+    /// `None`: the record doesn't say. `Some(None)`: Notes.
+    fn resolve(&self, folder: &RecordFolder) -> Option<Option<Uuid>> {
+        match folder {
+            RecordFolder::Unspecified => None,
+            RecordFolder::Notes => Some(None),
+            RecordFolder::Imported(id) => Some(self.mapped.get(id).copied()),
+            // A name with no folder yet maps to the nil id: no existing note is in it.
+            RecordFolder::Named(name) => {
+                Some(Some(self.by_key.get(&text::match_key(name)).copied().unwrap_or_else(Uuid::nil)))
+            }
+        }
+    }
+}
+
+fn plan_folders(conn: &Connection, parsed: &ParsedDocument) -> CoreResult<FolderPlan> {
+    let existing = folders_repository::all(conn)?;
+    let mut by_key: HashMap<String, Uuid> =
+        existing.iter().map(|folder| (text::match_key(&folder.name), folder.id)).collect();
+    let mut plan =
+        FolderPlan { create: Vec::new(), mapped: HashMap::new(), by_key: HashMap::new(), warnings: Vec::new() };
+    for folder in &parsed.folders {
+        if let Some(found) = existing.iter().find(|found| found.id == folder.id) {
+            if found.name != folder.name {
+                plan.warnings.push(format!(
+                    "folder \u{201c}{}\u{201d} in the file already exists here as \u{201c}{}\u{201d}; kept \u{201c}{}\u{201d}",
+                    folder.name, found.name, found.name
+                ));
+            }
+            plan.mapped.insert(folder.id, found.id);
+        } else if let Some(&id) = by_key.get(&folder.name_key) {
+            plan.mapped.insert(folder.id, id);
+        } else {
+            by_key.insert(folder.name_key.clone(), folder.id);
+            plan.mapped.insert(folder.id, folder.id);
+            plan.create.push(folder.clone());
+        }
+    }
+    plan.by_key = by_key;
+    Ok(plan)
+}
+
+impl FolderPlan {
+    /// CSV-named folders (no ids in CSV) are created only for rows that are
+    /// themselves `New`: a row that dedupes as identical must not resurrect a
+    /// folder the user deleted. Runs after classification, so classification
+    /// sees an unnamed folder as "no such folder" (see `resolve`).
+    fn add_named(&mut self, parsed: &ParsedDocument, decisions: &[RecordDecision]) {
+        for (record, decision) in parsed.records.iter().zip(decisions) {
+            let (RecordFolder::Named(name), RecordDecision::New) = (&record.folder, decision) else { continue };
+            let name_key = text::match_key(name);
+            if !self.by_key.contains_key(&name_key) {
+                let id = ids::new_id();
+                self.by_key.insert(name_key.clone(), id);
+                self.create.push(ImportFolder {
+                    id,
+                    name: name.clone(),
+                    name_key,
+                    created_at_ms: None,
+                    updated_at_ms: None,
+                });
+            }
+        }
+    }
 }
 
 /// An image whose file in the archive directory has already been checked.
@@ -145,6 +258,8 @@ struct NormalizedImage {
 
 struct ParsedDocument {
     format: ExportFormat,
+    /// Version 3 JSON only.
+    folders: Vec<ImportFolder>,
     records: Vec<NormalizedRecord>,
     warnings: Vec<String>,
 }
@@ -205,7 +320,17 @@ struct RawDocument {
     format: String,
     version: u32,
     #[serde(default)]
+    folders: Vec<RawFolder>,
+    #[serde(default)]
     items: Vec<RawItem>,
+}
+
+#[derive(Deserialize)]
+struct RawFolder {
+    id: String,
+    name: String,
+    created_at_ms: i64,
+    updated_at_ms: i64,
 }
 
 #[derive(Deserialize)]
@@ -217,6 +342,9 @@ struct RawItem {
     updated_at_ms: i64,
     completed_at_ms: Option<i64>,
     deleted_at_ms: Option<i64>,
+    /// Version 3: the folder's id, `null` for Notes. Older files have no such key.
+    #[serde(default)]
+    folder_id: Option<String>,
     #[serde(default)]
     reminder: Option<RawReminder>,
     #[serde(default)]
@@ -254,11 +382,15 @@ fn parse_json_document(bytes: &[u8], archive: Option<&Path>) -> CoreResult<Parse
     if doc.version > EXPORT_VERSION {
         return Err(CoreError::IncompatibleSchema { found: doc.version, supported: EXPORT_VERSION });
     }
+    // Folders arrived in version 3. An older file has none, whatever keys it
+    // carries, and its notes all go to Notes (0019 §8).
+    let folders = if doc.version >= 3 { normalize_json_folders(doc.folders)? } else { Vec::new() };
+    let known_folders = (doc.version >= 3).then(|| folders.iter().map(|folder| folder.id).collect::<HashSet<_>>());
     let mut seen_ids = HashSet::new();
     let mut seen_images = HashSet::new();
     let mut records = Vec::with_capacity(doc.items.len());
     for (index, raw) in doc.items.into_iter().enumerate() {
-        let record = normalize_json_item(index, raw, &mut seen_ids, archive)?;
+        let record = normalize_json_item(index, raw, &mut seen_ids, archive, known_folders.as_ref())?;
         for image in &record.images {
             if !seen_images.insert(image.id) {
                 return Err(CoreError::invalid(
@@ -269,7 +401,32 @@ fn parse_json_document(bytes: &[u8], archive: Option<&Path>) -> CoreResult<Parse
         }
         records.push(record);
     }
-    Ok(ParsedDocument { format: ExportFormat::Json, records, warnings: Vec::new() })
+    Ok(ParsedDocument { format: ExportFormat::Json, folders, records, warnings: Vec::new() })
+}
+
+fn normalize_json_folders(raw: Vec<RawFolder>) -> CoreResult<Vec<ImportFolder>> {
+    let invalid = |index: usize, field: &str, problem: &str| {
+        CoreError::invalid(ErrorCode::InvalidImport, format!("folder {index}: field \"{field}\" {problem}"))
+    };
+    let mut seen = HashSet::new();
+    raw.into_iter()
+        .enumerate()
+        .map(|(index, folder)| {
+            let id = Uuid::parse_str(&folder.id).map_err(|_| invalid(index, "id", "is not a valid UUID"))?;
+            if !seen.insert(id) {
+                return Err(invalid(index, "id", "is a duplicate within this document"));
+            }
+            let (name, name_key) = folders::validate_name(&folder.name)
+                .map_err(|_| invalid(index, "name", "is not a valid folder name"))?;
+            Ok(ImportFolder {
+                id,
+                name,
+                name_key,
+                created_at_ms: Some(folder.created_at_ms),
+                updated_at_ms: Some(folder.updated_at_ms),
+            })
+        })
+        .collect()
 }
 
 fn normalize_json_image(
@@ -305,6 +462,7 @@ fn normalize_json_item(
     raw: RawItem,
     seen_ids: &mut HashSet<Uuid>,
     archive: Option<&Path>,
+    known_folders: Option<&HashSet<Uuid>>,
 ) -> CoreResult<NormalizedRecord> {
     let origin = RecordOrigin::Json { index };
     let id = Uuid::parse_str(&raw.id).map_err(|_| invalid_import(&origin, "id", "is not a valid UUID"))?;
@@ -336,6 +494,18 @@ fn normalize_json_item(
         return Err(invalid_import(&origin, "completed_at_ms", "must be set if and only if status is \"done\""));
     }
     let reminder = raw.reminder.map(|reminder| normalize_json_reminder(&origin, reminder)).transpose()?;
+    let folder = match (known_folders, raw.folder_id) {
+        (None, _) => RecordFolder::Unspecified,
+        (Some(_), None) => RecordFolder::Notes,
+        (Some(known), Some(raw_id)) => {
+            let folder_id =
+                Uuid::parse_str(&raw_id).map_err(|_| invalid_import(&origin, "folder_id", "is not a valid UUID"))?;
+            if !known.contains(&folder_id) {
+                return Err(invalid_import(&origin, "folder_id", "names a folder the document doesn't have"));
+            }
+            RecordFolder::Imported(folder_id)
+        }
+    };
     Ok(NormalizedRecord {
         id: Some(id),
         text: raw.text,
@@ -346,6 +516,7 @@ fn normalize_json_item(
         deleted_at_ms: raw.deleted_at_ms,
         reminder,
         images,
+        folder,
         origin,
     })
 }
@@ -419,7 +590,7 @@ fn parse_csv_document(bytes: &[u8]) -> CoreResult<ParsedDocument> {
         let origin = RecordOrigin::Csv { line };
         records.push(normalize_csv_row(&origin, &row, &index_of, text_idx, &mut seen_ids)?);
     }
-    Ok(ParsedDocument { format: ExportFormat::Csv, records, warnings })
+    Ok(ParsedDocument { format: ExportFormat::Csv, folders: Vec::new(), records, warnings })
 }
 
 fn normalize_csv_row(
@@ -481,6 +652,22 @@ fn normalize_csv_row(
         updated_at_ms: None,
     });
 
+    // No `folder` column (an older export) leaves folders alone; an empty cell is Notes.
+    let folder = match (index_of.contains_key("folder"), field(row, index_of, "folder")) {
+        (false, _) => RecordFolder::Unspecified,
+        (true, None) => RecordFolder::Notes,
+        (true, Some(cell)) => {
+            let name = strip_formula_guard(cell);
+            if FolderSelector::named(&name) == FolderSelector::Notes {
+                RecordFolder::Notes
+            } else {
+                let (name, _) = folders::validate_name(&name)
+                    .map_err(|_| invalid_import(origin, "folder", "is not a valid folder name"))?;
+                RecordFolder::Named(name)
+            }
+        }
+    };
+
     Ok(NormalizedRecord {
         id,
         text,
@@ -491,6 +678,7 @@ fn normalize_csv_row(
         deleted_at_ms: None,
         reminder,
         images: Vec::new(),
+        folder,
         origin: origin.clone(),
     })
 }
@@ -504,9 +692,19 @@ fn normalize_csv_row(
 /// resolved deadline, not its raw enabled/state bookkeeping — import always
 /// normalizes an inserted reminder to disabled/`imported`, so comparing that
 /// bookkeeping would make every legitimate re-import look like a conflict
-/// (0004).
-fn fields_match(record: &NormalizedRecord, existing: &Item, existing_reminder: Option<&Reminder>) -> bool {
+/// (0004). A record that names a folder must name the existing item's folder
+/// too (compared after mapping, 0019 §8): differing only by folder is a
+/// conflict, like differing text.
+fn fields_match(
+    record: &NormalizedRecord,
+    existing: &Item,
+    existing_reminder: Option<&Reminder>,
+    plan: &FolderPlan,
+) -> bool {
     if record.text != existing.text || record.status != existing.status {
+        return false;
+    }
+    if plan.resolve(&record.folder).is_some_and(|wanted| wanted != existing.folder_id) {
         return false;
     }
     if let Some(value) = record.created_at_ms
@@ -536,13 +734,13 @@ fn fields_match(record: &NormalizedRecord, existing: &Item, existing_reminder: O
 /// assertion to conflict with — it is either an exact duplicate of an
 /// existing item's text and `created_at` (identical) or a fresh row (new);
 /// with neither an id nor a `created_at` it is always new.
-fn classify_record(conn: &Connection, record: &NormalizedRecord) -> CoreResult<RecordDecision> {
+fn classify_record(conn: &Connection, record: &NormalizedRecord, plan: &FolderPlan) -> CoreResult<RecordDecision> {
     match record.id {
         Some(id) => match items_repository::get_by_id(conn, id)? {
             None => Ok(RecordDecision::New),
             Some(existing) => {
                 let existing_reminder = reminders_repository::fetch_by_item(conn, id)?;
-                if fields_match(record, &existing, existing_reminder.as_ref()) {
+                if fields_match(record, &existing, existing_reminder.as_ref(), plan) {
                     Ok(RecordDecision::Identical)
                 } else {
                     Ok(RecordDecision::Conflict)
@@ -563,12 +761,13 @@ fn classify_record(conn: &Connection, record: &NormalizedRecord) -> CoreResult<R
 /// failing on them.
 fn classify_collect(
     conn: &Connection,
-    records: &[NormalizedRecord],
-) -> CoreResult<(Vec<RecordDecision>, Vec<ImportConflictRecord>, u64)> {
-    let mut decisions = Vec::with_capacity(records.len());
+    parsed: &ParsedDocument,
+) -> CoreResult<(Vec<RecordDecision>, Vec<ImportConflictRecord>, u64, FolderPlan)> {
+    let mut plan = plan_folders(conn, parsed)?;
+    let mut decisions = Vec::with_capacity(parsed.records.len());
     let mut conflicts = Vec::new();
-    for record in records {
-        let decision = classify_record(conn, record)?;
+    for record in &parsed.records {
+        let decision = classify_record(conn, record, &plan)?;
         if matches!(decision, RecordDecision::New)
             && let Some(image) = record.images.iter().find(|image| images_repository::exists(conn, image.id))
         {
@@ -587,17 +786,18 @@ fn classify_collect(
         }
         decisions.push(decision);
     }
+    plan.add_named(parsed, &decisions);
     let total = conflicts.len() as u64;
     conflicts.truncate(MAX_REPORTED_CONFLICTS);
-    Ok((decisions, conflicts, total))
+    Ok((decisions, conflicts, total, plan))
 }
 
 /// Classifies every record. Any conflict aborts with the full bounded list
 /// (0004): nothing is written, whether this runs against a read-only
 /// connection (preview) or inside the write transaction `apply_import` is
 /// about to use.
-fn classify_all(conn: &Connection, records: &[NormalizedRecord]) -> CoreResult<Vec<RecordDecision>> {
-    let (decisions, conflicts, total) = classify_collect(conn, records)?;
+fn classify_all(conn: &Connection, parsed: &ParsedDocument) -> CoreResult<(Vec<RecordDecision>, FolderPlan)> {
+    let (decisions, conflicts, total, plan) = classify_collect(conn, parsed)?;
     if total > 0 {
         return Err(CoreError::conflict_detail(
             ErrorCode::ImportConflict,
@@ -605,12 +805,13 @@ fn classify_all(conn: &Connection, records: &[NormalizedRecord]) -> CoreResult<V
             ConflictDetail::ImportConflicts { total, conflicts },
         ));
     }
-    Ok(decisions)
+    Ok((decisions, plan))
 }
 
 fn build_report(
     parsed: &ParsedDocument,
     decisions: &[RecordDecision],
+    plan: &FolderPlan,
     applied: bool,
     backup_path: Option<PathBuf>,
 ) -> ImportReport {
@@ -621,9 +822,10 @@ fn build_report(
         total_records: parsed.records.len() as u64,
         new,
         identical,
+        new_folders: plan.create.len() as u64,
         conflicts: Vec::new(),
         conflict_total: 0,
-        warnings: parsed.warnings.clone(),
+        warnings: parsed.warnings.iter().chain(&plan.warnings).cloned().collect(),
         applied,
         backup_path,
     }
@@ -635,6 +837,7 @@ fn build_report(
 fn insert_record(
     tx: &Transaction<'_>,
     record: &NormalizedRecord,
+    plan: &FolderPlan,
     now_ms: i64,
     data_dir: &Path,
     copied: &mut Vec<PathBuf>,
@@ -652,7 +855,7 @@ fn insert_record(
         completed_at_ms: record.completed_at_ms,
         deleted_at_ms: record.deleted_at_ms,
         revision: 1,
-        folder_id: None,
+        folder_id: plan.resolve(&record.folder).flatten(),
     };
     items_repository::insert(tx, &item, &text::match_key(&item.text))?;
     if let Some(reminder) = &record.reminder {
@@ -694,8 +897,8 @@ impl Store {
     pub fn preview_import(&self, bytes: &[u8]) -> CoreResult<ImportReport> {
         validate_size(bytes)?;
         let parsed = parse_document(bytes, None)?;
-        let decisions = classify_all(self.conn(), &parsed.records)?;
-        Ok(build_report(&parsed, &decisions, false, None))
+        let (decisions, plan) = classify_all(self.conn(), &parsed)?;
+        Ok(build_report(&parsed, &decisions, &plan, false, None))
     }
 
     /// Like `preview_import`, but reports conflicts in the returned report
@@ -714,8 +917,8 @@ impl Store {
     }
 
     fn inspect_parsed(&self, parsed: ParsedDocument) -> CoreResult<ImportReport> {
-        let (decisions, conflicts, total) = classify_collect(self.conn(), &parsed.records)?;
-        let mut report = build_report(&parsed, &decisions, false, None);
+        let (decisions, conflicts, total, plan) = classify_collect(self.conn(), &parsed)?;
+        let mut report = build_report(&parsed, &decisions, &plan, false, None);
         report.conflicts = conflicts;
         report.conflict_total = total;
         Ok(report)
@@ -743,8 +946,8 @@ impl Store {
     pub fn preview_import_dir(&self, dir: &Path) -> CoreResult<ImportReport> {
         let bytes = read_archive_document(dir)?;
         let parsed = parse_document(&bytes, Some(dir))?;
-        let decisions = classify_all(self.conn(), &parsed.records)?;
-        Ok(build_report(&parsed, &decisions, false, None))
+        let (decisions, plan) = classify_all(self.conn(), &parsed)?;
+        Ok(build_report(&parsed, &decisions, &plan, false, None))
     }
 
     /// `apply_import` for a zip export's unpacked directory (0018): every
@@ -755,7 +958,7 @@ impl Store {
     }
 
     fn apply_parsed(&mut self, parsed: ParsedDocument) -> CoreResult<ImportReport> {
-        classify_all(self.conn(), &parsed.records)?;
+        classify_all(self.conn(), &parsed)?;
 
         let now = self.now_ms();
         let backup_path =
@@ -763,8 +966,8 @@ impl Store {
 
         let data_dir = self.data_dir().to_path_buf();
         let tx = self.write_tx()?;
-        let decisions = match classify_all(&tx, &parsed.records) {
-            Ok(decisions) => decisions,
+        let (decisions, plan) = match classify_all(&tx, &parsed) {
+            Ok(classified) => classified,
             Err(error) => {
                 let _ = std::fs::remove_file(&backup_path);
                 return Err(error);
@@ -776,14 +979,26 @@ impl Store {
         // failure the files copied so far are removed and the rows roll back.
         let mut copied = Vec::new();
         let applied: CoreResult<()> = (|| {
+            // Folders first, so every note's folder exists when it is inserted.
+            for folder in &plan.create {
+                let created_at_ms = folder.created_at_ms.unwrap_or(now);
+                let created = Folder {
+                    id: folder.id,
+                    name: folder.name.clone(),
+                    created_at_ms,
+                    updated_at_ms: folder.updated_at_ms.unwrap_or(created_at_ms),
+                    revision: 1,
+                };
+                folders_repository::insert(&tx, &created, &folder.name_key)?;
+            }
             let mut inserted: u64 = 0;
             for (record, decision) in parsed.records.iter().zip(&decisions) {
                 if matches!(decision, RecordDecision::New) {
-                    insert_record(&tx, record, now, &data_dir, &mut copied)?;
+                    insert_record(&tx, record, &plan, now, &data_dir, &mut copied)?;
                     inserted += 1;
                 }
             }
-            if inserted > 0 {
+            if inserted > 0 || !plan.create.is_empty() {
                 bump_revision(&tx)?;
             }
             Ok(())
@@ -802,6 +1017,6 @@ impl Store {
             return Err(error);
         }
 
-        Ok(build_report(&parsed, &decisions, true, Some(backup_path)))
+        Ok(build_report(&parsed, &decisions, &plan, true, Some(backup_path)))
     }
 }

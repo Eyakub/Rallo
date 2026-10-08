@@ -291,3 +291,41 @@ fn the_new_commands_each_emit_one_valid_json_document() {
     }
     assert_eq!(cli.json(&["folder", "delete", "Home"]).0, 3);
 }
+
+#[test]
+fn export_and_import_carry_folders_json_csv_and_dry_run() {
+    let source = Cli::new();
+    source.ok(&["folder", "create", "Work"]);
+    source.ok(&["folder", "create", "Empty"]);
+    let filed = id_of(&source.ok(&["note", "filed note", "--folder", "Work"]));
+    source.ok(&["note", "loose note"]);
+    let out = tempfile::tempdir().unwrap();
+    let json_path = out.path().join("backup.json");
+    let csv_path = out.path().join("backup.csv");
+    source.ok(&["export", "--output", json_path.to_str().unwrap()]);
+    source.ok(&["export", "--output", csv_path.to_str().unwrap()]);
+    let document: Value = serde_json::from_slice(&std::fs::read(&json_path).unwrap()).unwrap();
+    assert_eq!(document["version"], 3);
+    assert_eq!(document["folders"].as_array().unwrap().len(), 2);
+
+    let target = Cli::new();
+    let dry = target.ok(&["import", "--file", json_path.to_str().unwrap(), "--dry-run"]);
+    assert_eq!(
+        (dry["new"].clone(), dry["new_folders"].clone(), dry["applied"].clone()),
+        (json!(2), json!(2), json!(false))
+    );
+    assert_eq!(target.ok(&["folders"])["folders"].as_array().unwrap().len(), 1, "a dry run created nothing");
+    let human =
+        String::from_utf8(target.run(&["import", "--file", json_path.to_str().unwrap(), "--dry-run"]).stdout).unwrap();
+    assert!(human.contains("Would create 2 folders."), "{human}");
+
+    let applied = target.ok(&["import", "--file", json_path.to_str().unwrap()]);
+    assert_eq!((applied["new"].clone(), applied["new_folders"].clone()), (json!(2), json!(2)));
+    assert_eq!(target.ok(&["get", &filed])["item"]["folder"]["name"], "Work");
+    assert_eq!(target.ok(&["folders"])["folders"][1]["name"], "Empty");
+
+    let from_csv = Cli::new();
+    let applied = from_csv.ok(&["import", "--file", csv_path.to_str().unwrap()]);
+    assert_eq!((applied["new"].clone(), applied["new_folders"].clone()), (json!(2), json!(1)));
+    assert_eq!(from_csv.texts(&["list", "--folder", "Work"]), ["filed note"]);
+}

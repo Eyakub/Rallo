@@ -3,6 +3,7 @@
 //! (live and deleted) from one consistent read-transaction snapshot, so a
 //! concurrent writer cannot produce a torn export.
 
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -14,6 +15,7 @@ use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
 
 use super::formula_guard::apply_formula_guard;
+use crate::folders::{Folder, repository as folders_repository};
 use crate::images::repository as images_repository;
 use crate::items::model::Item;
 use crate::items::repository as items_repository;
@@ -26,17 +28,19 @@ use crate::storage::migrations::SCHEMA_VERSION;
 /// Tag identifying the JSON backup document (0004), used both to write it and
 /// to detect it on import.
 pub const EXPORT_FORMAT_TAG: &str = "rallo.export";
-/// The newest version of the JSON backup document shape this build reads,
-/// independent of the database schema version recorded alongside it.
-/// Version 2 is the zip export's document (0018), with each note's `images`.
-pub const EXPORT_VERSION: u32 = 2;
-/// What plain JSON exports write: they carry no images.
-const PLAIN_JSON_VERSION: u32 = 1;
+/// The newest version of the JSON backup document shape this build reads and
+/// writes, independent of the database schema version recorded alongside it.
+/// Version 2 added the zip export's `images` per note (0018); version 3 adds
+/// `folders` and each note's `folder_id` (0019 §8). Plain JSON and the zip's
+/// document both write 3: whether `images` is present is decided as before.
+/// Version 1 and 2 files still import, every note to Notes.
+pub const EXPORT_VERSION: u32 = 3;
 /// The zip export's document and image folder (0018).
 pub const ARCHIVE_DOCUMENT: &str = "rallo-export.json";
 pub const ARCHIVE_IMAGES_DIR: &str = "images";
 
-const CSV_HEADER: [&str; 7] = ["id", "text", "status", "created_at", "completed_at", "reminder_at", "reminder_state"];
+const CSV_HEADER: [&str; 8] =
+    ["id", "text", "status", "created_at", "completed_at", "reminder_at", "reminder_state", "folder"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -61,7 +65,16 @@ struct ExportDocument {
     exported_at: String,
     core_version: &'static str,
     schema_version: u32,
+    folders: Vec<ExportFolder>,
     items: Vec<ExportItem>,
+}
+
+#[derive(Serialize)]
+struct ExportFolder {
+    id: Uuid,
+    name: String,
+    created_at_ms: i64,
+    updated_at_ms: i64,
 }
 
 #[derive(Serialize)]
@@ -73,6 +86,8 @@ struct ExportItem {
     updated_at_ms: i64,
     completed_at_ms: Option<i64>,
     deleted_at_ms: Option<i64>,
+    /// `null` is Notes.
+    folder_id: Option<Uuid>,
     reminder: Option<ExportReminder>,
     #[serde(skip_serializing_if = "Option::is_none")]
     images: Option<Vec<ExportImage>>,
@@ -109,12 +124,20 @@ pub(super) fn rfc3339_utc_ms(ms: i64) -> String {
         .expect("RFC 3339 formatting cannot fail for a valid OffsetDateTime")
 }
 
+/// Everything an export reads, from one consistent snapshot.
+struct Snapshot {
+    /// Every item and its reminder (if any), oldest first.
+    rows: Vec<(Item, Option<Reminder>)>,
+    /// Every folder, alphabetical.
+    folders: Vec<Folder>,
+}
+
 /// One consistent read-transaction snapshot of every item and its reminder
-/// (if any), oldest first. `Connection::unchecked_transaction` works from
-/// `&Store` (no `&mut` needed for a read): in WAL mode the snapshot is fixed
-/// as of the first statement and held until the transaction ends, so a
-/// concurrent writer's commits are invisible to it (0004).
-fn snapshot(store: &Store) -> CoreResult<Vec<(Item, Option<Reminder>)>> {
+/// (if any), oldest first, and every folder. `Connection::unchecked_transaction`
+/// works from `&Store` (no `&mut` needed for a read): in WAL mode the snapshot
+/// is fixed as of the first statement and held until the transaction ends, so
+/// a concurrent writer's commits are invisible to it (0004).
+fn snapshot(store: &Store) -> CoreResult<Snapshot> {
     let tx = store.conn().unchecked_transaction()?;
     let items = items_repository::all_items_for_export(&tx)?;
     let mut rows = Vec::with_capacity(items.len());
@@ -122,8 +145,21 @@ fn snapshot(store: &Store) -> CoreResult<Vec<(Item, Option<Reminder>)>> {
         let reminder = reminders_repository::fetch_by_item(&tx, item.id)?;
         rows.push((item, reminder));
     }
+    let folders = folders_repository::all(&tx)?;
     tx.rollback()?; // read-only: nothing to persist.
-    Ok(rows)
+    Ok(Snapshot { rows, folders })
+}
+
+fn export_folders(folders: &[Folder]) -> Vec<ExportFolder> {
+    folders
+        .iter()
+        .map(|folder| ExportFolder {
+            id: folder.id,
+            name: folder.name.clone(),
+            created_at_ms: folder.created_at_ms,
+            updated_at_ms: folder.updated_at_ms,
+        })
+        .collect()
 }
 
 fn export_item(item: &Item, reminder: Option<&Reminder>, images: Option<Vec<ExportImage>>) -> ExportItem {
@@ -135,6 +171,7 @@ fn export_item(item: &Item, reminder: Option<&Reminder>, images: Option<Vec<Expo
         updated_at_ms: item.updated_at_ms,
         completed_at_ms: item.completed_at_ms,
         deleted_at_ms: item.deleted_at_ms,
+        folder_id: item.folder_id,
         reminder: reminder.map(|reminder| ExportReminder {
             id: reminder.id,
             deadline_ms: reminder.deadline_ms,
@@ -150,15 +187,17 @@ fn export_item(item: &Item, reminder: Option<&Reminder>, images: Option<Vec<Expo
     }
 }
 
-fn encode_json(store: &Store, rows: &[(Item, Option<Reminder>)]) -> CoreResult<Vec<u8>> {
+fn encode_json(store: &Store, snapshot: &Snapshot) -> CoreResult<Vec<u8>> {
     let document = ExportDocument {
         format: EXPORT_FORMAT_TAG,
-        version: PLAIN_JSON_VERSION,
+        version: EXPORT_VERSION,
         exported_at: rfc3339_utc_ms(store.now_ms()),
         core_version: crate::CORE_VERSION,
         schema_version: SCHEMA_VERSION,
+        folders: export_folders(&snapshot.folders),
         // Only image-only notes have empty text; plain JSON can't carry them.
-        items: rows
+        items: snapshot
+            .rows
             .iter()
             .filter(|(item, _)| !item.text.is_empty())
             .map(|(item, reminder)| export_item(item, reminder.as_ref(), None))
@@ -169,13 +208,16 @@ fn encode_json(store: &Store, rows: &[(Item, Option<Reminder>)]) -> CoreResult<V
 
 /// RFC 4180 with a UTF-8 BOM (Excel encoding detection) and CRLF records
 /// (0004). Excludes deleted items; the formula-injection guard is applied to
-/// `text` only.
-fn encode_csv(rows: &[(Item, Option<Reminder>)]) -> CoreResult<Vec<u8>> {
+/// `text` and the `folder` column. The trailing `folder` column is the
+/// folder's name, empty for Notes (0019 §8).
+fn encode_csv(snapshot: &Snapshot) -> CoreResult<Vec<u8>> {
+    let folder_names: HashMap<Uuid, &str> =
+        snapshot.folders.iter().map(|folder| (folder.id, folder.name.as_str())).collect();
     let mut buffer = vec![0xEF, 0xBB, 0xBF];
     {
         let mut writer = csv::WriterBuilder::new().terminator(csv::Terminator::CRLF).from_writer(&mut buffer);
         writer.write_record(CSV_HEADER)?;
-        for (item, reminder) in rows {
+        for (item, reminder) in &snapshot.rows {
             if item.deleted_at_ms.is_some() || item.text.is_empty() {
                 continue;
             }
@@ -187,6 +229,11 @@ fn encode_csv(rows: &[(Item, Option<Reminder>)]) -> CoreResult<Vec<u8>> {
                 item.completed_at_ms.map(rfc3339_utc_ms).unwrap_or_default(),
                 reminder.as_ref().map(|r| rfc3339_utc_ms(r.deadline_ms)).unwrap_or_default(),
                 reminder.as_ref().map(|r| r.state().as_str().to_owned()).unwrap_or_default(),
+                // A folder name is user text too: `=cmd` must not run in a spreadsheet (0004's guard).
+                item.folder_id
+                    .and_then(|id| folder_names.get(&id))
+                    .map(|name| apply_formula_guard(name))
+                    .unwrap_or_default(),
             ])?;
         }
         writer.flush()?;
@@ -194,10 +241,10 @@ fn encode_csv(rows: &[(Item, Option<Reminder>)]) -> CoreResult<Vec<u8>> {
     Ok(buffer)
 }
 
-fn encode(store: &Store, format: ExportFormat, rows: &[(Item, Option<Reminder>)]) -> CoreResult<Vec<u8>> {
+fn encode(store: &Store, format: ExportFormat, snapshot: &Snapshot) -> CoreResult<Vec<u8>> {
     match format {
-        ExportFormat::Json => encode_json(store, rows),
-        ExportFormat::Csv => encode_csv(rows),
+        ExportFormat::Json => encode_json(store, snapshot),
+        ExportFormat::Csv => encode_csv(snapshot),
     }
 }
 
@@ -246,15 +293,13 @@ impl Store {
     /// The export document as bytes, for callers (the CLI's `--output -`,
     /// and later FFI) that want the content without touching a file.
     pub fn export_bytes(&self, format: ExportFormat) -> CoreResult<Vec<u8>> {
-        let rows = snapshot(self)?;
-        encode(self, format, &rows)
+        encode(self, format, &snapshot(self)?)
     }
 
     /// What a JSON or CSV export leaves out: images, and image-only notes
     /// (only those that still have image rows).
     pub fn export_warnings(&self, format: ExportFormat) -> CoreResult<Vec<String>> {
-        let rows = snapshot(self)?;
-        self.plain_warnings(format, &rows)
+        self.plain_warnings(format, &snapshot(self)?.rows)
     }
 
     fn plain_warnings(&self, format: ExportFormat, rows: &[(Item, Option<Reminder>)]) -> CoreResult<Vec<String>> {
@@ -287,25 +332,25 @@ impl Store {
     /// runs before the snapshot is read.
     pub fn export_to_file(&self, path: &Path, format: ExportFormat, overwrite: bool) -> CoreResult<ExportSummary> {
         refuse_existing(path, overwrite)?;
-        let rows = snapshot(self)?;
-        let bytes = encode(self, format, &rows)?;
+        let snapshot = snapshot(self)?;
+        let bytes = encode(self, format, &snapshot)?;
         write_atomic(path, &bytes, overwrite)?;
         let written =
             |item: &Item| !item.text.is_empty() && (format == ExportFormat::Json || item.deleted_at_ms.is_none());
-        let items = rows.iter().filter(|(item, _)| written(item)).count();
-        let warnings = self.plain_warnings(format, &rows)?;
+        let items = snapshot.rows.iter().filter(|(item, _)| written(item)).count();
+        let warnings = self.plain_warnings(format, &snapshot.rows)?;
         Ok(ExportSummary { items: items as u64, path: path.to_path_buf(), warnings })
     }
 
     /// The zip export's contents (0018), written into `dir` (an empty
-    /// directory the caller made): `rallo-export.json` (version 2, with each
+    /// directory the caller made): `rallo-export.json` (version 3, with each
     /// note's `images`) and `images/<item id>/<file>`. The platform crate
     /// zips the directory.
     pub fn export_to_dir(&self, dir: &Path) -> CoreResult<ExportSummary> {
-        let rows = snapshot(self)?;
-        let mut items = Vec::with_capacity(rows.len());
+        let snapshot = snapshot(self)?;
+        let mut items = Vec::with_capacity(snapshot.rows.len());
         let mut missing = 0;
-        for (item, reminder) in &rows {
+        for (item, reminder) in &snapshot.rows {
             let images = images_repository::for_item(self.conn(), item.id)?;
             if item.text.is_empty() && images.is_empty() {
                 continue; // an image-only note whose images expired: nothing to restore (0018)
@@ -345,6 +390,7 @@ impl Store {
             exported_at: rfc3339_utc_ms(self.now_ms()),
             core_version: crate::CORE_VERSION,
             schema_version: SCHEMA_VERSION,
+            folders: export_folders(&snapshot.folders),
             items,
         };
         let path = dir.join(ARCHIVE_DOCUMENT);
