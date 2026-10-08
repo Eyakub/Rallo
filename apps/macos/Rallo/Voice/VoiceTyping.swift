@@ -35,12 +35,13 @@ protocol VoiceEngineSession: AnyObject {
     func stop() async
 }
 
-/// Voice typing (0013): ⌃⌥⌘V toggles listening; finalized phrases are typed
+/// Voice typing (0013): hold the voice key (Right ⌥ or Right ⌘) to talk,
+/// double-tap it or press ⌃⌥⌘V to listen hands-free; finalized phrases are typed
 /// into the focused app, live words show in a bubble. Audio and text are
 /// never stored or logged.
 @MainActor
 final class VoiceTyping {
-    enum StopReason: String { case shortcut, silence, error }
+    enum StopReason: String { case shortcut, release, silence, error }
 
     private let log: DiagnosticsLog
     private let bubble = VoiceBubble()
@@ -125,7 +126,7 @@ final class VoiceTyping {
             heardAt = .now
             silenceTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, ContinuousClock.now - self.heardAt >= .seconds(10) else { return }
+                    guard let self, ContinuousClock.now - self.heardAt >= .seconds(120) else { return }
                     self.stop(reason: .silence)
                 }
             }

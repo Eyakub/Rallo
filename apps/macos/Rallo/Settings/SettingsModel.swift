@@ -24,7 +24,7 @@ final class SettingsModel: ObservableObject {
     @Published var updateCheckAllowed = true
     @Published var voiceTypingEnabled = false
     @Published var voiceAccessibilityMissing = false
-    /// Voice typing is on but another app owns ⌃⌥⌘V.
+    /// Voice typing is on but another app owns ⌃⌥⌘V (the hands-free chord; the voice key is separate).
     @Published var voiceShortcutTaken = false
     @Published var screenshotHotkeyEnabled = false
     /// The screenshot hot key is on but another app owns ⌃⌥⌘S.

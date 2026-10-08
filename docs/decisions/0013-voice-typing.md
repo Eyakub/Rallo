@@ -13,10 +13,19 @@ is always visible, so it is a natural place to show that Rallo is listening.
 Settings → General has "Voice typing (⌃⌥⌘V)", marked experimental, **off by
 default**, and disabled before macOS 26.
 
-- **Shortcut toggle, not a pet click.** A pet click opens Notes. ⌃⌥⌘V starts
-  listening and the same press stops it; it also stops after 10 s with no new
-  speech result. The hotkey is registered only while the feature is on, so it
-  isn't taken from other apps otherwise.
+- **Voice key, not a pet click.** A pet click opens Notes. Three ways in:
+  hold the voice key (Right ⌥ by default, or Right ⌘ in Settings for layouts
+  that type with Right ⌥) for 0.3 s and talk, stopping on release (the last
+  phrase still types); double-tap it (second press within 0.4 s of the first
+  release) to listen hands-free until its next press; or press ⌃⌥⌘V, which
+  starts and stops the same way. A press of the voice key while listening
+  always stops. Hold to talk and double-tap can each be turned off. Rallo
+  watches modifier keys only (`flagsChanged`), never key presses; another
+  modifier changing during a press cancels it (⌥⇧ accents). Global key
+  monitors need Accessibility. Whatever way it started, it also stops after
+  120 s with no new speech result (a safety net for hands-free and a missed
+  key release). ⌃⌥⌘V is registered only while the feature is on, so it isn't
+  taken from other apps otherwise.
 - **Engine.** Apple's `DictationTranscriber` (Speech framework, macOS 26+),
   on-device, with punctuation. macOS may download its speech model the first
   time; the bubble says so.
@@ -52,5 +61,4 @@ the motion.
 
 ## Not done yet
 
-AI cleanup of the text, per-app rules and a configurable
-shortcut.
+AI cleanup of the text and per-app rules.

@@ -221,7 +221,12 @@ private struct VoiceTab: View {
     @AppStorage("voiceLanguage") private var language = "auto"
     @AppStorage(WhisperModelKind.defaultsKey) private var whisperKind = ""
     @AppStorage(VoiceText.tidyKey) private var tidy = true
+    @AppStorage(VoiceKey.keyKey) private var voiceKeyRaw = VoiceKey.rightOption.rawValue
+    @AppStorage(VoiceKey.holdKey) private var holdToTalk = true
+    @AppStorage(VoiceKey.doubleTapKey) private var doubleTap = true
     @State private var confirmDelete = false
+
+    private var voiceKey: VoiceKey { VoiceKey(rawValue: voiceKeyRaw) ?? .rightOption }
 
     /// Apple's engine needs macOS 26; before that only Whisper exists.
     private var engine: String {
@@ -243,7 +248,14 @@ private struct VoiceTab: View {
             Section {
                 Toggle(isOn: Binding(get: { model.voiceTypingEnabled }, set: { model.setVoiceTyping($0) })) {
                     Text("Voice typing")
-                    Text("Press ⌃⌥⌘V anywhere and talk; press it again to stop.")
+                    Text("Hold \(voiceKey.symbol) and talk, or double-tap it to keep listening until you press it again. ⌃⌥⌘V also starts and stops.")
+                }
+                if model.voiceTypingEnabled {
+                    Picker("Key", selection: $voiceKeyRaw) {
+                        ForEach(VoiceKey.allCases, id: \.rawValue) { Text($0.symbol).tag($0.rawValue) }
+                    }
+                    Toggle("Hold to talk", isOn: $holdToTalk)
+                    Toggle("Double-tap for hands-free", isOn: $doubleTap)
                 }
                 if model.voiceTypingEnabled, !VoicePermissions.microphoneAllowed {
                     permissionRow("Microphone", pane: "Privacy_Microphone")
