@@ -51,6 +51,13 @@ enum VoiceText {
         return out.joined(separator: " ")
     }
 
+    /// The word hint sent to Whisper and the cloud engine. None for Bangla:
+    /// an English word list makes Whisper write Bangla in Latin letters
+    /// ("Ami Balaj Kotha Bolchi").
+    static func prompt(language: String, userList: String) -> String {
+        language == "bn" ? "" : contextWords(userList: userList).joined(separator: ", ")
+    }
+
     /// Built-in words plus the user's comma- or newline-separated list,
     /// trimmed, without duplicates (case-insensitive), at most 100.
     static func contextWords(userList: String) -> [String] {

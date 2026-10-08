@@ -44,13 +44,13 @@ final class WhisperVoiceSession: VoiceEngineSession {
     /// Not task cancellation, which would cancel those last requests too.
     private var stopRequested = false
     private let language: String
-    private let prompt = VoiceText.contextWords(userList: UserDefaults.standard.string(forKey: VoiceText.wordsKey) ?? "")
-        .joined(separator: ", ")
+    private let prompt: String
 
     /// `language` overrides the Settings choice (an English-only model).
     init(previews: Bool, language: String? = nil, prepare: @escaping Prepare) {
         self.previews = previews
         self.language = language ?? UserDefaults.standard.string(forKey: "voiceLanguage") ?? "auto"
+        prompt = VoiceText.prompt(language: self.language, userList: UserDefaults.standard.string(forKey: VoiceText.wordsKey) ?? "")
         self.prepare = prepare
     }
 

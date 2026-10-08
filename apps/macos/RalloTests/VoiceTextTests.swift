@@ -35,6 +35,13 @@ final class VoiceTextTests: XCTestCase {
         XCTAssertEqual(VoiceText.contextWords(userList: ""), VoiceText.builtInWords)
     }
 
+    /// An English word list makes Whisper write Bangla in Latin letters.
+    func testNoWordHintForBangla() {
+        XCTAssertEqual(VoiceText.prompt(language: "bn", userList: "Muhsin, SDS Manager"), "")
+        XCTAssertEqual(VoiceText.prompt(language: "en", userList: ""), VoiceText.builtInWords.joined(separator: ", "))
+        XCTAssertTrue(VoiceText.prompt(language: "auto", userList: "Muhsin").hasSuffix("Muhsin"))
+    }
+
     func testTidy() {
         XCTAssertEqual(VoiceText.tidy("set it up like like we said", dropFillers: true), "set it up like we said")
         XCTAssertEqual(VoiceText.tidy("Um, I I think, uh, it works", dropFillers: true), "I think, it works")

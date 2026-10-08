@@ -239,6 +239,12 @@ private struct VoiceTab: View {
         if case .downloading = model.whisperModel { true } else { false }
     }
 
+    /// Whisper's large models and the cloud engine take a language; Apple's
+    /// follows the Mac's, and Small is English only.
+    private var showsLanguage: Bool {
+        engine != "apple" && !(engine == "whisper" && selectedKind.languages != nil)
+    }
+
     private var appleAvailable: Bool {
         if #available(macOS 26, *) { true } else { false }
     }
@@ -291,7 +297,7 @@ private struct VoiceTab: View {
                     modelRow
                 }
                 if engine == "cloud" { CloudVoiceRows() }
-                if engine != "apple", !(engine == "whisper" && selectedKind.languages != nil) {
+                if showsLanguage {
                     Picker("Language", selection: $language) {
                         Text("Automatic").tag("auto")
                         Text("English").tag("en")
@@ -299,12 +305,17 @@ private struct VoiceTab: View {
                     }
                 }
             } footer: {
-                engineFooter
+                VStack(alignment: .leading, spacing: 4) {
+                    engineFooter
+                    if showsLanguage {
+                        footnote("For Bangla, choose Bangla: Automatic can mistake it for Hindi.")
+                    }
+                }
             }
 
             Section {
                 TextField("Words to recognize", text: $voiceWords, prompt: Text("Names, terms"))
-                    .help("Separate with commas. Rallo, ClickUp, cmux, Claude, Codex, Grok and Gemini are built in.")
+                    .help("Separate with commas. Rallo, ClickUp, cmux, Claude, Codex, Grok and Gemini are built in. Not used when Language is Bangla.")
                 Toggle("Remove “um”s and repeated words", isOn: $tidy)
                     .help("Turn off to type exactly what was heard.")
             }

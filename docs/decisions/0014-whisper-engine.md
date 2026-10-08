@@ -83,6 +83,14 @@ the only choice.
   "thanks for watching", "please subscribe", "you", "bye", ...) is dropped when
   the audio was under 2 s; longer segments keep it.
 
+- **Bangla.** Whisper gets no word hint when Language is Bangla: tested on
+  clean Bangla audio with large-v3 turbo, the built-in English list
+  ("Rallo, ClickUp, …") made it write Bangla in Latin letters ("Ami Balaj
+  Kotha Bolchi"); without it, it writes Bangla script. The same goes for the
+  cloud engine's `prompt`. Automatic detection took Bangla for Hindi, so
+  Settings says to choose Bangla. Full large-v3 was no better on the same
+  audio and two to three times slower, so it isn't offered.
+
 ## Consequences
 
 - Building from source needs CMake (`brew install cmake`); the first build
