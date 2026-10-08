@@ -139,7 +139,9 @@ pub struct ItemPage {
     pub total_count: u32,
 }
 
-/// Everything the notes window's sidebar shows, in one read (0019 §9).
+/// Everything the notes window's sidebar shows (0019 §9). The counts come
+/// from separate reads, so a concurrent write can skew them until the next
+/// reload.
 /// `due`, `done` and `deleted` count what those views list; the rest count
 /// open, nondeleted notes.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]

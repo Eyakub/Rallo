@@ -266,7 +266,7 @@ Pagination (0003 §10): `--limit N` (1-200, default 50) and an opaque
   visibility, since native work is now pending.
 - A launch failure becomes a `warnings` entry; the exit code stays 0.
 - `folder delete --delete-notes` that disabled an active reminder counts as a
-  change of reminder intent (previous bullet): it launches the app if needed.
+  change of reminder intent (see the reminder-intent bullet above): it launches the app if needed.
 - Read commands (`list`, `get`, `search`, `status`, `folders`, `tags`) never start the app.
   `export` is a read command in this sense: it never signals or launches.
 - `import` (non-dry-run): signals a running app (the same helper `hide`
