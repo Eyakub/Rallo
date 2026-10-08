@@ -121,11 +121,11 @@ struct NoteRow: View {
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.bark)
                 } else if let title = parts.title {
-                    Text(title)
+                    Text(TagTint.attributed(title, size: 14))
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(expanded ? nil : 1)
                 } else {
-                    Text(parts.body)
+                    Text(TagTint.attributed(parts.body, size: 14))
                         .font(.system(size: 14))
                         .lineSpacing(2)
                         .lineLimit(expanded ? nil : 2)
@@ -152,7 +152,7 @@ struct NoteRow: View {
 
         if parts.title != nil {
             if expanded {
-                Text(parts.body)
+                Text(TagTint.attributed(parts.body, size: 14))
                     .font(.system(size: 14))
                     .lineSpacing(2)
                     .foregroundStyle(Theme.ink)
@@ -160,7 +160,7 @@ struct NoteRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text(parts.preview)
+                Text(TagTint.attributed(parts.preview, size: 13))
                     .font(.system(size: 13))
                     .lineLimit(1)
                     .foregroundStyle(Theme.bark)
