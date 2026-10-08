@@ -47,6 +47,8 @@ final class NotesViewModel: ObservableObject {
     @Published private(set) var overview: FolderOverview?
     /// The New Folder dialog (and Rename, in the window later).
     let namePrompter = FolderNamePrompter()
+    /// The New Folder dialog is up: the panel behind it takes no focus or clicks.
+    @Published private(set) var namePromptShown = false
     /// The folder dropdown under the chip is showing.
     @Published var scopeMenuOpen = false
     /// Swipe state: at most one row shows a tray; `liveSwipe` follows the
@@ -76,6 +78,7 @@ final class NotesViewModel: ObservableObject {
         self.core = core
         self.defaults = defaults
         scope = NotesScope.load(from: defaults)
+        namePrompter.$request.map { $0 != nil }.removeDuplicates().assign(to: &$namePromptShown)
     }
 
     var folders: [FolderSnapshot] { overview?.folders ?? [] }
@@ -272,6 +275,8 @@ final class NotesViewModel: ObservableObject {
         _ = await namePrompter.ask(title: "New Folder", initial: "", confirmTitle: "Create") { [core] name in
             created = try await core.createFolder(name)
         }
+        // Every exit (Create, Cancel, backdrop) leaves the keyboard in the note field.
+        requestFocus()
         if let created { await use(created) }
     }
 

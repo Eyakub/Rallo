@@ -37,6 +37,8 @@ struct NotesView: View {
                     .accessibilityLabel("Error: \(message)")
             }
         }
+        .disabled(model.namePromptShown)
+        .accessibilityHidden(model.namePromptShown)
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
                 ToastBar(toast: toast) { Task { await model.undo() } }

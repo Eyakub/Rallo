@@ -22,7 +22,7 @@ struct FolderChip: View {
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(Theme.bark)
                     .rotationEffect(.degrees(open && !reduceMotion ? 180 : 0))
-                    .animation(.easeOut(duration: 0.16), value: open)
+                    .animation(open ? .easeOut(duration: 0.16) : .easeIn(duration: 0.10), value: open)
             }
             .font(Theme.rounded(12.5, .semibold))
             .foregroundStyle(Theme.ink)

@@ -84,10 +84,15 @@ private struct FolderNameCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .accessibilityLabel(request.title)
-        .onChange(of: prompter.error) { _, message in
-            guard let message else { return }
+        // Keyed on the count, not the text: an identical repeated error still counts.
+        .onChange(of: prompter.errorCount) { _, _ in
             if !reduceMotion { shakes += 1 }
-            AccessibilityNotification.Announcement(message).post()
+            if let message = prompter.error { AccessibilityNotification.Announcement(message).post() }
+            // `.disabled` while saving dropped the field's focus.
+            Task { @MainActor in
+                await Task.yield()
+                focused = true
+            }
         }
     }
 

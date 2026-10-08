@@ -62,6 +62,7 @@ struct FolderScopeMenu: View {
             )
             .onHover { if $0 { highlighted = items.count } }
             .onTapGesture { activate(items.count) }
+            .accessibilityAction { activate(items.count) }
         }
         .padding(5)
         .frame(width: Self.width)
@@ -76,7 +77,8 @@ struct FolderScopeMenu: View {
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
-        .onAppear { focused = true }
+        // Deferred: set during the appear pass, focus doesn't stick after a mouse click.
+        .onAppear { Task { @MainActor in focused = true } }
         .onKeyPress(.downArrow) { move(forward: true, count: rowCount); return .handled }
         .onKeyPress(.upArrow) { move(forward: false, count: rowCount); return .handled }
         .onKeyPress(.return) { activateHighlighted() }
@@ -97,6 +99,7 @@ struct FolderScopeMenu: View {
         )
         .onHover { if $0 { highlighted = index } }
         .onTapGesture { activate(index) }
+        .accessibilityAction { activate(index) }
     }
 
     private func move(forward: Bool, count: Int) {
