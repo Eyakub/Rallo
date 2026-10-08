@@ -54,6 +54,9 @@ impl From<CoreError> for Failure {
         let exit = match &error {
             CoreError::InvalidInput { .. } => Exit::InvalidInput,
             CoreError::NotFound { .. } => Exit::NotFound,
+            // 0019 §4: a `Conflict` to the FFI, but on the command line it is a missing
+            // flag, so exit 2 like any other invalid input (nothing changed either way).
+            CoreError::Conflict { code: ErrorCode::FolderNotEmpty, .. } => Exit::InvalidInput,
             CoreError::Conflict { .. } => Exit::Conflict,
             CoreError::Storage { .. } => Exit::Storage,
             CoreError::IncompatibleSchema { .. } => Exit::Incompatible,

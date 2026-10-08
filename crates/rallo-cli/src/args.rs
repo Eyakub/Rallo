@@ -41,6 +41,9 @@ pub enum Command {
         /// Attach an image file (PNG, JPEG, HEIC, GIF or WebP; 10 MB each, up to 10). Rallo keeps its own copy.
         #[arg(long = "image", value_name = "PATH")]
         images: Vec<PathBuf>,
+        /// Put the note in this folder (an existing one; `Notes` is the default, built-in folder).
+        #[arg(long, value_name = "NAME")]
+        folder: Option<String>,
         /// Idempotency key: retrying with the same key and inputs replays the original result.
         #[arg(long, value_name = "KEY")]
         request_id: Option<String>,
@@ -63,6 +66,9 @@ pub enum Command {
         /// Attach an image file (PNG, JPEG, HEIC, GIF or WebP; 10 MB each, up to 10). Rallo keeps its own copy.
         #[arg(long = "image", value_name = "PATH")]
         images: Vec<PathBuf>,
+        /// Put the note in this folder (an existing one; `Notes` is the default, built-in folder).
+        #[arg(long, value_name = "NAME")]
+        folder: Option<String>,
         /// Idempotency key: retrying a relative "--in" duration must not move the deadline again.
         #[arg(long, value_name = "KEY")]
         request_id: Option<String>,
@@ -70,14 +76,23 @@ pub enum Command {
     /// List notes (open and nondeleted by default).
     List {
         /// Open and done items, excluding deleted.
-        #[arg(long, conflicts_with_all = ["deleted", "due"])]
+        #[arg(long, conflicts_with_all = ["deleted", "due", "done"])]
         all: bool,
         /// Deleted items only.
-        #[arg(long, conflicts_with_all = ["all", "due"])]
+        #[arg(long, conflicts_with_all = ["all", "due", "done"])]
         deleted: bool,
         /// Open items with an active reminder whose deadline has passed.
-        #[arg(long, conflicts_with_all = ["all", "deleted"])]
+        #[arg(long, conflicts_with_all = ["all", "deleted", "done"])]
         due: bool,
+        /// Done, nondeleted items, newest completion first.
+        #[arg(long, conflicts_with_all = ["all", "deleted", "due"])]
+        done: bool,
+        /// Only notes in this folder (`Notes` is the built-in one); combines with the filters above.
+        #[arg(long, value_name = "NAME")]
+        folder: Option<String>,
+        /// Only notes with this #tag (the # is optional); combines with --folder and the filters above.
+        #[arg(long, value_name = "TAG")]
+        tag: Option<String>,
         /// Page size (1-200).
         #[arg(long, default_value_t = DEFAULT_PAGE_SIZE)]
         limit: u32,
@@ -96,6 +111,9 @@ pub enum Command {
         /// Include soft-deleted items in the results.
         #[arg(long)]
         include_deleted: bool,
+        /// Only notes in this folder (`Notes` is the built-in one).
+        #[arg(long, value_name = "NAME")]
+        folder: Option<String>,
         /// Page size (1-200).
         #[arg(long, default_value_t = DEFAULT_PAGE_SIZE)]
         limit: u32,
@@ -113,6 +131,29 @@ pub enum Command {
         /// Fail with a conflict unless the item is currently at this revision.
         #[arg(long, value_name = "N")]
         if_revision: Option<i64>,
+    },
+    /// Move a note to a folder (`Notes` takes it out of its folder).
+    Move {
+        /// Full ID or unique prefix.
+        id: String,
+        /// The folder's name; it must exist.
+        #[arg(long, value_name = "NAME")]
+        folder: String,
+        /// Idempotency key: retrying with the same key and inputs replays the original result.
+        #[arg(long, value_name = "KEY")]
+        request_id: Option<String>,
+        /// Fail with a conflict unless the item is currently at this revision.
+        #[arg(long, value_name = "N")]
+        if_revision: Option<i64>,
+    },
+    /// List the folders with their open-note counts, Notes first.
+    Folders,
+    /// List the #tags in open notes with their counts, most used first.
+    Tags,
+    /// Create, rename or delete a folder.
+    Folder {
+        #[command(subcommand)]
+        command: FolderCommand,
     },
     /// Add images to a note (PNG, JPEG, HEIC, GIF or WebP; 10 MB each, 10 per note).
     Attach {
@@ -300,6 +341,38 @@ pub enum Command {
     Agents {
         #[command(subcommand)]
         command: Option<AgentsCommand>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum FolderCommand {
+    /// Create a folder (1-50 characters; "Notes" is taken).
+    Create {
+        name: String,
+        /// Idempotency key: retrying with the same key and inputs replays the original result.
+        #[arg(long, value_name = "KEY")]
+        request_id: Option<String>,
+    },
+    /// Rename a folder.
+    Rename {
+        name: String,
+        new_name: String,
+        /// Idempotency key: retrying with the same key and inputs replays the original result.
+        #[arg(long, value_name = "KEY")]
+        request_id: Option<String>,
+    },
+    /// Delete a folder. One of --keep-notes / --delete-notes is required when it holds notes.
+    Delete {
+        name: String,
+        /// Move the folder's notes to Notes.
+        #[arg(long, conflicts_with = "delete_notes")]
+        keep_notes: bool,
+        /// Delete the folder's notes too (they stay in Deleted, where `rallo restore` brings them back to Notes).
+        #[arg(long)]
+        delete_notes: bool,
+        /// Idempotency key: retrying with the same key and inputs replays the original result.
+        #[arg(long, value_name = "KEY")]
+        request_id: Option<String>,
     },
 }
 

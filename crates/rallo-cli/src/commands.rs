@@ -3,7 +3,10 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use rallo_core::agents::{AgentKind, AgentSession, AgentState};
-use rallo_core::items::{ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome, Page, SearchQuery};
+use rallo_core::folders::{DeleteNotes, Folder, FolderSelector, NotesDisposition};
+use rallo_core::items::{
+    ItemScope, ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome, Page, SearchQuery,
+};
 use rallo_core::preferences::PetVisibility;
 use rallo_core::reminders::{CancellationStatus, ReminderState, SchedulingStatus, TimeSpec};
 use rallo_core::shared::{signal, text};
@@ -529,11 +532,13 @@ pub fn note(
     arg_text: Option<String>,
     from_stdin: bool,
     images: Vec<PathBuf>,
+    folder: Option<String>,
     request_id: Option<String>,
 ) -> CommandResult {
     let images = read_images(&images)?;
     let note_text = if arg_text.is_none() && !from_stdin { String::new() } else { resolve_text(arg_text, from_stdin)? };
-    let outcome = store.create_note_with_images(&note_text, &images, request_id.as_deref())?;
+    let outcome =
+        store.create_note_in(&note_text, &images, &folder_selector(folder.as_deref()), request_id.as_deref())?;
     let view = &outcome.item;
     // Committed. Everything below is a best-effort nudge to the app.
     let mut warnings = Vec::new();
@@ -551,6 +556,7 @@ pub fn note(
 /// `remind TEXT|--stdin (--in|--at)` (0003 §3): always creates a new item
 /// with an active reminder, so this always nudges the app to start draining
 /// the schedule intent, regardless of pet visibility.
+#[allow(clippy::too_many_arguments)]
 pub fn remind(
     out: &Output,
     store: &mut Store,
@@ -558,11 +564,18 @@ pub fn remind(
     from_stdin: bool,
     images: Vec<PathBuf>,
     when: TimeSpec,
+    folder: Option<String>,
     request_id: Option<String>,
 ) -> CommandResult {
     let images = read_images(&images)?;
     let note_text = if arg_text.is_none() && !from_stdin { String::new() } else { resolve_text(arg_text, from_stdin)? };
-    let outcome = store.create_reminder_with_images(&note_text, &when, &images, request_id.as_deref())?;
+    let outcome = store.create_reminder_in(
+        &note_text,
+        &when,
+        &images,
+        &folder_selector(folder.as_deref()),
+        request_id.as_deref(),
+    )?;
     let view = &outcome.item;
     let mut warnings = Vec::new();
     nudge_reminder_intent(store, &mut warnings);
@@ -580,43 +593,56 @@ pub fn remind(
     Ok(())
 }
 
-fn list_filter(all: bool, deleted: bool, due: bool) -> ListFilter {
+pub fn list_filter(all: bool, deleted: bool, due: bool, done: bool) -> ListFilter {
     if all {
         ListFilter::All
     } else if deleted {
         ListFilter::Deleted
     } else if due {
         ListFilter::Due
+    } else if done {
+        ListFilter::Done
     } else {
         ListFilter::Open
     }
 }
 
+/// `--folder NAME`: "Notes" in any case is the built-in folder (0019 §3).
+fn folder_selector(name: Option<&str>) -> FolderSelector {
+    name.map_or(FolderSelector::Notes, FolderSelector::named)
+}
+
+fn scope(folder: Option<String>, tag: Option<String>) -> ItemScope {
+    ItemScope { folder: folder.as_deref().map(FolderSelector::named), tag }
+}
+
 pub fn list(
     out: &Output,
     store: &Store,
-    all: bool,
-    deleted: bool,
-    due: bool,
+    filter: ListFilter,
+    folder: Option<String>,
+    tag: Option<String>,
     limit: u32,
     cursor: Option<String>,
 ) -> CommandResult {
-    let filter = list_filter(all, deleted, due);
-    let page = store.list(ListQuery { filter, limit, cursor })?;
+    let page = store.list_scoped(ListQuery { filter, limit, cursor }, &scope(folder, tag))?;
     out.success(page_json(&page), &[], || human_page(&page, "No matching notes."));
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn search(
     out: &Output,
     store: &Store,
     text: String,
     exact: bool,
     include_deleted: bool,
+    folder: Option<String>,
     limit: u32,
     cursor: Option<String>,
 ) -> CommandResult {
-    let page = store.search(SearchQuery { text, exact, include_deleted, limit, cursor })?;
+    let query = SearchQuery { text, exact, include_deleted, limit, cursor };
+    let page = store.search_scoped(query, &scope(folder, None))?;
     out.success(page_json(&page), &[], || human_page(&page, "No matches."));
     Ok(())
 }
@@ -760,6 +786,143 @@ pub fn restore(out: &Output, store: &mut Store, id: &str, opts: MutationOptions)
         }
     });
     Ok(())
+}
+
+/// `move ID --folder NAME` (0019 §5).
+pub fn move_note(out: &Output, store: &mut Store, id: &str, folder: &str, opts: MutationOptions) -> CommandResult {
+    let outcome = store.move_item(id, &FolderSelector::named(folder), &opts)?;
+    let mut warnings = Vec::new();
+    nudge_passive(store, &mut warnings);
+    let view = &outcome.item;
+    let place = view.folder.as_ref().map_or_else(|| "Notes".to_owned(), |folder| preview(&folder.name, 50));
+    out.success(mutation_fields(&outcome), &warnings, || {
+        if outcome.changed {
+            format!("Moved {} ({}) to {place}", quoted(view, 80), view.display_id)
+        } else {
+            format!("Already in {place}: {} ({})", quoted(view, 80), view.display_id)
+        }
+    });
+    Ok(())
+}
+
+pub fn folders(out: &Output, store: &Store) -> CommandResult {
+    let counts = store.folders()?;
+    let entries: Vec<Value> = counts
+        .iter()
+        .map(|entry| match &entry.folder {
+            None => json!({ "id": null, "name": "Notes", "open_count": entry.open_count }),
+            Some(folder) => json!({ "id": folder.id, "name": folder.name, "open_count": entry.open_count }),
+        })
+        .collect();
+    out.success(json!({ "folders": entries }), &[], || {
+        counts
+            .iter()
+            .map(|entry| {
+                let name = entry.folder.as_ref().map_or("Notes", |folder| folder.name.as_str());
+                format!("{}  {}", preview(name, 50), entry.open_count)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    });
+    Ok(())
+}
+
+pub fn tags(out: &Output, store: &Store) -> CommandResult {
+    let counts = store.tag_counts()?;
+    let entries: Vec<Value> =
+        counts.iter().map(|tag| json!({ "name": tag.name, "open_count": tag.open_count })).collect();
+    out.success(json!({ "tags": entries }), &[], || {
+        if counts.is_empty() {
+            "No tags.".to_owned()
+        } else {
+            counts.iter().map(|tag| format!("#{}  {}", tag.name, tag.open_count)).collect::<Vec<_>>().join("\n")
+        }
+    });
+    Ok(())
+}
+
+fn folder_json(folder: &Folder) -> Value {
+    serde_json::to_value(folder).expect("Folder serializes")
+}
+
+pub fn folder_create(out: &Output, store: &mut Store, name: &str, request_id: Option<&str>) -> CommandResult {
+    let outcome = store.create_folder(name, request_id)?;
+    let mut warnings = Vec::new();
+    nudge_passive(store, &mut warnings);
+    let fields =
+        json!({ "folder": folder_json(&outcome.folder), "changed": outcome.changed, "replayed": outcome.replayed });
+    out.success(fields, &warnings, || format!("Created folder \u{201c}{}\u{201d}", preview(&outcome.folder.name, 50)));
+    Ok(())
+}
+
+pub fn folder_rename(
+    out: &Output,
+    store: &mut Store,
+    name: &str,
+    new_name: &str,
+    request_id: Option<&str>,
+) -> CommandResult {
+    let outcome = store.rename_folder(&FolderSelector::named(name), new_name, request_id)?;
+    let mut warnings = Vec::new();
+    nudge_passive(store, &mut warnings);
+    let fields =
+        json!({ "folder": folder_json(&outcome.folder), "changed": outcome.changed, "replayed": outcome.replayed });
+    out.success(fields, &warnings, || {
+        let name = preview(&outcome.folder.name, 50);
+        if outcome.changed {
+            format!("Renamed the folder to \u{201c}{name}\u{201d}")
+        } else {
+            format!("No change: the folder is already \u{201c}{name}\u{201d}")
+        }
+    });
+    Ok(())
+}
+
+pub fn folder_delete(
+    out: &Output,
+    store: &mut Store,
+    name: &str,
+    keep_notes: bool,
+    delete_notes: bool,
+    request_id: Option<&str>,
+) -> CommandResult {
+    let notes = match (keep_notes, delete_notes) {
+        (true, _) => Some(DeleteNotes::Keep),
+        (_, true) => Some(DeleteNotes::Delete),
+        _ => None,
+    };
+    let outcome = store.delete_folder(&FolderSelector::named(name), notes, request_id)?;
+    let mut warnings = Vec::new();
+    if outcome.reminders_cancelled > 0 {
+        nudge_reminder_intent(store, &mut warnings);
+    } else {
+        nudge_passive(store, &mut warnings);
+    }
+    let fields = json!({
+        "folder": folder_json(&outcome.folder),
+        "notes": outcome.notes,
+        "moved": outcome.moved,
+        "deleted": outcome.deleted,
+        "replayed": outcome.replayed,
+    });
+    out.success(fields, &warnings, || {
+        let folder = preview(&outcome.folder.name, 50);
+        match outcome.notes {
+            NotesDisposition::None => format!("Deleted the empty folder \u{201c}{folder}\u{201d}"),
+            NotesDisposition::Kept => {
+                format!("Deleted folder \u{201c}{folder}\u{201d}; {} moved to Notes", plural_notes(outcome.moved))
+            }
+            NotesDisposition::Deleted => format!(
+                "Deleted folder \u{201c}{folder}\u{201d} and {}. They stay in Deleted; `rallo restore ID` brings one back to Notes.",
+                plural_notes(outcome.deleted)
+            ),
+        }
+    });
+    Ok(())
+}
+
+fn plural_notes(count: u64) -> String {
+    if count == 1 { "1 note".to_owned() } else { format!("{count} notes") }
 }
 
 pub fn reschedule(out: &Output, store: &mut Store, id: &str, when: TimeSpec, opts: MutationOptions) -> CommandResult {

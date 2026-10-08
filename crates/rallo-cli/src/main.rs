@@ -18,7 +18,7 @@ use rallo_core::shared::clock::{Clock, SystemClock};
 use rallo_core::storage::paths;
 use rallo_core::{Store, StoreOptions};
 
-use args::{Cli, Command, SetupCommand};
+use args::{Cli, Command, FolderCommand, SetupCommand};
 use output::{Failure, Output};
 
 fn main() -> ExitCode {
@@ -91,19 +91,35 @@ fn run(cli: Cli, out: &Output) -> Result<ExitCode, Failure> {
     let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
     let mut store = Store::open(StoreOptions::new(data_dir))?;
     let result: commands::CommandResult = match command {
-        Command::Note { text, stdin, images, request_id } => {
-            commands::note(out, &mut store, text, stdin, images, request_id)
+        Command::Note { text, stdin, images, folder, request_id } => {
+            commands::note(out, &mut store, text, stdin, images, folder, request_id)
         }
-        Command::Remind { text, stdin, images, in_, at, request_id } => {
-            commands::remind(out, &mut store, text, stdin, images, time_spec(in_, at)?, request_id)
+        Command::Remind { text, stdin, images, in_, at, folder, request_id } => {
+            commands::remind(out, &mut store, text, stdin, images, time_spec(in_, at)?, folder, request_id)
         }
-        Command::List { all, deleted, due, limit, cursor } => {
-            commands::list(out, &store, all, deleted, due, limit, cursor)
+        Command::List { all, deleted, due, done, folder, tag, limit, cursor } => {
+            commands::list(out, &store, commands::list_filter(all, deleted, due, done), folder, tag, limit, cursor)
         }
         Command::Get { id } => commands::get(out, &store, &id),
-        Command::Search { text, exact, include_deleted, limit, cursor } => {
-            commands::search(out, &store, text, exact, include_deleted, limit, cursor)
+        Command::Search { text, exact, include_deleted, folder, limit, cursor } => {
+            commands::search(out, &store, text, exact, include_deleted, folder, limit, cursor)
         }
+        Command::Move { id, folder, request_id, if_revision } => {
+            commands::move_note(out, &mut store, &id, &folder, MutationOptions { request_id, if_revision })
+        }
+        Command::Folders => commands::folders(out, &store),
+        Command::Tags => commands::tags(out, &store),
+        Command::Folder { command } => match command {
+            FolderCommand::Create { name, request_id } => {
+                commands::folder_create(out, &mut store, &name, request_id.as_deref())
+            }
+            FolderCommand::Rename { name, new_name, request_id } => {
+                commands::folder_rename(out, &mut store, &name, &new_name, request_id.as_deref())
+            }
+            FolderCommand::Delete { name, keep_notes, delete_notes, request_id } => {
+                commands::folder_delete(out, &mut store, &name, keep_notes, delete_notes, request_id.as_deref())
+            }
+        },
         Command::Edit { id, text, request_id, if_revision } => {
             commands::edit(out, &mut store, &id, &text, MutationOptions { request_id, if_revision })
         }
