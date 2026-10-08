@@ -265,9 +265,13 @@ Mockup section 1, options B and C.
   `[tray icon] All Notes ⌄  24 open notes`.
 - The chip's menu: All Notes (count) — separator — Notes (count), then each
   folder alphabetically (count) — separator — New Folder…. The current
-  choice has a checkmark. New Folder… asks for a name (an `NSAlert` with a
-  text field), creates the folder and switches to it; a name error is shown
-  in the alert's message and the alert stays up.
+  choice has a checkmark. It is a dropdown drawn inside the panel
+  (`FolderScopeMenu`, 214 pt wide, anchored under the chip), not a system
+  menu, so it never crosses the panel's edge: a folder icon per row, the
+  name truncated with its full text as a tooltip, the count right-aligned,
+  system-accent highlight, arrow keys/Return/Esc. New Folder… asks for a
+  name (the in-panel dialog below), creates the folder and switches to it;
+  a name error is shown under the field and the dialog stays up.
 - **Scope**: the list shows the chosen folder's open notes (`list_items(.open,
   scope, nil, …)`), the subtitle counts them, and the note field's
   placeholder is `Add to Work…` (`Add to Notes…` for Notes). On All Notes the
@@ -299,11 +303,14 @@ Mockup section 1, options B and C.
   }
   ```
 
-  New Folder… everywhere uses one helper, `@MainActor
-  FolderNamePrompt.ask(title: String, initial: String, validate: (String)
-  async throws -> Void) async -> String?`: an `NSAlert` with a text field;
-  `validate` is the real create/rename call, so the core's own error message
-  shows in the alert, which stays up until it succeeds or is cancelled.
+  New Folder… everywhere uses one helper, `@MainActor final class
+  FolderNamePrompter: ObservableObject` with `ask(title: String, initial:
+  String, confirmTitle: String, validate: (String) async throws -> Void)
+  async -> String?`, shown by `FolderNameOverlay`: a card on a blurred,
+  dimmed backdrop inside the panel or window (not an `NSAlert`: `runModal`
+  inside a main-actor job starves the `validate` task). `validate` is the
+  real create/rename call, so the core's own error message shows under the
+  field, and the card stays up until it succeeds or is cancelled.
   Swift never re-implements the name rules (§3). After a move the toast
   says `Moved to Work` with **Undo** (moves it back); inside a folder scope
   the row leaves the list.
