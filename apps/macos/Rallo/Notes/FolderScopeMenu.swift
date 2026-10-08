@@ -111,11 +111,13 @@ struct FolderScopeMenu: View {
 
     private func activate(_ index: Int) {
         let items = items
-        model.closeScopeMenu()
         if index < items.count {
+            model.closeScopeMenu()
             let scope = items[index].scope
             Task { await model.setScope(scope) }
         } else {
+            // The dialog takes the keyboard itself; refocusing the note field would race it.
+            model.closeScopeMenu(refocus: false)
             Task { await model.newFolderAndSwitch() }
         }
     }

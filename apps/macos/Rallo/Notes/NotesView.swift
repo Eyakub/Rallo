@@ -81,6 +81,8 @@ final class NotesViewModel: ObservableObject {
     @Published private(set) var scope: NotesScope
     /// Folders and counts from the core, refreshed with every reload.
     @Published private(set) var overview: FolderOverview?
+    /// The New Folder dialog (and Rename, in the window later).
+    let namePrompter = FolderNamePrompter()
     /// The folder dropdown under the chip is showing.
     @Published var scopeMenuOpen = false
     /// Swipe state: at most one row shows a tray; `liveSwipe` follows the
@@ -216,6 +218,11 @@ final class NotesViewModel: ObservableObject {
     /// Esc steps back one level: close a swipe tray, stop editing, then
     /// collapse, then close. Returns whether it handled the key.
     func handleEscape() -> Bool {
+        if namePrompter.request != nil {
+            namePrompter.cancel()
+            requestFocus()
+            return true
+        }
         if scopeMenuOpen {
             closeScopeMenu()
             return true
@@ -266,12 +273,13 @@ final class NotesViewModel: ObservableObject {
     /// The panel went away: nothing it was showing may stay half-open.
     func panelDidHide() {
         scopeMenuOpen = false
+        namePrompter.cancel()
     }
 
     /// Closes the dropdown and hands the keyboard back to the note field.
-    func closeScopeMenu() {
+    func closeScopeMenu(refocus: Bool = true) {
         scopeMenuOpen = false
-        requestFocus()
+        if refocus { requestFocus() }
     }
 
     func setScope(_ new: NotesScope) async {
@@ -288,7 +296,7 @@ final class NotesViewModel: ObservableObject {
     /// it to `use`. The core validates the name, so its own error stays in the alert.
     private func askForFolder(then use: (FolderSnapshot) async -> Void) async {
         var created: FolderSnapshot?
-        _ = await FolderNamePrompt.ask(title: "New Folder", initial: "") { [core] name in
+        _ = await namePrompter.ask(title: "New Folder", initial: "", confirmTitle: "Create") { [core] name in
             created = try await core.createFolder(name)
         }
         if let created { await use(created) }
@@ -594,8 +602,11 @@ struct NotesView: View {
                 )
             }
         }
+        .overlay { FolderNameOverlay(prompter: model.namePrompter) }
         .background(Theme.surface)
-        .onChange(of: model.focusToken) { _, _ in composerFocused = true }
+        .onChange(of: model.focusToken) { _, _ in
+            if model.namePrompter.request == nil { composerFocused = true }
+        }
         .onAppear {
             composerFocused = true
             swipeMonitor.start(model: model)
