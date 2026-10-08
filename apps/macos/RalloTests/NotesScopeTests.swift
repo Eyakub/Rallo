@@ -53,7 +53,10 @@ final class NotesScopeTests: XCTestCase {
         XCTAssertEqual(NotesScope.folder("gone").placeholder(in: [work], hasNotes: true), "Something else on your mind?")
 
         let long = testFolder("l", String(repeating: "x", count: 50))
-        XCTAssertEqual(NotesScope.folder("l").placeholder(in: [long], hasNotes: false), "Add to " + String(repeating: "x", count: 23) + "……")
+        XCTAssertEqual(NotesScope.folder("l").placeholder(in: [long], hasNotes: false), "Add to " + String(repeating: "x", count: 23) + "…")
+        let family = "👨‍👩‍👧"
+        let zwj = testFolder("z", String(repeating: "a", count: 22) + family + "zzz")
+        XCTAssertEqual(NotesScope.folder("z").placeholder(in: [zwj], hasNotes: false), "Add to " + String(repeating: "a", count: 22) + family + "…")
         let exact = testFolder("e", String(repeating: "y", count: 24))
         XCTAssertEqual(NotesScope.folder("e").placeholder(in: [exact], hasNotes: false), "Add to " + String(repeating: "y", count: 24) + "…")
         let bangla = testFolder("b", "কাজ 🦊👨‍👩‍👧")

@@ -78,9 +78,10 @@ enum NotesScope: Hashable {
     }
 
     /// One placeholder line: a long folder name is cut by whole characters
-    /// (graphemes, so a ZWJ sequence or Bangla conjunct is never split).
+    /// (graphemes, so a ZWJ sequence or Bangla conjunct is never split). The
+    /// placeholder's own trailing "…" marks the cut.
     private static func fitted(_ title: String) -> String {
-        title.count > 24 ? String(title.prefix(23)) + "…" : title
+        title.count > 24 ? String(title.prefix(23)) : title
     }
 
     func openCount(in overview: FolderOverview) -> Int {
