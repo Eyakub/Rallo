@@ -9,9 +9,8 @@ struct FolderNameOverlay: View {
     var body: some View {
         ZStack {
             if let request = prompter.request {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .overlay(Theme.scrim)
+                // The panel behind is blurred by NotesView; this only dims it.
+                Theme.scrim
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     // Swallows every click; Cancel by backdrop is a no-op while saving.
@@ -67,11 +66,11 @@ private struct FolderNameCard: View {
         .frame(width: 292)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Theme.surface)
+                .fill(Theme.card)
                 .shadow(color: .black.opacity(0.22), radius: 30, y: 14)
                 .shadow(color: .black.opacity(0.10), radius: 3, y: 1)
         )
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.divider))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.menuStroke))
         .keyframeAnimator(initialValue: CGFloat(0), trigger: shakes) { content, x in
             content.offset(x: x)
         } keyframes: { _ in

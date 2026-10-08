@@ -39,6 +39,8 @@ struct NotesView: View {
         }
         .disabled(model.namePromptShown)
         .accessibilityHidden(model.namePromptShown)
+        .blur(radius: model.namePromptShown ? 4 : 0)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: model.namePromptShown)
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
                 ToastBar(toast: toast) { Task { await model.undo() } }

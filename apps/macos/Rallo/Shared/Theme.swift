@@ -28,7 +28,9 @@ enum Theme {
     // The folder dropdown (0019 §10) and the dialog's backdrop.
     static let menu = Color(light: 0xFAF6F3, lightAlpha: 0.98, dark: 0x2E2622, darkAlpha: 0.98)
     static let menuStroke = Color(light: 0x2B1A13, lightAlpha: 0.14, dark: 0xFFFFFF, darkAlpha: 0.14)
-    static let scrim = Color(light: 0x2B1A13, lightAlpha: 0.18, dark: 0x000000, darkAlpha: 0.40)
+    static let scrim = Color(light: 0x2B1A13, lightAlpha: 0.12, dark: 0x000000, darkAlpha: 0.40)
+    // The dialog card: a step lighter than the Dark scrim so its edge reads.
+    static let card = Color(light: 0xFCF8F5, dark: 0x2A211C)
     // Text on rust fills: white fails contrast on the lighter dark-mode rust.
     static let onRust = Color(light: 0xFFFFFF, dark: 0x1A1411)
     static let error = Color(light: 0xB3261E, dark: 0xFF8A80)
