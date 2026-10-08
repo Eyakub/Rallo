@@ -56,6 +56,7 @@ impl Store {
         )?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
         conn.pragma_update(None, "foreign_keys", true)?;
+        crate::items::tags::register(&conn)?;
         conn.pragma_update(None, "synchronous", "FULL")?;
         // macOS fsync() does not flush the drive cache; F_FULLFSYNC does.
         conn.pragma_update(None, "fullfsync", true)?;
