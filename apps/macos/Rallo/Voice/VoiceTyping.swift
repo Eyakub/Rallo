@@ -62,6 +62,9 @@ final class VoiceTyping {
     var onListening: (Bool) -> Void = { _ in }
     var onTyped: () -> Void = {}
     private var stopping = false
+    /// Pressed while the last session was still typing its final phrase:
+    /// starts when that finishes, unless a release or stop comes first.
+    private var startQueued = false
 
     var petFrame: () -> NSRect? {
         get { bubble.petFrame }
@@ -75,7 +78,11 @@ final class VoiceTyping {
     }
 
     func start() {
-        guard !isListening, !stopping else { return }
+        guard !isListening else { return }
+        if stopping {
+            startQueued = true
+            return
+        }
         isListening = true
         attempt += 1
         let id = attempt
@@ -134,6 +141,7 @@ final class VoiceTyping {
     }
 
     func stop(reason: StopReason) {
+        startQueued = false
         guard isListening else { return }
         isListening = false
         onListening(false)
@@ -150,6 +158,10 @@ final class VoiceTyping {
             await session?.stop()
             guard let self else { return }
             stopping = false
+            if startQueued {
+                startQueued = false
+                return start()
+            }
             if let failure {
                 bubble.show(failure, listening: false)
                 flashThenHide()
