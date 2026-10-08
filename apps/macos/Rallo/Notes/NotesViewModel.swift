@@ -6,6 +6,8 @@ struct Toast: Identifiable {
         case reopen(ItemSnapshot)
         case restore(ItemSnapshot)
         case reattach(ItemSnapshot, Data)
+        /// The note as moved, and the folder it came from (nil = Notes).
+        case move(ItemSnapshot, backTo: String?)
     }
 
     let id = UUID()
@@ -90,6 +92,9 @@ final class NotesViewModel: ObservableObject {
     }
 
     var composerPlaceholder: String { scope.placeholder(in: folders, hasNotes: !items.isEmpty) }
+
+    /// On All Notes each row names its folder; inside a folder it would only repeat the chip.
+    var showsFolderLabel: Bool { scope == .all }
 
     func requestFocus() {
         focusToken += 1
@@ -285,6 +290,34 @@ final class NotesViewModel: ObservableObject {
         await askForFolder { await setScope(.folder($0.id)) }
     }
 
+    /// Move to (0019 §10). The toast's Undo moves it back; a note already in
+    /// that folder (the menu disables it) is not announced.
+    func move(_ item: ItemSnapshot, to folderID: String?) async {
+        do {
+            let moved = try await core.moveItem(item, folderID: folderID)
+            if moved.revision != item.revision {
+                show(Toast(message: "Moved to \(moved.folderName ?? "Notes")", undo: .move(moved, backTo: item.folderId)))
+            }
+            if scope != .all {
+                // The row leaves the list: drop its swipe tray and edit state, as delete() does.
+                if openSwipe?.id == item.id { openSwipe = nil }
+                if liveSwipe?.id == item.id { liveSwipe = nil }
+                if expandedID == item.id { expandedID = nil }
+                if editingID == item.id { editingID = nil }
+            }
+            await reload()
+            highlight(moved.id)
+        } catch {
+            await report(error)
+        }
+    }
+
+    /// The row menu's New Folder…: create it, then move the note into it. The
+    /// panel keeps its scope (inside a folder scope the row leaves the list).
+    func newFolder(moving item: ItemSnapshot) async {
+        await askForFolder { await move(item, to: $0.id) }
+    }
+
     /// Brings the session's terminal app forward; a no-op if Rallo couldn't
     /// identify one (`appPath` is nil, so the row isn't clickable). Opening
     /// a ClickUp conversation counts as reading it: the row goes until a
@@ -467,6 +500,7 @@ final class NotesViewModel: ObservableObject {
             case let .reopen(done): item = try await core.reopenItem(done)
             case let .restore(deleted): item = try await core.restoreItem(deleted)
             case let .reattach(note, data): item = try await core.attachImages(note, images: [data])
+            case let .move(moved, back): item = try await core.moveItem(moved, folderID: back)
             }
             await reload()
             highlight(item.id)

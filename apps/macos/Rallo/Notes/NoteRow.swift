@@ -86,6 +86,14 @@ struct NoteRow: View {
             Button("Mark as Done") { Task { await model.complete(item) } }
             Button("Edit") { model.beginEditing(item) }
             remindMenu
+            Menu("Move to") {
+                FolderMoveMenu(
+                    currentFolderID: item.folderId,
+                    folders: model.folders,
+                    onMove: { id in Task { await model.move(item, to: id) } },
+                    onNewFolder: { Task { await model.newFolder(moving: item) } }
+                )
+            }
             Divider()
             Button("Copy Text") { copy(item.text) }
             Button("Copy ID for the Terminal") { copy(item.id) }
@@ -180,6 +188,20 @@ struct NoteRow: View {
                 .font(Theme.rounded(12))
                 .foregroundStyle(Theme.bark)
                 .accessibilityElement(children: .combine)
+            }
+            if model.showsFolderLabel {
+                HStack(spacing: 3) {
+                    Text("·")
+                    Image(systemName: "folder")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(item.folderName ?? "Notes")
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .font(Theme.rounded(12))
+                .foregroundStyle(Theme.bark)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("In folder \(item.folderName ?? "Notes")")
             }
             Spacer(minLength: 0)
             if expanded {
