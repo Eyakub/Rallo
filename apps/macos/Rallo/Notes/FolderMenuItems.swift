@@ -40,7 +40,10 @@ enum FolderMenus {
             + folders.map { MoveMenuItem(folderID: $0.id, title: cut($0.name), checked: $0.id == currentFolderID) }
     }
 
-    private static func cut(_ name: String) -> String {
+    /// A folder name cut to fit one menu or placeholder line: over 24
+    /// characters it keeps 23 and ends in "…". Characters are graphemes, so a
+    /// ZWJ emoji or a Bangla conjunct is never split.
+    static func cut(_ name: String) -> String {
         name.count > 24 ? String(name.prefix(23)) + "…" : name
     }
 }

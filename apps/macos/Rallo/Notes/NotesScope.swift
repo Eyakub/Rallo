@@ -73,15 +73,15 @@ enum NotesScope: Hashable {
         switch resolved(in: folders) {
         case .all: hasNotes ? "Something else on your mind?" : "What’s on your mind?"
         case .unfiled: "Add to Notes…"
-        case .folder: "Add to \(Self.fitted(title(in: folders)))…"
+        case .folder: Self.addTo(title(in: folders))
         }
     }
 
-    /// One placeholder line: a long folder name is cut by whole characters
-    /// (graphemes, so a ZWJ sequence or Bangla conjunct is never split). The
-    /// placeholder's own trailing "…" marks the cut.
-    private static func fitted(_ title: String) -> String {
-        title.count > 24 ? String(title.prefix(23)) : title
+    /// One placeholder line, with the Move to menu's cut.
+    private static func addTo(_ name: String) -> String {
+        let shown = FolderMenus.cut(name)
+        // A cut name already ends in the "…" the prompt would add.
+        return shown == name ? "Add to \(name)…" : "Add to \(shown)"
     }
 
     func openCount(in overview: FolderOverview) -> Int {
