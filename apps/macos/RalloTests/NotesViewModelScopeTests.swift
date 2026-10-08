@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 
 /// 0019 §10: the panel's scope survives reloads, falls back when its folder is
@@ -47,9 +48,17 @@ final class NotesViewModelScopeTests: XCTestCase {
         let model = NotesViewModel(core: core, defaults: defaults)
         await model.setScope(.folder(b.id))
         XCTAssertTrue(model.items.isEmpty)
+        // The list scrolls when the highlight changes, so the note must already
+        // be listed at that moment, not only once reveal returns.
+        var listedWhenHighlighted: Bool?
+        let watch = model.$highlightedItemID.dropFirst().sink { id in
+            if id == note.id { listedWhenHighlighted = model.items.contains { $0.id == note.id } }
+        }
+        defer { watch.cancel() }
 
         await model.reveal(note.id)
 
+        XCTAssertEqual(listedWhenHighlighted, true)
         XCTAssertEqual(model.scope, .all)
         XCTAssertEqual(defaults.string(forKey: NotesScope.defaultsKey), "all")
         XCTAssertEqual(model.items.map(\.id), [note.id])
