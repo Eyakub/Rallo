@@ -59,9 +59,11 @@ session, or container cannot reach Rallo's data; say so instead of trying.
 |---|---|
 | Save a note | `rallo --json note "Call the dentist"` |
 | One-time reminder | `rallo --json remind "Stretch" --in 20m` or `--at "tomorrow 9am"` |
-| Open items | `rallo --json list` (`--all`, `--due`, `--deleted`; paginate with `--cursor`) |
+| Open items | `rallo --json list` (`--all`, `--due`, `--done`, `--deleted`; `--folder "Work"`, `--tag bug`; paginate with `--cursor`) |
 | One item | `rallo --json get <id>` |
-| Find by text | `rallo --json search "dentist"` (literal substring), `--exact` for whole-text equality |
+| Find by text | `rallo --json search "dentist"` (literal substring), `--exact` for whole-text equality, `--folder "Work"` to look in one folder |
+| Folders and tags | `rallo --json folders`, `rallo --json tags` (open-note counts) |
+| File a note | `rallo --json note "…" --folder "Work"` (also on `remind`), or later `rallo --json move <id> --folder "Work" --if-revision N` |
 | Done / reopen | `rallo --json done <id> --if-revision N`, `rallo --json reopen <id>` |
 | Change text | `rallo --json edit <id> --text "…" --if-revision N` |
 | Move a reminder | `rallo --json reschedule <id> --in 1h`, `snooze <id> --in 10m` |
@@ -85,6 +87,25 @@ RFC 3339 you passed, exactly your string), or for an `in …` phrase
 build RFC 3339. If the user's timing is
 genuinely ambiguous ("later", "next week"), ask; otherwise keep their intent
 and don't over-ask.
+
+## Folders and tags
+
+A note lives in one folder, or in **Notes**, the built-in default (`--folder
+Notes` means "no folder"). `#tags` are words in the note's own text.
+
+- Before filing anything, run `rallo --json folders` and use the name of a
+  folder that already exists (case doesn't matter). `--folder` never creates
+  one: an unknown name is `FOLDER_NOT_FOUND` (exit 3, nothing saved) and its
+  message lists the folders there are. Pick from them, or ask the user.
+- Ask the user before `rallo folder create NAME`. Never run `rallo folder
+  delete`: deleting a folder is the user's call.
+- Tag a note by writing `#bug` in its text; `rallo --json tags` lists them and
+  `rallo --json list --tag bug` finds them. A tag is `#` followed by a letter,
+  then letters, digits, `-` or `_`, right after a space or at the start:
+  `fix #123`, `C#`, and URL fragments are not tags.
+- `rallo --json move <id> --folder "Work" --if-revision N` moves a note you
+  already established; it never creates a folder either. Item JSON carries
+  `folder` (`{id, name}`, or `null` for Notes) and `tags`.
 
 ## Images
 

@@ -102,7 +102,10 @@ rallo note --image ~/Desktop/whiteboard.heic   # an image on its own is a note t
 rallo attach <id> ~/Desktop/after.png          # up to 10 images per note, 10 MB each
 rallo remind "Stretch" --in 20m
 rallo remind "Standup notes" --at "tomorrow 9:30am"   # or "fri 5pm", "oct 20", RFC 3339
-rallo list                     # open notes; --due, --all, --deleted
+rallo list                     # open notes; --due, --all, --done, --deleted
+rallo folder create Work       # folders are flat; a note lives in one, or in Notes
+rallo note "Ship 0.13 #release" --folder Work   # #tags are words in the text
+rallo list --folder Work --tag release          # also: rallo folders, rallo tags, rallo move <id> --folder Work
 rallo search dentist
 rallo done <id>                # the short ID from list/search
 rallo snooze <id> --in 10m

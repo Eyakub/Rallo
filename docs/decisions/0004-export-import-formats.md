@@ -37,6 +37,13 @@ export; JSON is not.
 }
 ```
 
+Version 3 (0019 §8) adds a top-level `"folders": [{"id", "name",
+"created_at_ms", "updated_at_ms"}]` and a `"folder_id"` (string or `null`) on
+each item; plain JSON and the zip's document both write it. Import reads
+folders only from version 3: a version 1 or 2 file puts new notes in Notes
+and never compares an existing note's folder. The CSV gains a trailing
+`folder` column. 0019 §8 has the import rules.
+
 `version` is the shape of this document, independent of `schema_version`
 (the *database* schema at export time, informational only — import never
 gates on it, only on `version`). A `reminder`, when present, is
