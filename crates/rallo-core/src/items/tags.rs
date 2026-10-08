@@ -7,6 +7,8 @@
 //! are the three Unicode classes written out with `std` and
 //! `unicode-normalization` (already a dependency for `match_key`).
 
+use std::collections::HashSet;
+
 use rusqlite::Connection;
 use rusqlite::functions::FunctionFlags;
 use unicode_normalization::UnicodeNormalization;
@@ -79,8 +81,9 @@ pub fn tag_ranges(text: &str) -> Vec<(u32, u32, String)> {
 /// The tag keys in `text`: first-appearance order, no duplicates.
 pub fn tags(text: &str) -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for (_, _, key) in tag_ranges(text) {
-        if !keys.contains(&key) {
+        if seen.insert(key.clone()) {
             keys.push(key);
         }
     }
@@ -123,6 +126,14 @@ pub(crate) fn register(conn: &Connection) -> rusqlite::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn many_distinct_tags_keep_first_appearance_order() {
+        let text: String = (0..5000).map(|i| format!("#t{i} #t{} ", i / 2)).collect();
+        let found = tags(&text);
+        assert_eq!(found.len(), 5000);
+        assert!(found.iter().enumerate().all(|(i, key)| *key == format!("t{i}")));
+    }
 
     #[test]
     fn spec_examples_that_are_tags() {
