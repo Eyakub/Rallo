@@ -73,8 +73,14 @@ enum NotesScope: Hashable {
         switch resolved(in: folders) {
         case .all: hasNotes ? "Something else on your mind?" : "What’s on your mind?"
         case .unfiled: "Add to Notes…"
-        case .folder: "Add to \(title(in: folders))…"
+        case .folder: "Add to \(Self.fitted(title(in: folders)))…"
         }
+    }
+
+    /// One placeholder line: a long folder name is cut by whole characters
+    /// (graphemes, so a ZWJ sequence or Bangla conjunct is never split).
+    private static func fitted(_ title: String) -> String {
+        title.count > 24 ? String(title.prefix(23)) + "…" : title
     }
 
     func openCount(in overview: FolderOverview) -> Int {

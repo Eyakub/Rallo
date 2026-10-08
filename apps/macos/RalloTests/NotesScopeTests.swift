@@ -51,6 +51,13 @@ final class NotesScopeTests: XCTestCase {
         XCTAssertEqual(NotesScope.unfiled.placeholder(in: [work], hasNotes: true), "Add to Notes…")
         XCTAssertEqual(NotesScope.folder("w-1").placeholder(in: [work], hasNotes: false), "Add to Work…")
         XCTAssertEqual(NotesScope.folder("gone").placeholder(in: [work], hasNotes: true), "Something else on your mind?")
+
+        let long = testFolder("l", String(repeating: "x", count: 50))
+        XCTAssertEqual(NotesScope.folder("l").placeholder(in: [long], hasNotes: false), "Add to " + String(repeating: "x", count: 23) + "……")
+        let exact = testFolder("e", String(repeating: "y", count: 24))
+        XCTAssertEqual(NotesScope.folder("e").placeholder(in: [exact], hasNotes: false), "Add to " + String(repeating: "y", count: 24) + "…")
+        let bangla = testFolder("b", "কাজ 🦊👨‍👩‍👧")
+        XCTAssertEqual(NotesScope.folder("b").placeholder(in: [bangla], hasNotes: false), "Add to কাজ 🦊👨‍👩‍👧…")
     }
 
     func testCountLine() {
