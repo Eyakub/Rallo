@@ -77,6 +77,9 @@ targets:
       - path: Rallo/Notes/NotesScope.swift
       - path: Rallo/Notes/FolderMenuItems.swift
       - path: Rallo/Notes/FolderNamePrompt.swift
+      - path: Rallo/Notes/NotesViewModel.swift
+      - path: Rallo/Notes/SwipeMetrics.swift
+      - path: Rallo/Notes/RemindPreset.swift
       - path: Rallo/Notes/TagTint.swift
       - path: Rallo/Shared/Theme.swift
       - path: Rallo/ClickUp/ClickUpWaiting.swift

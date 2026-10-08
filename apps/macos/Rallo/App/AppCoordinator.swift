@@ -604,7 +604,7 @@ final class AppCoordinator {
     }
 
     private func openNotes(highlighting itemID: String?) {
-        notesModel.highlight(itemID, for: 4)
+        Task { await notesModel.reveal(itemID) }
         notes.open(near: pet.isVisible ? pet.frame : nil)
         log.record("notes_opened", ["item_id": itemID ?? NSNull()])
     }

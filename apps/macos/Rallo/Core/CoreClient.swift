@@ -176,6 +176,10 @@ final class CoreClient {
         try await worker.perform { try $0.createFolder(name: name) }
     }
 
+    func deleteFolder(_ id: String, keepNotes: Bool) async throws -> FolderDeleteResult {
+        try await worker.perform { try $0.deleteFolder(id: id, keepNotes: keepNotes) }
+    }
+
     /// `folderID` nil moves the note to the built-in Notes.
     func moveItem(_ item: ItemSnapshot, folderID: String?) async throws -> ItemSnapshot {
         try await worker.perform { try $0.moveItem(id: item.id, folderId: folderID, ifRevision: item.revision) }

@@ -2,8 +2,6 @@ import AppKit
 import SwiftUI
 
 extension ReminderSnapshot {
-    var deadline: Date { Date(timeIntervalSince1970: TimeInterval(deadlineMs) / 1000) }
-
     /// macOS will not present this reminder's alert.
     var alertBlocked: Bool {
         schedulingReason == "permission_denied" || schedulingReason == "permission_not_requested"
