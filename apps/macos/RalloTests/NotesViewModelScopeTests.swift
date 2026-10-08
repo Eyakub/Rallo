@@ -19,6 +19,8 @@ final class NotesViewModelScopeTests: XCTestCase {
 
     override func tearDown() async throws {
         defaults.removePersistentDomain(forName: suite)
+        // removePersistentDomain leaves this suite's plist behind.
+        try? FileManager.default.removeItem(at: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences/\(suite).plist"))
         try? FileManager.default.removeItem(at: dataDir)
     }
 

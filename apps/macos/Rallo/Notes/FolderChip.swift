@@ -48,5 +48,6 @@ struct FolderChip: View {
         .help("Choose a folder")
         .accessibilityLabel("Folder: \(model.scopeTitle)")
         .accessibilityHint("Shows folders")
+        .accessibilityValue(open ? "expanded" : "collapsed")
     }
 }

@@ -33,7 +33,7 @@ final class NotesViewModel: ObservableObject {
     @Published var captureError: String?
     @Published var highlightedItemID: String?
     @Published var completingIDs: Set<String> = []
-    /// The last panel action: "done" and "deleted" can be undone.
+    /// The last panel action: done, deleted, moved and a removed image can be undone.
     @Published var toast: Toast?
     /// At most one row shows its full text; at most one is being edited.
     @Published var expandedID: String?
@@ -187,8 +187,8 @@ final class NotesViewModel: ObservableObject {
         liveSwipe = nil
     }
 
-    /// Esc steps back one level: close a swipe tray, stop editing, then
-    /// collapse, then close. Returns whether it handled the key.
+    /// Esc steps back one level: the New Folder dialog, the folder dropdown,
+    /// staged images, a swipe tray, editing, then collapse, then close. Returns whether it handled the key.
     func handleEscape() -> Bool {
         if namePrompter.request != nil {
             namePrompter.cancel()
@@ -276,7 +276,7 @@ final class NotesViewModel: ObservableObject {
     }
 
     /// New Folder… (0019 §10): asks for a name, creates the folder, then hands
-    /// it to `use`. The core validates the name, so its own error stays in the alert.
+    /// it to `use`. The core validates the name, so its own error stays in the dialog.
     private func askForFolder(then use: (FolderSnapshot) async -> Void) async {
         var created: FolderSnapshot?
         _ = await namePrompter.ask(title: "New Folder", initial: "", confirmTitle: "Create") { [core] name in

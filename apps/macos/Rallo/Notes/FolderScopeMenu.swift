@@ -23,6 +23,8 @@ struct FolderScopeMenu: View {
 
     @FocusState private var focused: Bool
     @State private var highlighted: Int?
+    /// VoiceOver lands on the checked row when the menu opens.
+    @AccessibilityFocusState private var axFocus: Int?
 
     private var items: [ScopeMenuItem] {
         model.overview.map { FolderMenus.scopeItems(current: model.scope, overview: $0) } ?? []
@@ -78,7 +80,12 @@ struct FolderScopeMenu: View {
         .focused($focused)
         .focusEffectDisabled()
         // Deferred: set during the appear pass, focus doesn't stick after a mouse click.
-        .onAppear { Task { @MainActor in focused = true } }
+        .onAppear {
+            Task { @MainActor in
+                focused = true
+                axFocus = items.firstIndex(where: \.checked)
+            }
+        }
         .onKeyPress(.downArrow) { move(forward: true, count: rowCount); return .handled }
         .onKeyPress(.upArrow) { move(forward: false, count: rowCount); return .handled }
         .onKeyPress(.return) { activateHighlighted() }
@@ -100,6 +107,7 @@ struct FolderScopeMenu: View {
         .onHover { if $0 { highlighted = index } }
         .onTapGesture { activate(index) }
         .accessibilityAction { activate(index) }
+        .accessibilityFocused($axFocus, equals: index)
     }
 
     private func move(forward: Bool, count: Int) {

@@ -20,7 +20,11 @@ final class NotesScopeTests: XCTestCase {
     func testSavesUnderNotesPanelScopeInUserDefaults() throws {
         let suite = "rallo-tests-scope-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            // removePersistentDomain leaves this suite's plist behind.
+            try? FileManager.default.removeItem(at: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences/\(suite).plist"))
+        }
         XCTAssertEqual(NotesScope.load(from: defaults), .all)
         NotesScope.folder("w-1").save(to: defaults)
         XCTAssertEqual(defaults.string(forKey: "notesPanelScope"), "w-1")
