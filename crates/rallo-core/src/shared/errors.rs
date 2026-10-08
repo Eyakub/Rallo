@@ -32,6 +32,10 @@ pub enum ErrorCode {
     TooManyImages,
     ImageUnreadable,
     ImageNotFound,
+    FolderNameInvalid,
+    FolderNotFound,
+    FolderExists,
+    FolderNotEmpty,
 }
 
 impl ErrorCode {
@@ -62,6 +66,10 @@ impl ErrorCode {
             Self::TooManyImages => "TOO_MANY_IMAGES",
             Self::ImageUnreadable => "IMAGE_UNREADABLE",
             Self::ImageNotFound => "IMAGE_NOT_FOUND",
+            Self::FolderNameInvalid => "FOLDER_NAME_INVALID",
+            Self::FolderNotFound => "FOLDER_NOT_FOUND",
+            Self::FolderExists => "FOLDER_EXISTS",
+            Self::FolderNotEmpty => "FOLDER_NOT_EMPTY",
         }
     }
 }

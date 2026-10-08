@@ -652,6 +652,7 @@ fn insert_record(
         completed_at_ms: record.completed_at_ms,
         deleted_at_ms: record.deleted_at_ms,
         revision: 1,
+        folder_id: None,
     };
     items_repository::insert(tx, &item, &text::match_key(&item.text))?;
     if let Some(reminder) = &record.reminder {

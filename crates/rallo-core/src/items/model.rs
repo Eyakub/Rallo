@@ -40,6 +40,10 @@ pub struct Item {
     pub completed_at_ms: Option<i64>,
     pub deleted_at_ms: Option<i64>,
     pub revision: i64,
+    /// `None` is the built-in "Notes" folder (0019). Item JSON carries it as
+    /// `folder: {id, name}` on `ItemView` instead.
+    #[serde(skip)]
+    pub folder_id: Option<Uuid>,
 }
 
 /// An item plus the resolution-time context that only makes sense alongside
@@ -53,6 +57,10 @@ pub struct ItemView {
     pub reminder: Option<Reminder>,
     /// The note's images in order (0018); `[]` when it has none.
     pub images: Vec<crate::images::ImageView>,
+    /// The note's folder, or `null` for Notes (0019 §6).
+    pub folder: Option<crate::folders::FolderRef>,
+    /// Tag keys in the text, first-appearance order, no duplicates (0019 §6).
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -66,6 +74,13 @@ pub enum ListFilter {
     Deleted,
     /// Open items with an active reminder whose deadline has passed.
     Due,
+}
+
+/// One line of `rallo tags` (0019 §6): `open_count` is open, nondeleted notes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagCount {
+    pub name: String,
+    pub open_count: u64,
 }
 
 /// Idempotency and optimistic-concurrency controls accepted by every

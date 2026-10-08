@@ -8,7 +8,7 @@ use crate::shared::errors::{ConflictDetail, CoreError, CoreResult, ErrorCode};
 use crate::shared::{ids, text};
 
 const ITEM_COLUMNS: &str =
-    "id, short_key, text, status, created_at_ms, updated_at_ms, completed_at_ms, deleted_at_ms, revision";
+    "id, short_key, text, status, created_at_ms, updated_at_ms, completed_at_ms, deleted_at_ms, revision, folder_id";
 
 fn item_from_row(row: &Row<'_>) -> rusqlite::Result<Item> {
     let id: String = row.get(0)?;
@@ -26,20 +26,25 @@ fn item_from_row(row: &Row<'_>) -> rusqlite::Result<Item> {
         completed_at_ms: row.get(6)?,
         deleted_at_ms: row.get(7)?,
         revision: row.get(8)?,
+        folder_id: row
+            .get::<_, Option<String>>(9)?
+            .map(|id| Uuid::parse_str(&id))
+            .transpose()
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(e)))?,
     })
 }
 
 /// Same column layout as `item_from_row` with one trailing column appended by
 /// the caller's query (used by the `due` listing's joined `deadline_ms`).
 fn item_with_extra_from_row(row: &Row<'_>) -> rusqlite::Result<(Item, i64)> {
-    Ok((item_from_row(row)?, row.get(9)?))
+    Ok((item_from_row(row)?, row.get(10)?))
 }
 
 pub(crate) fn insert(conn: &Connection, item: &Item, match_key: &str) -> CoreResult<()> {
     conn.execute(
         "INSERT INTO items (id, short_key, text, match_key, status, created_at_ms, updated_at_ms,
-                            completed_at_ms, deleted_at_ms, revision)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                            completed_at_ms, deleted_at_ms, revision, folder_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             item.id.to_string(),
             item.short_key,
@@ -51,6 +56,7 @@ pub(crate) fn insert(conn: &Connection, item: &Item, match_key: &str) -> CoreRes
             item.completed_at_ms,
             item.deleted_at_ms,
             item.revision,
+            item.folder_id.map(|id| id.to_string()),
         ],
     )?;
     Ok(())
@@ -175,7 +181,9 @@ pub(crate) fn build_item_view(conn: &Connection, item: Item) -> CoreResult<ItemV
     let display_id = display_id(conn, &item)?;
     let reminder = reminders::repository::fetch_by_item(conn, item.id)?;
     let images = crate::images::views(conn, item.id)?;
-    Ok(ItemView { item, display_id, reminder, images })
+    let folder = crate::folders::repository::folder_ref(conn, item.folder_id)?;
+    let tags = super::tags::tags(&item.text);
+    Ok(ItemView { item, display_id, reminder, images, folder, tags })
 }
 
 fn validate_limit(limit: u32) -> CoreResult<u32> {
@@ -267,7 +275,7 @@ fn simple_page(
 /// earliest deadline first.
 fn due_page(conn: &Connection, cursor: Option<&str>, limit: u32, now_ms: i64) -> CoreResult<Page<ItemView>> {
     const JOIN_COLUMNS: &str = "i.id, i.short_key, i.text, i.status, i.created_at_ms, i.updated_at_ms, \
-                                 i.completed_at_ms, i.deleted_at_ms, i.revision, r.deadline_ms";
+                                 i.completed_at_ms, i.deleted_at_ms, i.revision, i.folder_id, r.deadline_ms";
     const BASE_WHERE: &str = "i.deleted_at_ms IS NULL AND i.status = 'open' AND r.enabled = 1 AND r.deadline_ms <= ?1";
 
     let total_count: i64 = conn.query_row(
@@ -435,6 +443,15 @@ pub(crate) fn touch(tx: &Connection, item_id: Uuid, now_ms: i64) -> CoreResult<(
     tx.execute(
         "UPDATE items SET updated_at_ms = ?2, revision = revision + 1 WHERE id = ?1",
         params![item_id.to_string(), now_ms],
+    )?;
+    Ok(())
+}
+
+/// Moves an item to a folder (`None` is Notes), bumping its revision (0019 §5).
+pub(crate) fn set_folder(tx: &Transaction<'_>, item_id: Uuid, folder_id: Option<Uuid>, now_ms: i64) -> CoreResult<()> {
+    tx.execute(
+        "UPDATE items SET folder_id = ?2, updated_at_ms = ?3, revision = revision + 1 WHERE id = ?1",
+        params![item_id.to_string(), folder_id.map(|id| id.to_string()), now_ms],
     )?;
     Ok(())
 }

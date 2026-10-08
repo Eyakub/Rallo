@@ -5,6 +5,7 @@
 //! AppKit or perform network calls.
 
 pub mod agents;
+pub mod folders;
 pub mod images;
 pub mod items;
 pub mod pet;

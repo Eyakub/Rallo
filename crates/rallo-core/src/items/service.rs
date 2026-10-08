@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use rusqlite::Transaction;
 use serde::Serialize;
 use serde_json::json;
@@ -6,6 +8,7 @@ use uuid::Uuid;
 use super::model::{Item, ItemStatus, ItemView, MutationOptions, MutationOutcome};
 use super::query::{ListQuery, Page, SearchQuery};
 use super::repository;
+use crate::folders::{self, FolderSelector};
 use crate::reminders;
 use crate::reminders::model::DisabledReason;
 use crate::shared::errors::{ConflictDetail, CoreError, CoreResult, ErrorCode};
@@ -23,6 +26,17 @@ struct CreateNoteInputs<'a> {
     text: &'a str,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     images: Vec<String>,
+    /// Last and skipped for Notes, so receipts from before folders still match.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
+}
+
+#[derive(Serialize)]
+struct MoveInputs<'a> {
+    command: &'static str,
+    selector: &'a str,
+    folder: Option<String>,
+    if_revision: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -149,6 +163,15 @@ fn guard(
     Ok(Guard::Proceed(item))
 }
 
+/// The single-item delete (0003 §3): soft-deletes and disables an active
+/// reminder with `item_deleted`, queueing its cancel intent. `delete`,
+/// `delete --text` and `folder delete --delete-notes` (0019 §5) all call it, so
+/// they cannot drift apart. Callers bump `change_revision` themselves.
+pub(crate) fn soft_delete(tx: &Transaction<'_>, item_id: Uuid, now_ms: i64) -> CoreResult<()> {
+    repository::mark_deleted(tx, item_id, now_ms)?;
+    reminders::repository::disable_active(tx, item_id, DisabledReason::ItemDeleted, now_ms)
+}
+
 pub(crate) fn deleted_precondition(_tx: &Transaction<'_>, item: &Item) -> CoreResult<()> {
     if item.deleted_at_ms.is_some() {
         Err(CoreError::conflict(ErrorCode::ItemDeleted, "item is deleted"))
@@ -229,12 +252,25 @@ impl Store {
         images: &[Vec<u8>],
         request_id: Option<&str>,
     ) -> CoreResult<MutationOutcome> {
+        self.create_note_in(note_text, images, &FolderSelector::Notes, request_id)
+    }
+
+    /// `rallo note … --folder NAME` (0019 §5): the note starts in `folder`. An
+    /// unknown folder is `FOLDER_NOT_FOUND` and nothing is saved.
+    pub fn create_note_in(
+        &mut self,
+        note_text: &str,
+        images: &[Vec<u8>],
+        folder: &FolderSelector,
+        request_id: Option<&str>,
+    ) -> CoreResult<MutationOutcome> {
         let note_text = text::validate_note_content(note_text, !images.is_empty())?.to_owned();
         let kinds = crate::images::format::check_batch(images, 0)?;
         let id = ids::new_id();
         let new_images = crate::images::files::new_images(images, &kinds);
         let written = crate::images::files::write_all(self.data_dir(), id, &new_images)?;
-        let result = self.insert_note(id, &note_text, &new_images, crate::images::format::digests(images), request_id);
+        let result =
+            self.insert_note(id, &note_text, &new_images, crate::images::format::digests(images), folder, request_id);
         if !matches!(&result, Ok(outcome) if !outcome.replayed) {
             written.discard();
         }
@@ -247,12 +283,14 @@ impl Store {
         note_text: &str,
         new_images: &[crate::images::files::NewImage<'_>],
         digests: Vec<String>,
+        folder: &FolderSelector,
         request_id: Option<&str>,
     ) -> CoreResult<MutationOutcome> {
         let now = self.now_ms();
         let tx = self.write_tx()?;
 
-        let inputs = CreateNoteInputs { command: "create_note", text: note_text, images: digests };
+        let inputs =
+            CreateNoteInputs { command: "create_note", text: note_text, images: digests, folder: folder.fingerprint() };
         let fingerprint = match check_receipt(&tx, request_id, &inputs)? {
             ReceiptLookup::Replay(replayed) => {
                 tx.commit()?;
@@ -262,6 +300,7 @@ impl Store {
             ReceiptLookup::None => None,
         };
 
+        let folder_id = folders::repository::resolve(&tx, folder)?.map(|folder| folder.id);
         let item = Item {
             short_key: ids::short_key(&id),
             id,
@@ -272,6 +311,7 @@ impl Store {
             completed_at_ms: None,
             deleted_at_ms: None,
             revision: 1,
+            folder_id,
         };
         repository::insert(&tx, &item, &text::match_key(note_text))?;
         crate::images::repository::insert(&tx, id, new_images, now)?;
@@ -398,8 +438,7 @@ impl Store {
             no_precondition,
             |_tx, item| Ok(item.deleted_at_ms.is_some()),
             |tx, item, now| {
-                repository::mark_deleted(tx, item.id, now)?;
-                reminders::repository::disable_active(tx, item.id, DisabledReason::ItemDeleted, now)?;
+                soft_delete(tx, item.id, now)?;
                 bump_revision(tx)?;
                 Ok(())
             },
@@ -437,6 +476,40 @@ impl Store {
         )
     }
 
+    /// `move ID --folder NAME` (0019 §5), ordered like every ID-based mutation
+    /// (0003 §9): receipt, resolve the note, a deleted note is `ITEM_DELETED`,
+    /// the folder is resolved (`FOLDER_NOT_FOUND`), already there is a no-op,
+    /// then the revision guard, then the move. Done notes can be moved.
+    pub fn move_item(
+        &mut self,
+        selector: &str,
+        folder: &FolderSelector,
+        opts: &MutationOptions,
+    ) -> CoreResult<MutationOutcome> {
+        let inputs =
+            MoveInputs { command: "move", selector, folder: folder.fingerprint(), if_revision: opts.if_revision };
+        // Resolved inside the transaction (precondition), read by the next two steps.
+        let target: Cell<Option<Option<Uuid>>> = Cell::new(None);
+        mutate_by_selector(
+            self,
+            "move",
+            selector,
+            opts,
+            &inputs,
+            |tx, item| {
+                deleted_precondition(tx, item)?;
+                target.set(Some(folders::repository::resolve(tx, folder)?.map(|folder| folder.id)));
+                Ok(())
+            },
+            |_tx, item| Ok(target.get() == Some(item.folder_id)),
+            |tx, item, now| {
+                repository::set_folder(tx, item.id, target.get().expect("resolved by the precondition"), now)?;
+                bump_revision(tx)?;
+                Ok(())
+            },
+        )
+    }
+
     /// `delete --text` (0003 §8): one transaction resolves the exact
     /// `match_key` among nondeleted items and deletes the sole match
     /// atomically. Zero matches is `ITEM_NOT_FOUND`; more than one is
@@ -465,8 +538,7 @@ impl Store {
             0 => return Err(CoreError::not_found(ErrorCode::ItemNotFound, "no item matches that text")),
             1 => {
                 let item = matches.into_iter().next().expect("length checked above");
-                repository::mark_deleted(&tx, item.id, now)?;
-                reminders::repository::disable_active(&tx, item.id, DisabledReason::ItemDeleted, now)?;
+                soft_delete(&tx, item.id, now)?;
                 bump_revision(&tx)?;
                 repository::get_by_id(&tx, item.id)?.expect("the item was just updated")
             }
