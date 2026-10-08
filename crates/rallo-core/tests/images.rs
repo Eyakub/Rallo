@@ -31,7 +31,7 @@ fn schema_five_adds_the_attachments_table() {
     drop(support::open(dir.path()));
     let conn = support::raw_connection(dir.path());
     let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-    assert_eq!(version, 5);
+    assert_eq!(version, 6, "0005 added attachments; 0006 added folders");
     let exists: bool = conn
         .query_row("SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'attachments')", [], |row| row.get(0))
         .unwrap();

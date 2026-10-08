@@ -119,7 +119,7 @@ fn version_json_reports_compatibility() {
     let cli = Cli::new();
     let (code, doc) = cli.json(&["--version", "--json"]);
     assert_eq!(code, 0);
-    assert_eq!(doc["database_schema_version"], 5);
+    assert_eq!(doc["database_schema_version"], 6);
     assert_eq!(doc["json_contract_version"], 1);
 }
 
