@@ -8,9 +8,9 @@ release.
 |---|---|---|
 | `2026-10-08-folders-1-core-cli.md` | `reviews/review-1-core-cli.md` (0 blocker, 2 major, 10 minor) | Applied. Not yet re-verified: run fmt, clippy `-D warnings` and `cargo test --workspace` per task while executing. |
 | `2026-10-08-folders-2-panel.md` | `reviews/review-2-panel.md` (1 blocker, 3 major, 7 minor) | Applied. Its "API this plan produces for release 3" section is the authority for plan 3. |
-| `2026-10-08-folders-3-window.md` | `reviews/review-3-window.md` (2 blocker, 9 major, 10 minor) | **Partly applied (stopped midway).** Finish before executing plan 3; see the rulings below. |
+| `2026-10-08-folders-3-window.md` | `reviews/review-3-window.md` (2 blocker, 9 major, 10 minor) | Applied, per the rulings below. Not compiled: build and test per task while executing. |
 
-## Rulings for finishing plan 3
+## Rulings for plan 3
 
 These override the review where they differ:
 
@@ -27,6 +27,19 @@ These override the review where they differ:
   `makeFirstResponder(nil)` before flushing on ⌘W/⌘Q; M9 File item "Close",
   a real Window-menu "Notes Window" item, window title "Notes".
 - Apply every MINOR, including the YAGNI cuts the reviewer names.
+
+Beyond the review, while applying it:
+
+- M4 + M5: Task 9 anchors `AppCoordinator` on release 2's exact panel-model
+  lines (Task 1 Step 2 greps for them) and hoists their defaults into
+  `private let defaults`, shared by the panel model and the window.
+- MINOR 2: ⌘F goes to an `AppDelegate` action that focuses the toolbar's
+  `NSSearchToolbarItem` (the review's fallback), not `performTextFinderAction`,
+  which would target the editor's text view.
+- MINOR 7d: `Theme` gains `NSColor.dynamic(light:dark:)`; `ink`/`rust` wrap
+  `inkNS`/`rustNS`.
+- Paging: `loadMore` ignores a cursor it is already fetching and a result that
+  arrives after the search field changed; new search words start on page 1.
 
 Absolute paths in the plans and reviews (`/Users/eyakub/Desktop/Rallo`, the
 `/private/tmp/...scratchpad` dirs) are from the Mac they were written on:

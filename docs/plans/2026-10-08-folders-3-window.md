@@ -4,7 +4,7 @@
 
 **Goal:** Ship the three-column Notes window (sidebar, list, editor), the panel's expand button that opens it, and the delete-folder sheet, on top of releases 1 (core, CLI, FFI) and 2 (panel folder chip).
 
-**Architecture:** A titled `NSWindow` hosts a SwiftUI `NavigationSplitView` through `NSHostingController`. All state lives in one `@MainActor` `NotesWindowModel` that talks to the Rust core through `CoreClient` and reloads on the same change signal as the panel; the open note lives in a `NoteEditorSession` whose saving is a pure `SaveScheduler` state machine. The editor is an `NSViewRepresentable` `NSTextView` styled by attributes only. Rallo switches to the `.regular` activation policy while the window is open and back to `.accessory` on close, decided by a pure `ActivationPolicyPlanner`. Everything with logic is Foundation-only and compiled into `RalloTests`; the model and the editor session are tested against a real temp store.
+**Architecture:** A titled `NSWindow` hosts a SwiftUI `NavigationSplitView` through `NSHostingController`. All state lives in one `@MainActor` `NotesWindowModel` that talks to the Rust core through `CoreClient` and reloads on the same change signal as the panel; the open note lives in a `NoteEditorSession` whose saving is a pure `SaveScheduler` state machine. The editor is an `NSViewRepresentable` `NSTextView` styled by attributes only. Lists are paged (`ItemPage` cursors): the model keeps the loaded pages per list and a reload fetches as many again. Rallo switches to the `.regular` activation policy while the window is open and back to `.accessory` on close (a few lines in `AppCoordinator`). Everything with logic is Foundation-only and compiled into `RalloTests`; the model and the editor session are tested against a real temp store.
 
 **Tech Stack:** Swift 5 mode, SwiftUI + AppKit, macOS 14, XcodeGen (`apps/macos/project.yml`), UniFFI-generated bindings, XCTest.
 
@@ -18,7 +18,7 @@ Task 1 compiles release 1's list and checks release 2's names; if the repo diffe
 
 **Release 1 (UniFFI names, from §9).** The FFI class is `RalloStore`. Methods on it: `folderOverview() throws -> FolderOverview`, `listTags() throws -> [TagSnapshot]`, `createFolder(name: String) throws -> FolderSnapshot`, `renameFolder(id: String, name: String) throws -> FolderSnapshot`, `deleteFolder(id: String, keepNotes: Bool) throws -> FolderDeleteResult`, `moveItem(id: String, folderId: String?, ifRevision: Int64?) throws -> ItemSnapshot`, `listItems(kind: ItemListKind, scope: FolderScope, tag: String?, limit: UInt32, cursor: String?) throws -> ItemPage`, `searchItems(query: String, limit: UInt32, cursor: String?) throws -> ItemPage`, `cancelReminder(id: String, ifRevision: Int64?) throws -> ItemSnapshot`, `createNoteWithImages(text: String, images: [Data], folderId: String?)`, `createReminderWithImages(text:when:images:folderId:)`; existing and unchanged: `editItemText(id:text:ifRevision:)`, `completeItem`, `reopenItem`, `deleteItem`, `restoreItem`, `remindIn`, `remindAt`, `attachImages`, `detachImage`, `changeRevision`. Free function `tagRanges(text: String) -> [TagRange]`. Types: `FolderSnapshot { id, name, openCount: UInt32, noteCount: UInt32, revision: Int64 }` (`noteCount` is open + done, nondeleted), `FolderOverview { allOpen, unfiledOpen, due, done, deleted: UInt32; folders: [FolderSnapshot] }`, `TagSnapshot { name, openCount: UInt32 }`, `TagRange { utf16Start: UInt32, utf16Len: UInt32, name: String }`, `ItemPage { items: [ItemSnapshot], nextCursor: String?, totalCount: UInt32 }`, `enum FolderScope { case all, unfiled, folder(id: String) }`, `enum ItemListKind { case open, done, due, deleted }`, `FolderDeleteResult { moved: UInt32, deleted: UInt32 }`, and `ItemSnapshot.folderId: String?`, `.folderName: String?`, `.tags: [String]`. `RalloError` keeps its five cases; `FOLDER_NAME_INVALID` is `InvalidInput`, `FOLDER_NOT_FOUND` `NotFound`, `FOLDER_EXISTS` `Conflict`, stale revisions `Conflict(code: "REVISION_CONFLICT", …)`. `tagRanges` ranges are UTF-16, cover the `#`, and are computed on exactly the string passed in (§7).
 
-**Release 2 (panel; exactly the "API this plan produces for release 3" section of `docs/plans/2026-10-08-folders-2-panel.md`).** `CoreClient`: `createNote(_:images:folderID:)` (default `nil`), `createReminder(_:when:images:folderID:)`, `openItems(scope:limit:)`, `folderOverview()`, `createFolder(_:)`, `moveItem(_:folderID:)`. `enum NotesScope: Hashable { case all, unfiled, folder(String) }` in `Notes/NotesScope.swift` with `folderScope: FolderScope` (release 2's `RalloTests` sources already list `NotesScope.swift` and `Theme.swift`). `struct FolderMoveMenu: View { currentFolderID: String?; folders: [FolderSnapshot]; onMove: (String?) -> Void; onNewFolder: () -> Void }`. `@MainActor enum FolderNamePrompt { static func ask(title: String, initial: String, validate: @escaping (String) async throws -> Void) async -> String? }` (`validate` is the real create call, so the core's own message shows in the alert; Swift never re-implements the name rules, §3 and §10). `NotesViewModel`: `init(core:defaults: UserDefaults = .standard)` and `private(set) var scope: NotesScope` (plus existing `expandedID`). The panel's `Toast`/`ToastBar` (`Toast.Undo` gains `move`): the window reuses `ToastBar` (Task 11) and has its own `WindowToast`.
+**Release 2 (panel; exactly the "API this plan produces for release 3" section of `docs/plans/2026-10-08-folders-2-panel.md`).** `CoreClient`: `createNote(_:images:folderID:)` (default `nil`), `createReminder(_:when:images:folderID:)`, `openItems(scope:limit:)`, `folderOverview()`, `createFolder(_:)`, `moveItem(_:folderID:)`. `enum NotesScope: Hashable { case all, unfiled, folder(String) }` in `Notes/NotesScope.swift` with `folderScope: FolderScope` (release 2's `RalloTests` sources already list `NotesScope.swift` and `Theme.swift`). `struct FolderMoveMenu: View { currentFolderID: String?; folders: [FolderSnapshot]; onMove: (String?) -> Void; onNewFolder: () -> Void }`. `@MainActor enum FolderNamePrompt { static func ask(title: String, initial: String, validate: @escaping (String) async throws -> Void) async -> String? }` (`validate` is the real create call, so the core's own message shows in the alert; Swift never re-implements the name rules, §3 and §10). `NotesViewModel`: `init(core:defaults: UserDefaults = .standard)` and `private(set) var scope: NotesScope` (plus existing `expandedID`); `AppCoordinator` builds it as `NotesViewModel(core: core, defaults: isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard)` (release 2 Task 5 Step 6). The panel's `Toast` (`Toast.Undo` gains `move`) is unchanged; its private `ToastBar` becomes `ToastBar(message:undoable:undoShortcut:undo:)` in Task 11 so the window can reuse it with its own `WindowToast` model.
 
 **What this plan adds to `CoreClient` (Task 2):** `listTags`, `renameFolder`, `deleteFolder`, paged `listItems`/`searchItems` (return `ItemPage`), `cancelReminder`, `static let pageSize`.
 
@@ -74,12 +74,12 @@ New, under `apps/macos/Rallo/NotesWindow/` (the folder is new; pure files are Fo
 |---|---|
 | `DateGrouping.swift` | pure: list date sections and the row time label |
 | `FolderNaming.swift` | pure: a guess at the first free "New Folder N" (the core judges every name) |
-| `NotesWindowSelection.swift` | pure: `NotesWindowSelection`, `NotesScope.folderScope`, selection fallback |
+| `NotesWindowSelection.swift` | pure: `NotesWindowSelection`, selection fallback |
 | `SaveScheduler.swift` | pure: save debounce state machine with an injected clock |
 | `EditorStyling.swift` | pure: title/tag spans in UTF-16, `RowText` (list title and preview) |
 | `NoteTextStyler.swift` | AppKit only: `PlainTextView`, attribute-only restyle that skips marked text |
 | `NoteEditorSession.swift` | the open note: text, save/conflict/draft, backed by `CoreClient` |
-| `NotesWindowModel.swift`, `NotesWindowModel+Notes.swift` | window state, reload, folders, note changes |
+| `NotesWindowModel.swift`, `NotesWindowModel+Notes.swift` | window state, paged lists, reload, folders, note changes |
 | `FolderDeleteCopy.swift` | pure: the delete sheet's exact copy |
 | `NotesWindowController.swift` | the `NSWindow`, delegate, open/close |
 | `NotesWindowView.swift` | root `NavigationSplitView`, error banner, delete sheet |
@@ -89,7 +89,7 @@ New, under `apps/macos/Rallo/NotesWindow/` (the folder is new; pure files are Fo
 
 New elsewhere: `Notes/RemindPreset.swift` (moved out of `NotesView.swift`), `Notes/RemindMenuItems.swift` (shared by the panel and the window), `RalloTests/*Tests.swift`.
 
-Modified: `Core/CoreClient.swift`, `Notes/RalloError+Display.swift`, `Shared/Theme.swift`, `Notes/NotesView.swift` (`RemindPreset` moved out, `ToastBar` made reusable, expand button), `Notes/NoteRow.swift`, `Notes/CustomRemindPopover.swift`, `Notes/ImageStrip.swift`, `Notes/Thumbnails.swift`, `App/AppCoordinator.swift`, `App/AppDelegate.swift`, `App/StatusMenuController.swift`, `Settings/SettingsWindowController.swift`, `Diagnostics/WindowReport.swift`, `apps/macos/project.yml`, `README.md`.
+Modified: `Core/CoreClient.swift`, `Notes/RalloError+Display.swift`, `Shared/Theme.swift` (`inkNS`/`rustNS`, the `NSColor`s behind `ink`/`rust`), `Notes/NotesView.swift` (`RemindPreset` moved out, `ToastBar` made reusable, expand button), `Notes/NoteRow.swift`, `Notes/CustomRemindPopover.swift`, `Notes/ImageStrip.swift`, `Notes/Thumbnails.swift`, `App/AppCoordinator.swift`, `App/AppDelegate.swift`, `App/StatusMenuController.swift`, `Settings/SettingsWindowController.swift`, `Diagnostics/WindowReport.swift`, `apps/macos/project.yml`, `README.md`.
 
 ---
 
@@ -197,10 +197,12 @@ grep -n "func folderOverview\|func createFolder" Core/CoreClient.swift
 grep -n "var folderScope" Notes/NotesScope.swift
 grep -n "static func ask" Notes/FolderNamePrompt.swift
 grep -n "private(set) var scope\|init(core: CoreClient, defaults" Notes/NotesView.swift
+grep -n 'notesModel = NotesViewModel(core: core, defaults: isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard)' App/AppCoordinator.swift
+grep -n "^private struct ToastBar: View" Notes/NotesView.swift
 grep -n "NotesScope.swift\|Theme.swift" ../project.yml
 ```
 
-Expected: every command prints at least one line (`createFolder` and `folderOverview` one each). An empty result means release 2 differs from its plan: stop and report which.
+Expected: every command prints at least one line (`createFolder` and `folderOverview` one each). Task 9 anchors on that `AppCoordinator` line and Task 11 on `ToastBar`. An empty result means release 2 differs from its plan: stop and report which.
 
 - [ ] **Step 3: Run the test; it must compile and pass**
 
@@ -1016,7 +1018,7 @@ git commit -m "feat(app): save debounce state machine for the notes window edito
 - Produces:
   `struct EditorSpan: Equatable { enum Kind { title, tag }; kind; range: NSRange }`; `EditorStyling.titleSize = 24`, `.bodySize = 14.5`, `.titleRange(in:) -> NSRange?`, `.spans(text:tags:) -> [EditorSpan]`;
   `struct RowText: Equatable { title, preview; init(_ text: String); displayTitle }`;
-  `final class PlainTextView: NSTextView { var onAppearanceChange: () -> Void }`; `NoteTextStyler.Palette { ink, rust: NSColor }`; `NoteTextStyler.font(size:weight:rounded:) -> NSFont`; `NoteTextStyler.restyle(_ view: NSTextView, tags: [TagRange], palette: Palette) -> Bool` (false and no change while marked text exists).
+  `final class PlainTextView: NSTextView { static func make() -> PlainTextView }`; `NoteTextStyler.Palette { ink, rust: NSColor }` (Task 12 passes the theme's dynamic `NSColor`s, which resolve per appearance at draw time, so nothing restyles on an appearance change); `NoteTextStyler.font(size:weight:rounded:) -> NSFont`; `NoteTextStyler.restyle(_ view: NSTextView, tags: [TagRange], palette: Palette) -> Bool` (false and no change while marked text exists).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1244,8 +1246,6 @@ import AppKit
 
 /// The editor's text view: plain text only. Paste drops fonts, colours and attachments.
 final class PlainTextView: NSTextView {
-    var onAppearanceChange: () -> Void = {}
-
     /// TextKit 1 (the editor measures with its layout manager), plain text, no
     /// smart quotes or dashes rewriting what the user typed.
     static func make() -> PlainTextView {
@@ -1267,14 +1267,11 @@ final class PlainTextView: NSTextView {
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)
     }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        onAppearanceChange()
-    }
 }
 
 enum NoteTextStyler {
+    /// Pass dynamic colours (`Theme.inkNS`, `Theme.rustNS`): they resolve in the
+    /// view's appearance when drawn, so Light/Dark needs no restyle.
     struct Palette {
         var ink: NSColor
         var rust: NSColor
@@ -1343,7 +1340,7 @@ git commit -m "feat(app): editor title and tag styling that never touches marked
 - Modify: `apps/macos/project.yml` (test sources)
 
 **Interfaces:**
-- Consumes: `SaveScheduler` (Task 5), `CoreClient.editItemText(_:text:)` (existing), `CoreClient.createNote(_:images:folderID:)` (Task 2), `RalloError.displayMessage`, `ItemSnapshot.name` (0018).
+- Consumes: `SaveScheduler` (Task 5), `CoreClient.editItemText(_:text:)` (existing), `CoreClient.createNote(_:images:folderID:)` (release 2), `RalloError.displayMessage`, `ItemSnapshot.name` (0018).
 - Produces: `@MainActor final class NoteEditorSession: ObservableObject` with
   `enum Target { case none; case note(ItemSnapshot); case draft(folderID: String?, seed: String) }`;
   `@Published private(set) var text: String`, `target: Target`, `conflict: Bool`, `error: String?`, `focusToken: Int`; `var isComposing: Bool`; `var onCreated: (ItemSnapshot) -> Void`; `var onSaved: (ItemSnapshot) -> Void`; `private(set) var showCount: Int`; `var note: ItemSnapshot?`; `var isDraft: Bool`; `var isEditable: Bool`; `var hasUnsavedText: Bool`;
@@ -1383,8 +1380,18 @@ final class NoteEditorSessionTests: XCTestCase {
         try XCTUnwrap(other.listOpenItems(limit: 50).first { $0.id == id })
     }
 
-    private func pause(_ seconds: Double = 0.4) async {
+    /// Only for checks that something did NOT happen; to wait for a save, use `settle`.
+    private func pause(_ seconds: Double = 0.3) async {
         try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+    }
+
+    /// Waits for the debounced save to land (at most 2 s) instead of sleeping a fixed time.
+    private func settle(_ session: NoteEditorSession) async {
+        let deadline = Date().addingTimeInterval(2)
+        while session.hasUnsavedText, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        await session.flush()  // a save that is still running finishes
     }
 
     func testTypingSavesAfterTheDelay() async throws {
@@ -1393,7 +1400,7 @@ final class NoteEditorSessionTests: XCTestCase {
         session.show(.note(note))
         session.textChanged("v2")
         XCTAssertEqual(try stored(note.id).text, "v1", "not yet")
-        await pause()
+        await settle(session)
         XCTAssertEqual(try stored(note.id).text, "v2")
         XCTAssertFalse(session.hasUnsavedText)
         XCTAssertEqual(session.note?.revision, 2, "the session keeps the saved revision")
@@ -1445,7 +1452,7 @@ final class NoteEditorSessionTests: XCTestCase {
         session.textChanged("mine")
         await session.flush()
         session.keepMine(try stored(note.id))
-        await pause()
+        await settle(session)
         XCTAssertFalse(session.conflict)
         XCTAssertEqual(try stored(note.id).text, "mine")
     }
@@ -1522,7 +1529,7 @@ final class NoteEditorSessionTests: XCTestCase {
         XCTAssertEqual(try stored(note.id).text, "v1", "never save a half-composed word")
         session.isComposing = false
         session.textChanged("v2 日本")
-        await pause()
+        await settle(session)
         XCTAssertEqual(try stored(note.id).text, "v2 日本")
     }
 
@@ -1781,13 +1788,18 @@ final class NoteEditorSession: ObservableObject {
                 scheduler.reset()
             case let .note(note):
                 // An emptied note is never saved (unless it has images to stand on).
-                if blank, note.images.isEmpty { return scheduler.refused() }
+                // `refused()` may go back to dirty (typed meanwhile): the timer must look again.
+                if blank, note.images.isEmpty {
+                    scheduler.refused()
+                    return armTimer()
+                }
                 let updated = try await core.editItemText(note, text: sent)
                 finish(with: updated)
                 onSaved(updated)
             case let .draft(folderID, seed):
                 if blank || sent.trimmingCharacters(in: .whitespacesAndNewlines) == seed.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    return scheduler.refused()
+                    scheduler.refused()
+                    return armTimer()
                 }
                 let created = try await core.createNote(sent, images: [], folderID: folderID)
                 finish(with: created)
@@ -1821,7 +1833,7 @@ final class NoteEditorSession: ObservableObject {
 - [ ] **Step 4: Run the tests and see them pass**
 
 Run the **Swift test command** with `-only-testing:RalloTests/NoteEditorSessionTests`.
-Expected: `Test Suite 'NoteEditorSessionTests' passed`. (Timing-based tests use 0.05 s delays and 0.4 s pauses; if one is flaky on a loaded machine raise the pause, not the logic.)
+Expected: `Test Suite 'NoteEditorSessionTests' passed`. (Saves are awaited with `settle`, bounded at 2 s; the fixed `pause` is left only where a test checks that nothing was saved. If one of those is flaky on a loaded machine, raise the pause, not the logic.)
 
 - [ ] **Step 5: Commit**
 
@@ -1845,12 +1857,12 @@ git commit -m "feat(app): editor session with debounced saves, conflicts and dra
 - Modify: `apps/macos/project.yml` (test sources)
 
 **Interfaces:**
-- Consumes: `CoreClient` (Task 2), `NoteEditorSession` (Task 7), `NotesWindowSelection`/`SelectionFallback` (Task 4), `FolderNaming` (Task 4), `CountLabel` (Task 3), `RemindPreset`, `ReminderLabel`, `ImageClipboard.check`.
-- Produces: `@MainActor final class NotesWindowModel: ObservableObject` with `WindowToast`, `PendingFolderDelete`, and
-  state `overview`, `tags`, `items`, `doneItems`, `results`, `selection`, `selectedNoteID`, `isDrafting` (`private(set)`), `query`, `doneExpanded`, `toast`, `errorMessage`, `renamingFolderID`, `pendingFolderDelete`, `customRemindOpen`; `let core`, `let editor`;
-  `init(core:saveDelay:)`; derived `isSearching`, `visibleItems`, `selectedItem`, `folders`, `header: Header`, `listIsGrouped`, `canCreateNote`; `loadedItem(_:)`, `folder(_:)`, `folderName(_:)`, `groupTimestamp(_:)`;
-  `opened(selection:noteID:)`, `closed()`, `select(_:)`, `selectNote(_:)`, `reload()`, `queryChanged()`, `announce(_:undo:)`, `undo()`, `run(_:)`, `report(_:)`, `fresh(_:)`, `beginNewNote()`, `showTheirs()`, `keepMine()`;
-  folders: `newFolderInline()`, `renameFolder(_:to:)`, `requestDelete(_:)`, `confirmDelete(_:keepNotes:)`; moves: `move(_:toFolder:)`, `canDrop(_:)`, `drop(_:onto:)`;
+- Consumes: `CoreClient` (Task 2: paged `listItems`/`searchItems`, `pageSize`, `listTags`, `renameFolder`, `deleteFolder`, `cancelReminder`; release 2: `folderOverview`, `createFolder`, `moveItem(_:folderID:)`), `NotesScope.folderScope` (release 2), `NoteEditorSession` (Task 7), `NotesWindowSelection`/`SelectionFallback` (Task 4), `FolderNaming` (Task 4), `RemindPreset`, `ReminderLabel`, `ImageClipboard.check`.
+- Produces: `@MainActor final class NotesWindowModel: ObservableObject` with `PagedItems { items, nextCursor, totalCount: Int, pages: Int; hasMore }`, `WindowToast`, `PendingFolderDelete { folder; noteCount }`, and
+  state `overview`, `tags`, `open`, `done`, `found` (`PagedItems`), `selection`, `selectedNoteID`, `isDrafting` (`private(set)`), `query`, `doneExpanded`, `toast`, `errorMessage`, `renamingFolderID`, `pendingFolderDelete`, `customRemindOpen`; `let core`, `let editor`, `let pageSize`;
+  `init(core:saveDelay:pageSize:)`; derived `items`, `doneItems`, `results` (the loaded rows of `open`, `done`, `found`), `isSearching`, `visibleItems`, `selectedItem`, `folders`, `header: Header`, `listIsGrouped`, `canCreateNote`; `loadedItem(_:)`, `folder(_:)`, `folderName(_:)`, `groupTimestamp(_:)`;
+  `opened(selection:noteID:)`, `closed()`, `select(_:)`, `selectNote(_:)`, `reload()`, `loadMore(done:)`, `queryChanged()`, `announce(_:undo:)`, `undo()`, `run(_:)`, `report(_:)`, `fresh(_:)`, `beginNewNote()`, `showTheirs()`, `keepMine()`;
+  folders: `newFolderInline()`, `renameFolder(_:to:)`, `requestDelete(_:)` (synchronous: the count is `FolderSnapshot.noteCount`), `confirmDelete(_:keepNotes:)`; moves: `move(_:toFolder:)`, `canDrop(_:)`, `drop(_:onto:)`;
   notes (`+Notes`): `toggleDone`, `delete`, `restore`, `remind(_:_ preset:)`, `remind(_:at:)`, `cancelReminder`, `attachImages(_:to:)`, `removeImage(_:from:)`;
   `RalloError.code: String`.
 
@@ -1961,6 +1973,14 @@ final class NotesWindowModelTests: XCTestCase {
         try other.createFolder(name: name)
     }
 
+    /// Waits (at most 2 s) for what a background reload or save settles, instead of sleeping a fixed time.
+    private func eventually(_ condition: () throws -> Bool) async rethrows {
+        let deadline = Date().addingTimeInterval(2)
+        while try !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
     // MARK: Loading
 
     func testReloadLoadsTheOverviewTagsAndAllNotes() async throws {
@@ -2020,6 +2040,64 @@ final class NotesWindowModelTests: XCTestCase {
         try note("second")
         await model.reload()
         XCTAssertEqual(model.items.map(\.text), ["second", "first"])
+    }
+
+    // MARK: Paging (0019 §9)
+
+    /// `count` notes, oldest first, each in its own millisecond so the list order is fixed.
+    private func notes(_ count: Int) async throws -> [ItemSnapshot] {
+        var made: [ItemSnapshot] = []
+        for number in 1...count {
+            made.append(try note("Note \(number)"))
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return made
+    }
+
+    func testAListLoadsAPageAtATimeAndCountsTheWholeList() async throws {
+        model = NotesWindowModel(core: core, saveDelay: 0.05, pageSize: 2)
+        _ = try await notes(5)
+        await model.reload()
+        XCTAssertEqual(model.open.items.count, 2)
+        XCTAssertEqual(model.open.totalCount, 5)
+        XCTAssertTrue(model.open.hasMore)
+        XCTAssertEqual(model.header.subtitle, "5 open · 0 done", "the count is the whole list, never what loaded")
+        await model.loadMore()
+        await model.loadMore()
+        XCTAssertEqual(model.open.items.count, 5)
+        XCTAssertFalse(model.open.hasMore)
+        XCTAssertEqual(Set(model.open.items.map(\.id)).count, 5, "no row twice")
+        await model.loadMore()
+        XCTAssertEqual(model.open.items.count, 5, "nothing more to load")
+    }
+
+    /// Review focus 5: a reload fetches as many pages as were loaded, so the selection stays.
+    func testASelectionOnALaterPageSurvivesAReload() async throws {
+        model = NotesWindowModel(core: core, saveDelay: 0.05, pageSize: 2)
+        let made = try await notes(5)
+        let oldest = try XCTUnwrap(made.first)
+        await model.reload()
+        await model.loadMore()
+        await model.loadMore()
+        XCTAssertEqual(model.open.items.last?.id, oldest.id, "newest first: the first note is on the last page")
+        await model.selectNote(oldest.id)
+        try note("Note 6")
+        await model.reload()
+        XCTAssertEqual(model.open.items.count, 6)
+        XCTAssertEqual(model.selectedNoteID, oldest.id)
+        XCTAssertEqual(model.editor.note?.id, oldest.id)
+    }
+
+    func testSearchResultsPageToo() async throws {
+        model = NotesWindowModel(core: core, saveDelay: 0.05, pageSize: 2)
+        _ = try await notes(3)
+        model.query = "Note"
+        await model.reload()
+        XCTAssertEqual(model.results.count, 2)
+        XCTAssertEqual(model.header, NotesWindowModel.Header(title: "Results", subtitle: "3 notes"))
+        await model.loadMore()
+        XCTAssertEqual(model.results.count, 3)
+        XCTAssertFalse(model.found.hasMore)
     }
 
     // MARK: Selection falls back
@@ -2169,7 +2247,8 @@ final class NotesWindowModelTests: XCTestCase {
         await model.reload()
         let snapshot = try XCTUnwrap(model.folder(work.id))
         XCTAssertEqual(snapshot.openCount, 0)
-        await model.requestDelete(snapshot)
+        XCTAssertEqual(snapshot.noteCount, 1)
+        model.requestDelete(snapshot)
         XCTAssertEqual(model.pendingFolderDelete?.noteCount, 1)
         await model.confirmDelete(try XCTUnwrap(model.pendingFolderDelete), keepNotes: true)
         XCTAssertNil(model.pendingFolderDelete)
@@ -2183,7 +2262,7 @@ final class NotesWindowModelTests: XCTestCase {
         let work = try folder("Work")
         try note("Goes", in: work)
         await model.reload()
-        await model.requestDelete(try XCTUnwrap(model.folder(work.id)))
+        model.requestDelete(try XCTUnwrap(model.folder(work.id)))
         XCTAssertEqual(model.pendingFolderDelete?.noteCount, 1)
         await model.confirmDelete(try XCTUnwrap(model.pendingFolderDelete), keepNotes: false)
         await model.select(.deleted)
@@ -2196,7 +2275,7 @@ final class NotesWindowModelTests: XCTestCase {
     func testAnEmptyFolderCountsZero() async throws {
         let ideas = try folder("Ideas")
         await model.reload()
-        await model.requestDelete(try XCTUnwrap(model.folder(ideas.id)))
+        model.requestDelete(try XCTUnwrap(model.folder(ideas.id)))
         XCTAssertEqual(model.pendingFolderDelete?.noteCount, 0)
     }
 
@@ -2229,7 +2308,8 @@ final class NotesWindowModelTests: XCTestCase {
         let reminded = try XCTUnwrap(model.loadedItem(item.id))
         XCTAssertEqual(reminded.reminder?.state, .active)
         await model.cancelReminder(reminded)
-        XCTAssertNotEqual(model.loadedItem(item.id)?.reminder?.state, .active)
+        XCTAssertEqual(model.loadedItem(item.id)?.reminder?.state, .cancelled)
+        XCTAssertEqual(model.loadedItem(item.id)?.status, .open, "the note stays open")
     }
 
     // MARK: New notes
@@ -2242,7 +2322,7 @@ final class NotesWindowModelTests: XCTestCase {
         XCTAssertNil(model.selectedNoteID)
         model.editor.textChanged("Fresh idea")
         await model.editor.flush()
-        try await Task.sleep(nanoseconds: 300_000_000)
+        await eventually { model.items.count == 1 }  // the reload after the create
         XCTAssertFalse(model.isDrafting)
         let created = try XCTUnwrap(try other.listOpenItems(limit: 50).first)
         XCTAssertEqual(created.folderId, work.id)
@@ -2274,6 +2354,15 @@ final class NotesWindowModelTests: XCTestCase {
         XCTAssertEqual(try other.listOpenItems(limit: 50).count, 1)
     }
 
+    func testClosingTheWindowDiscardsAnUntouchedDraft() async throws {
+        await model.reload()
+        await model.beginNewNote()
+        await model.closed()
+        XCTAssertFalse(model.isDrafting, "reopening must not show a stale New Note row")
+        XCTAssertFalse(model.editor.isDraft)
+        XCTAssertTrue(try other.listOpenItems(limit: 50).isEmpty)
+    }
+
     // MARK: Conflict answers
 
     func testShowTheirsAndKeepMineGoThroughTheModel() async throws {
@@ -2293,7 +2382,7 @@ final class NotesWindowModelTests: XCTestCase {
         await model.editor.flush()
         XCTAssertTrue(model.editor.conflict)
         await model.keepMine()
-        try await Task.sleep(nanoseconds: 400_000_000)
+        try await eventually { try other.listOpenItems(limit: 50).first?.text == "mine 2" }
         XCTAssertEqual(try other.listOpenItems(limit: 50).first?.text, "mine 2")
     }
 }
@@ -2322,10 +2411,22 @@ struct WindowToast: Identifiable {
 /// A folder the delete sheet (0019 §12) is asking about.
 struct PendingFolderDelete: Identifiable {
     let folder: FolderSnapshot
-    /// Nondeleted notes, open and done: what `folder delete` calls "holds".
-    let noteCount: Int
+    /// Open + done, nondeleted: the core's `note_count` (0019 §9), what `folder delete` calls "holds".
+    var noteCount: Int { Int(folder.noteCount) }
 
     var id: String { folder.id }
+}
+
+/// The loaded pages of one list and how to get the next (0019 §9).
+struct PagedItems {
+    var items: [ItemSnapshot] = []
+    var nextCursor: String?
+    /// The whole list's length, however much of it has loaded.
+    var totalCount = 0
+    /// Pages fetched so far: a reload fetches as many again, so a note selected on page 3 stays loaded.
+    var pages = 0
+
+    var hasMore: Bool { nextCursor != nil }
 }
 
 /// The notes window's state (0019 §11): what the sidebar selected, what the
@@ -2336,11 +2437,13 @@ struct PendingFolderDelete: Identifiable {
 final class NotesWindowModel: ObservableObject {
     @Published private(set) var overview: FolderOverview?
     @Published private(set) var tags: [TagSnapshot] = []
-    /// The selection's notes: open ones for a folder, tag or All Notes.
-    @Published private(set) var items: [ItemSnapshot] = []
+    /// The selection's list: open notes for a folder, tag or All Notes; the
+    /// whole view for Due, Done and Deleted.
+    @Published private(set) var open = PagedItems()
     /// Done notes of the same folder or tag, behind the "N done" row.
-    @Published private(set) var doneItems: [ItemSnapshot] = []
-    @Published private(set) var results: [ItemSnapshot] = []
+    @Published private(set) var done = PagedItems()
+    /// Search results, across every folder.
+    @Published private(set) var found = PagedItems()
     @Published private(set) var selection: NotesWindowSelection = .scope(.all)
     @Published private(set) var selectedNoteID: String?
     /// The "New Note" row is showing.
@@ -2356,12 +2459,17 @@ final class NotesWindowModel: ObservableObject {
 
     let core: CoreClient
     let editor: NoteEditorSession
+    /// Rows per page (tests pass 2 to exercise paging).
+    let pageSize: UInt32
     private var generation = 0
+    /// The cursor being fetched, so a last row appearing twice doesn't load its page twice.
+    private var loadingCursor: String?
     private var searchTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
 
-    init(core: CoreClient, saveDelay: TimeInterval = 0.6) {
+    init(core: CoreClient, saveDelay: TimeInterval = 0.6, pageSize: UInt32 = CoreClient.pageSize) {
         self.core = core
+        self.pageSize = pageSize
         editor = NoteEditorSession(core: core, saveDelay: saveDelay)
         editor.onSaved = { [weak self] _ in Task { await self?.reload() } }
         editor.onCreated = { [weak self] note in self?.draftCreated(note) }
@@ -2369,11 +2477,15 @@ final class NotesWindowModel: ObservableObject {
 
     // MARK: What the window shows
 
+    var items: [ItemSnapshot] { open.items }
+    var doneItems: [ItemSnapshot] { done.items }
+    var results: [ItemSnapshot] { found.items }
+
     var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var visibleItems: [ItemSnapshot] { isSearching ? results : items }
 
-    /// Every note the list can show, done ones included.
+    /// Every note the list has loaded, done ones included.
     private var loaded: [ItemSnapshot] { isSearching ? results : items + doneItems }
 
     func loadedItem(_ id: String) -> ItemSnapshot? { loaded.first { $0.id == id } }
@@ -2394,10 +2506,10 @@ final class NotesWindowModel: ObservableObject {
         let subtitle: String
     }
 
+    /// Counts are the core's `totalCount`s: the whole list, never what has loaded.
     var header: Header {
-        if isSearching {
-            return Header(title: "Results", subtitle: "\(CountLabel.text(results.count)) \(results.count == 1 ? "note" : "notes")")
-        }
+        if isSearching { return Header(title: "Results", subtitle: Self.notes(found.totalCount)) }
+        let openAndDone = "\(open.totalCount) open · \(done.totalCount) done"
         switch selection {
         case let .scope(scope):
             let title = switch scope {
@@ -2407,28 +2519,10 @@ final class NotesWindowModel: ObservableObject {
             }
             return Header(title: title, subtitle: openAndDone)
         case let .tag(name): return Header(title: "#\(name)", subtitle: openAndDone)
-        case .due: return Header(title: "Due", subtitle: Self.notes(openTotal))
-        case .done: return Header(title: "Done", subtitle: Self.notes(openTotal))
-        case .deleted: return Header(title: "Deleted", subtitle: Self.notes(openTotal))
+        case .due: return Header(title: "Due", subtitle: Self.notes(open.totalCount))
+        case .done: return Header(title: "Done", subtitle: Self.notes(open.totalCount))
+        case .deleted: return Header(title: "Deleted", subtitle: Self.notes(open.totalCount))
         }
-    }
-
-    /// What the selection holds, exactly: from the overview, since the lists stop at one page.
-    private var openTotal: Int {
-        guard let overview else { return items.count }
-        switch selection {
-        case .scope(.all): return Int(overview.allOpen)
-        case .scope(.unfiled): return Int(overview.unfiledOpen)
-        case let .scope(.folder(id)): return folder(id).map { Int($0.openCount) } ?? items.count
-        case let .tag(name): return tags.first { $0.name == name }.map { Int($0.openCount) } ?? items.count
-        case .due: return Int(overview.due)
-        case .done: return Int(overview.done)
-        case .deleted: return Int(overview.deleted)
-        }
-    }
-
-    private var openAndDone: String {
-        "\(openTotal) open · \(CountLabel.text(doneItems.count)) done"
     }
 
     private static func notes(_ count: Int) -> String {
@@ -2474,9 +2568,14 @@ final class NotesWindowModel: ObservableObject {
         if let noteID, loadedItem(noteID) != nil { await selectNote(noteID) }
     }
 
-    /// The window closed: save typing; an emptied note gets its text back.
+    /// The window closed: save typing; an emptied note gets its text back, and
+    /// an untouched "New Note" goes (one that got text was already created).
     func closed() async {
         if let message = await editor.leave() { errorMessage = message }
+        if isDrafting {
+            isDrafting = false
+            editor.show(.none)
+        }
     }
 
     func select(_ new: NotesWindowSelection) async {
@@ -2484,7 +2583,9 @@ final class NotesWindowModel: ObservableObject {
         await letGoOfNote()
         selection = new
         query = ""
-        results = []
+        open = PagedItems()
+        done = PagedItems()
+        found = PagedItems()
         doneExpanded = false
         await reload()
     }
@@ -2508,7 +2609,8 @@ final class NotesWindowModel: ObservableObject {
 
     /// Reads everything the window shows. Overlapping reloads settle on the
     /// newest, and a note being edited keeps its unsaved typing (the editor
-    /// session decides).
+    /// session decides). Each list fetches as many pages as it had loaded, so
+    /// a note selected on a later page stays selected.
     func reload() async {
         generation += 1
         let mine = generation
@@ -2518,10 +2620,17 @@ final class NotesWindowModel: ObservableObject {
             let target = SelectionFallback.resolve(
                 selection, folderIDs: Set(overview.folders.map(\.id)), tagNames: Set(tags.map(\.name))
             )
-            let lists = try await load(target)
+            let keep = target == selection  // a fallback starts over on page 1
+            let openList = try await fetch(pages: keep ? open.pages : 1) { try await page(target, done: false, cursor: $0) }
+            var doneList = PagedItems()
+            if Self.hasDoneList(target) {
+                doneList = try await fetch(pages: keep ? done.pages : 1) { try await page(target, done: true, cursor: $0) }
+            }
             let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            var found: [ItemSnapshot] = []
-            if !text.isEmpty { found = try await core.searchItems(text) }
+            var foundList = PagedItems()
+            if !text.isEmpty {
+                foundList = try await fetch(pages: found.pages) { try await core.searchItems(text, cursor: $0, limit: pageSize) }
+            }
             guard mine == generation else { return }
             self.overview = overview
             self.tags = tags
@@ -2529,39 +2638,78 @@ final class NotesWindowModel: ObservableObject {
                 selection = target
                 doneExpanded = false
             }
-            items = Self.sorted(lists.open, in: target, done: false)
-            doneItems = Self.sorted(lists.done, in: target, done: true)
-            results = found
+            open = openList
+            done = doneList
+            found = foundList
             await syncSelectedNote()
         } catch {
             errorMessage = "Couldn’t load notes: \(error.localizedDescription)"
         }
     }
 
-    private func load(_ selection: NotesWindowSelection) async throws -> (open: [ItemSnapshot], done: [ItemSnapshot]) {
+    /// One page of the selection's list (`done`: the "N done" list of a folder,
+    /// Notes, All Notes or tag). The core orders every list: newest first, Done
+    /// by completion, Deleted by deletion, Due by deadline.
+    private func page(_ selection: NotesWindowSelection, done: Bool, cursor: String?) async throws -> ItemPage {
+        let kind: ItemListKind = done ? .done : .open
         switch selection {
-        case let .scope(scope):
-            let folder = scope.folderScope
-            return (try await core.listItems(.open, scope: folder), try await core.listItems(.done, scope: folder))
-        case let .tag(name):
-            return (try await core.listItems(.open, tag: name), try await core.listItems(.done, tag: name))
-        case .due: return (try await core.listItems(.due), [])
-        case .done: return (try await core.listItems(.done), [])
-        case .deleted: return (try await core.listItems(.deleted), [])
+        case let .scope(scope): return try await core.listItems(kind, scope: scope.folderScope, cursor: cursor, limit: pageSize)
+        case let .tag(name): return try await core.listItems(kind, tag: name, cursor: cursor, limit: pageSize)
+        case .due: return try await core.listItems(.due, cursor: cursor, limit: pageSize)
+        case .done: return try await core.listItems(.done, cursor: cursor, limit: pageSize)
+        case .deleted: return try await core.listItems(.deleted, cursor: cursor, limit: pageSize)
         }
     }
 
-    /// Newest first (Due: soonest deadline first, Done by completion, Deleted by deletion).
-    private static func sorted(_ items: [ItemSnapshot], in selection: NotesWindowSelection, done: Bool) -> [ItemSnapshot] {
-        switch (selection, done) {
-        case (.due, _):
-            return items.sorted { ($0.reminder?.deadlineMs ?? .max, $0.id) < ($1.reminder?.deadlineMs ?? .max, $1.id) }
-        case (.done, _), (_, true):
-            return items.sorted { ($0.completedAtMs ?? $0.updatedAtMs, $0.id) > ($1.completedAtMs ?? $1.updatedAtMs, $1.id) }
-        case (.deleted, _):
-            return items.sorted { ($0.deletedAtMs ?? $0.updatedAtMs, $0.id) > ($1.deletedAtMs ?? $1.updatedAtMs, $1.id) }
-        default:
-            return items.sorted { ($0.createdAtMs, $0.id) > ($1.createdAtMs, $1.id) }
+    /// Folders, Notes, All Notes and tags have the second "N done" list; Due, Done and Deleted don't.
+    private static func hasDoneList(_ selection: NotesWindowSelection) -> Bool {
+        switch selection {
+        case .scope, .tag: true
+        case .due, .done, .deleted: false
+        }
+    }
+
+    /// `pages` pages (at least one) of one list, following the core's cursors.
+    private func fetch(pages: Int, _ next: (String?) async throws -> ItemPage) async throws -> PagedItems {
+        var loaded = PagedItems()
+        var cursor: String?
+        repeat {
+            let got = try await next(cursor)
+            loaded.items += got.items
+            loaded.totalCount = Int(got.totalCount)
+            loaded.pages += 1
+            cursor = got.nextCursor
+        } while cursor != nil && loaded.pages < max(1, pages)
+        loaded.nextCursor = cursor
+        return loaded
+    }
+
+    /// The last loaded row of a list came into view: its next page (0019 §9).
+    /// `done` picks the "N done" list; while searching it's the results.
+    func loadMore(done wantDone: Bool = false) async {
+        let searching = isSearching  // the field can change while the page loads
+        let list = searching ? found : (wantDone ? done : open)
+        guard let cursor = list.nextCursor, cursor != loadingCursor else { return }
+        loadingCursor = cursor
+        defer { if loadingCursor == cursor { loadingCursor = nil } }
+        let mine = generation
+        do {
+            let next: ItemPage
+            if searching {
+                let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                next = try await core.searchItems(text, cursor: cursor, limit: pageSize)
+            } else {
+                next = try await page(selection, done: wantDone, cursor: cursor)
+            }
+            guard mine == generation, searching == isSearching else { return }  // the list was replaced meanwhile
+            var updated = list
+            updated.items += next.items
+            updated.nextCursor = next.nextCursor
+            updated.totalCount = Int(next.totalCount)
+            updated.pages += 1
+            if searching { found = updated } else if wantDone { done = updated } else { open = updated }
+        } catch {
+            await report(error)
         }
     }
 
@@ -2580,7 +2728,8 @@ final class NotesWindowModel: ObservableObject {
     /// A debounced search: the field's text changed.
     func queryChanged() {
         searchTask?.cancel()
-        if !isSearching { results = [] }
+        // New words start over on page 1; the old results stay up until the new ones land.
+        if isSearching { found.pages = 0 } else { found = PagedItems() }
         searchTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
@@ -2684,10 +2833,11 @@ final class NotesWindowModel: ObservableObject {
     // MARK: Folders
 
     /// "+ New Folder" and ⌘⇧N: creates "New Folder" (or "New Folder 2", …) and
-    /// starts an inline rename.
+    /// starts an inline rename. The local name is a guess; the core's
+    /// `FOLDER_EXISTS` decides, and the next guess is tried.
     func newFolderInline() async {
         var name = FolderNaming.newFolderName(existing: folders.map(\.name))
-        for _ in 0..<3 {
+        for _ in 0..<20 {
             do {
                 let folder = try await core.createFolder(name)
                 await select(.scope(.folder(folder.id)))
@@ -2716,14 +2866,9 @@ final class NotesWindowModel: ObservableObject {
         }
     }
 
-    /// Delete Folder…: counts what the folder holds, then the sheet asks.
-    func requestDelete(_ folder: FolderSnapshot) async {
-        do {
-            let count = try await core.nonDeletedNoteCount(inFolder: folder.id)
-            pendingFolderDelete = PendingFolderDelete(folder: folder, noteCount: count)
-        } catch {
-            await report(error)
-        }
+    /// Delete Folder…: the sheet asks (0019 §12), counting `folder.noteCount`.
+    func requestDelete(_ folder: FolderSnapshot) {
+        pendingFolderDelete = PendingFolderDelete(folder: folder)
     }
 
     /// Keep Notes (`keepNotes`) files them in Notes; Delete Notes sends them to Deleted.
@@ -2744,10 +2889,10 @@ final class NotesWindowModel: ObservableObject {
         let item = await fresh(item)
         guard item.folderId != folderID else { return }
         do {
-            let moved = try await core.moveItem(item, toFolder: folderID)
+            let moved = try await core.moveItem(item, folderID: folderID)
             let before = item.folderId
             announce("Moved to \(folderName(folderID))") { [weak self] in
-                await self?.run { _ = try await $0.moveItem(moved, toFolder: before) }
+                await self?.run { _ = try await $0.moveItem(moved, folderID: before) }
             }
             await reload()
         } catch {
@@ -2849,12 +2994,11 @@ extension NotesWindowModel {
         }
     }
 
-    /// The reminder pill's Cancel Reminder. The FFI has no cancel (0019 §9);
-    /// acknowledging an active reminder disables it with a cancel intent and
-    /// leaves the note open.
+    /// The reminder pill's Cancel Reminder (0019 §9): the reminder becomes
+    /// `cancelled`, the note stays open.
     func cancelReminder(_ item: ItemSnapshot) async {
         let item = await fresh(item)
-        await run { _ = try await $0.acknowledgeReminder(item) }
+        await run { _ = try await $0.cancelReminder(item) }
     }
 
     /// Add Image: the images the user picked, already normalised.
@@ -2891,7 +3035,7 @@ extension NotesWindowModel {
 - [ ] **Step 6: Run the tests and see them pass**
 
 Run the **Swift test command** with `-only-testing:RalloTests/NotesWindowModelTests`, and then with `-only-testing:RalloTests/NotePartsTests` (the `RemindPreset` move touched `NotesView.swift`; the whole app target must still build, which the scheme does).
-Expected: `NotesWindowModelTests` passes. If `testRemindAndCancelReminder` fails on `.active`, print `reminded.reminder` first: a one-hour reminder on a scratch store should be `.active`; the cancel path leaves it `.acknowledged`.
+Expected: `NotesWindowModelTests` passes. If `testRemindAndCancelReminder` fails on `.active`, print `reminded.reminder` first: a one-hour reminder on a scratch store should be `.active`; Cancel Reminder leaves it `.cancelled` (never `.acknowledged`, which is the "I saw the alert" path).
 
 - [ ] **Step 7: Commit**
 
@@ -2906,115 +3050,18 @@ git commit -m "feat(app): notes window model for selection, reload, folders and 
 ### Task 9: The window shell, Dock presence, and every way to open it
 
 **Files:**
-- Create: `apps/macos/Rallo/NotesWindow/ActivationPolicyPlanner.swift`
-- Create: `apps/macos/RalloTests/ActivationPolicyPlannerTests.swift`
 - Create: `apps/macos/Rallo/NotesWindow/NotesWindowController.swift`
 - Create: `apps/macos/Rallo/NotesWindow/NotesWindowView.swift`
-- Modify: `apps/macos/project.yml` (test sources)
 - Modify: `apps/macos/Rallo/App/AppDelegate.swift`, `apps/macos/Rallo/App/AppCoordinator.swift`, `apps/macos/Rallo/App/StatusMenuController.swift`
 - Modify: `apps/macos/Rallo/Settings/SettingsWindowController.swift`, `apps/macos/Rallo/Notes/NotesView.swift`, `apps/macos/Rallo/Diagnostics/WindowReport.swift`
 
 **Interfaces:**
-- Consumes: `NotesWindowModel` (Task 8), `NotesWindowSelection` (Task 4), `NotesViewModel.scope` and `.expandedID` (release 2 / existing), `NotesPanelController.window/isOpen/close()`.
+- Consumes: `NotesWindowModel` (Task 8), `NotesWindowSelection` (Task 4), `NotesViewModel.scope` and `.expandedID` (release 2 / existing), `NotesPanelController.window/isOpen/close()`, release 2's scratch-aware defaults expression in `AppCoordinator.init`.
 - Produces:
-  `ActivationPolicyPlanner.OpenWindows { notesWindow, settings, notesPanel: Bool }`, `ActivationPolicyPlanner.Plan { policy: NSApplication.ActivationPolicy; reactivate: Bool }`, `ActivationPolicyPlanner.plan(open:current:) -> Plan?`;
-  `@MainActor final class NotesWindowController: NSObject, NSWindowDelegate { init(model:); var onPresenceChange: (Bool) -> Void; var isOpen: Bool; var isKey: Bool; var nsWindow: NSWindow?; func show(selection: NotesWindowSelection? = nil, noteID: String? = nil) }`;
-  `NotesWindowView(model:)`; `NotesViewModel.onExpand: () -> Void`; `SettingsWindowController.isOpen`, `.bringForward()`; `AppCoordinator`: `notesWindowIsKey`, `notesWindowCanCreateNote`, `notesWindowHasUnsavedText`, `newNoteInNotesWindow()`, `newFolderInNotesWindow()`, `flushNotesWindow() async`; `StatusMenuController.Actions.openNotesWindow`.
+  `@MainActor final class NotesWindowController: NSObject, NSWindowDelegate { init(model:defaults:); var onPresenceChange: (Bool) -> Void; var isOpen: Bool; var isKey: Bool; var nsWindow: NSWindow?; func show(selection: NotesWindowSelection? = nil, noteID: String? = nil); func focusSearch() }` (the frame is saved under `RalloNotesWindow` in the injected defaults, never AppKit autosave);
+  `NotesWindowView(model:)`; `NotesViewModel.onExpand: () -> Void`; `SettingsWindowController.isOpen`, `.bringForward()`; `AppCoordinator`: `openNotesWindow()`, `notesWindowIsKey`, `notesWindowCanCreateNote`, `notesWindowHasUnsavedText`, `newNoteInNotesWindow()`, `newFolderInNotesWindow()`, `focusNotesWindowSearch()`, `flushNotesWindow() async`; `StatusMenuController.Actions.openNotesWindow`; main menu File (New Note ⌘N, New Folder ⇧⌘N, Close ⌘W), Edit gains Find ⌘F, Window (Minimize ⌘M, Notes Window).
 
-- [ ] **Step 1: Write the failing planner tests**
-
-Create `apps/macos/RalloTests/ActivationPolicyPlannerTests.swift`:
-
-```swift
-import AppKit
-import XCTest
-
-final class ActivationPolicyPlannerTests: XCTestCase {
-    private func plan(
-        window: Bool = false, settings: Bool = false, panel: Bool = false, current: NSApplication.ActivationPolicy
-    ) -> ActivationPolicyPlanner.Plan? {
-        ActivationPolicyPlanner.plan(
-            open: .init(notesWindow: window, settings: settings, notesPanel: panel), current: current)
-    }
-
-    func testOpeningTheWindowGoesRegular() {
-        XCTAssertEqual(plan(window: true, current: .accessory), .init(policy: .regular, reactivate: false))
-    }
-
-    func testClosingTheOnlyWindowGoesBackToAccessory() {
-        XCTAssertEqual(plan(current: .regular), .init(policy: .accessory, reactivate: false))
-    }
-
-    func testClosingWithSettingsStillOpenBringsItForwardAgain() {
-        XCTAssertEqual(plan(settings: true, current: .regular), .init(policy: .accessory, reactivate: true))
-    }
-
-    func testClosingWithThePanelStillOpenBringsItForwardAgain() {
-        XCTAssertEqual(plan(panel: true, current: .regular), .init(policy: .accessory, reactivate: true))
-    }
-
-    func testSettingsOrThePanelAloneNeverMakeRalloADockApp() {
-        XCTAssertNil(plan(settings: true, current: .accessory))
-        XCTAssertNil(plan(panel: true, current: .accessory))
-    }
-
-    func testTheWindowWinsWhateverElseIsOpen() {
-        XCTAssertEqual(plan(window: true, settings: true, panel: true, current: .accessory), .init(policy: .regular, reactivate: false))
-        XCTAssertNil(plan(window: true, settings: true, panel: true, current: .regular))
-    }
-
-    func testNothingToDoWhenThePolicyAlreadyFits() {
-        XCTAssertNil(plan(window: true, current: .regular))
-        XCTAssertNil(plan(current: .accessory))
-    }
-}
-```
-
-- [ ] **Step 2: Run to see the compile failure**
-
-In `apps/macos/project.yml` after `      - path: Rallo/Notes/RalloError+Display.swift` add `      - path: Rallo/NotesWindow/ActivationPolicyPlanner.swift`. Run the **Swift test command** with `-only-testing:RalloTests/ActivationPolicyPlannerTests`.
-Expected: FAIL (file missing).
-
-- [ ] **Step 3: Write the planner**
-
-Create `apps/macos/Rallo/NotesWindow/ActivationPolicyPlanner.swift`:
-
-```swift
-import AppKit
-
-/// Rallo is a menu-bar app (`.accessory`) except while the Notes window is
-/// open, when it takes a Dock icon and a menu bar (0019 §11). Settings and the
-/// panel never change the policy.
-enum ActivationPolicyPlanner {
-    struct OpenWindows: Equatable {
-        var notesWindow = false
-        var settings = false
-        var notesPanel = false
-    }
-
-    struct Plan: Equatable {
-        var policy: NSApplication.ActivationPolicy
-        /// Dropping back to `.accessory` can leave the app inactive with
-        /// Settings or the panel still showing: bring it forward again.
-        var reactivate: Bool
-    }
-
-    /// Nil when `current` already fits (the policy is never touched needlessly).
-    static func plan(open: OpenWindows, current: NSApplication.ActivationPolicy) -> Plan? {
-        let wanted: NSApplication.ActivationPolicy = open.notesWindow ? .regular : .accessory
-        guard wanted != current else { return nil }
-        let leaving = wanted == .accessory
-        return Plan(policy: wanted, reactivate: leaving && (open.settings || open.notesPanel))
-    }
-}
-```
-
-- [ ] **Step 4: Run the planner tests and see them pass**
-
-Run the **Swift test command** with `-only-testing:RalloTests/ActivationPolicyPlannerTests`.
-Expected: passes.
-
-- [ ] **Step 5: Write the window controller and the shell view**
+- [ ] **Step 1: Write the window controller and the shell view**
 
 Create `apps/macos/Rallo/NotesWindow/NotesWindowController.swift`:
 
@@ -3024,19 +3071,24 @@ import Quartz
 import SwiftUI
 
 /// The Notes window (0019 §11): a titled, resizable window around the
-/// three-column `NotesWindowView`. One window is kept for the life of the app
-/// (the frame is remembered as `RalloNotesWindow`); opening it makes Rallo a
-/// Dock app, closing it (red button, ⌘W) makes it a menu-bar app again.
+/// three-column `NotesWindowView`. One window is kept for the life of the app;
+/// opening it makes Rallo a Dock app, closing it (red button, ⌘W) makes it a
+/// menu-bar app again.
 @MainActor
 final class NotesWindowController: NSObject, NSWindowDelegate {
     let model: NotesWindowModel
+    /// The coordinator's scratch-aware defaults: AppKit's frame autosave would
+    /// write the real app's domain from a scratch build (same bundle id).
+    private let defaults: UserDefaults
+    private static let frameKey = "RalloNotesWindow"
     private var window: NSWindow?
     /// Told when the window opens (true) and closes (false), so the activation
     /// policy follows it. A closing window still reads `isVisible`, hence the argument.
     var onPresenceChange: (Bool) -> Void = { _ in }
 
-    init(model: NotesWindowModel) {
+    init(model: NotesWindowModel, defaults: UserDefaults) {
         self.model = model
+        self.defaults = defaults
     }
 
     /// Showing, or minimised to the Dock.
@@ -3057,8 +3109,25 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        onPresenceChange(false)
+        window?.makeFirstResponder(nil)  // the input method commits marked text before the editor saves
+        rememberFrame()
+        // After AppKit's close sequence: switching the policy inside it can leave the menu bar unpainted.
+        DispatchQueue.main.async { [weak self] in self?.onPresenceChange(false) }
         Task { await model.closed() }
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) { rememberFrame() }
+
+    func windowDidMove(_ notification: Notification) { rememberFrame() }
+
+    /// ⌘F: the toolbar's search field (`.searchable` puts an `NSSearchToolbarItem` there).
+    func focusSearch() {
+        let search = window?.toolbar?.items.lazy.compactMap { $0 as? NSSearchToolbarItem }.first
+        search?.beginSearchInteraction()
+    }
+
+    private func rememberFrame() {
+        if let window { defaults.set(window.frameDescriptor, forKey: Self.frameKey) }
     }
 
     private func makeWindow() -> NSWindow {
@@ -3068,7 +3137,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Rallo Notes"
+        // Not "Rallo Notes": that is the panel's title, and Mission Control and
+        // the window report must tell the two apart.
+        window.title = "Notes"
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
@@ -3078,8 +3149,11 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         hosting.sizingOptions = []  // the window decides its size, not the SwiftUI content
         window.contentViewController = hosting
         window.setContentSize(NSSize(width: 1140, height: 690))
-        window.center()
-        _ = window.setFrameAutosaveName("RalloNotesWindow")  // a saved frame, if any, replaces the size above
+        if let saved = defaults.string(forKey: Self.frameKey) {
+            window.setFrame(from: saved)
+        } else {
+            window.center()
+        }
         return window
     }
 }
@@ -3119,7 +3193,7 @@ struct NotesWindowView: View {
             Text("Editor")  // replaced in Task 12
         }
         .tint(Theme.rust)
-        .searchable(text: $model.query, placement: .toolbar, prompt: "Search")
+        .searchable(text: $model.query, placement: .toolbar, prompt: "Search all notes")
         .onChange(of: model.query) { _, _ in model.queryChanged() }
         .overlay(alignment: .top) { errorBanner }
     }
@@ -3155,7 +3229,7 @@ struct NotesWindowView: View {
 }
 ```
 
-- [ ] **Step 6: Wire the app: Settings controller, status menu, panel button, coordinator, delegate, report**
+- [ ] **Step 2: Wire the app: Settings controller, status menu, panel button, coordinator, delegate, report**
 
 `apps/macos/Rallo/Settings/SettingsWindowController.swift`, Edit: old
 
@@ -3179,7 +3253,7 @@ new
     func bringForward() { window?.makeKeyAndOrderFront(nil) }
 ```
 
-`apps/macos/Rallo/App/StatusMenuController.swift`, three Edits:
+`apps/macos/Rallo/App/StatusMenuController.swift`, three Edits (the action is `AppCoordinator.openNotesWindow()`, below):
 
 1. old `        var openNotes: () -> Void\n        var jumpToWaitingAgent: () -> Void` → new `        var openNotes: () -> Void\n        var openNotesWindow: () -> Void\n        var jumpToWaitingAgent: () -> Void`
 2. old `        menu.addItem(notesMenuItem())` → new
@@ -3253,23 +3327,32 @@ new
     private let notes: NotesPanelController
     private let notesWindowModel: NotesWindowModel
     private let notesWindow: NotesWindowController
+    /// `.standard`, or the scratch suite for a scratch instance (the panel's scope, the window's frame).
+    private let defaults: UserDefaults
 ```
-2. old
+2. Release 2 (Task 5 Step 6) wrote the panel model's line; Task 1 Step 2 checked it is there. Hoist its defaults so the window shares them. Old
 ```swift
-        notesModel = NotesViewModel(core: core)
+        // The panel's folder choice (0019) lives in UserDefaults, which is per
+        // bundle id: a scratch instance must not overwrite the real app's.
+        notesModel = NotesViewModel(core: core, defaults: isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard)
         notes = NotesPanelController(model: notesModel)
 ```
 new
 ```swift
-        notesModel = NotesViewModel(core: core)
+        // The panel's folder choice and the Notes window's frame (0019) live in
+        // UserDefaults, which is per bundle id: a scratch instance must not
+        // overwrite the real app's.
+        defaults = isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard
+        notesModel = NotesViewModel(core: core, defaults: defaults)
         notes = NotesPanelController(model: notesModel)
         notesWindowModel = NotesWindowModel(core: core)
-        notesWindow = NotesWindowController(model: notesWindowModel)
+        notesWindow = NotesWindowController(model: notesWindowModel, defaults: defaults)
 ```
+If release 2's comment lines differ, anchor on the single `notesModel = NotesViewModel(core: core, defaults: isScratch …)` line plus the `notes = …` line under it, and keep whatever comment is there.
 3. old `                openNotes: { [weak self] in self?.openNotes(highlighting: nil) },` → new
 ```swift
                 openNotes: { [weak self] in self?.openNotes(highlighting: nil) },
-                openNotesWindow: { [weak self] in self?.notesWindow.show() },
+                openNotesWindow: { [weak self] in self?.openNotesWindow() },
 ```
 4. old `        notesModel.onEnableNotifications = { [weak self] in Task { await self?.turnOnNotifications() } }` → new
 ```swift
@@ -3314,7 +3397,7 @@ new
         case let .application(bundleID):
             log.record("app_reopen", ["sender": bundleID])
             if notesWindow.isOpen {
-                notesWindow.show()  // the Dock icon: bring the window back, minimised or not
+                openNotesWindow()  // the Dock icon: bring the window back, minimised or not
             } else {
                 openNotes(highlighting: nil)
             }
@@ -3333,6 +3416,11 @@ new
 
     // MARK: Notes window (0019)
 
+    /// The status menu's and the Window menu's "Notes Window", the Dock icon.
+    func openNotesWindow() {
+        notesWindow.show()
+    }
+
     /// The panel's expand button: the panel closes and the window opens on the
     /// panel's scope, with the panel's expanded note selected.
     private func expandNotesPanel() {
@@ -3343,14 +3431,15 @@ new
         log.record("notes_window_opened", ["from": "panel"])
     }
 
-    /// Rallo is a Dock app only while the Notes window is open.
+    /// Rallo is a Dock app only while the Notes window is open (0019 §11);
+    /// Settings and the panel never change the policy.
     private func updateActivationPolicy(notesWindowOpen: Bool) {
-        let open = ActivationPolicyPlanner.OpenWindows(
-            notesWindow: notesWindowOpen, settings: settings.isOpen, notesPanel: notes.isOpen)
-        guard let plan = ActivationPolicyPlanner.plan(open: open, current: NSApp.activationPolicy()) else { return }
-        NSApp.setActivationPolicy(plan.policy)
-        log.record("activation_policy", ["policy": plan.policy == .regular ? "regular" : "accessory"])
-        if plan.reactivate {
+        let wanted: NSApplication.ActivationPolicy = notesWindowOpen ? .regular : .accessory
+        guard wanted != NSApp.activationPolicy() else { return }
+        NSApp.setActivationPolicy(wanted)
+        log.record("activation_policy", ["policy": wanted == .regular ? "regular" : "accessory"])
+        // Dropping to .accessory can leave Settings or the panel showing in an inactive app.
+        if wanted == .accessory, settings.isOpen || notes.isOpen {
             NSApp.activate()
             if settings.isOpen { settings.bringForward() } else { notes.window?.makeKeyAndOrderFront(nil) }
         }
@@ -3361,12 +3450,18 @@ new
     var notesWindowHasUnsavedText: Bool { notesWindowModel.editor.hasUnsavedText }
     func newNoteInNotesWindow() { Task { await notesWindowModel.beginNewNote() } }
     func newFolderInNotesWindow() { Task { await notesWindowModel.newFolderInline() } }
-    func flushNotesWindow() async { await notesWindowModel.editor.flush() }
+    func focusNotesWindowSearch() { notesWindow.focusSearch() }
+
+    /// ⌘Q: end any input-method composition first, so the committed text is what saves.
+    func flushNotesWindow() async {
+        notesWindow.nsWindow?.makeFirstResponder(nil)
+        await notesWindowModel.editor.flush()
+    }
 ```
 9. old `            case "notes": openNotes(highlighting: nil)` → new
 ```swift
             case "notes": openNotes(highlighting: nil)
-            case "window": notesWindow.show()
+            case "window": openNotesWindow()
 ```
 10. old `        let report = WindowReport.make(pet: pet, notesWindow: notes.window)` → new `        let report = WindowReport.make(pet: pet, notesWindow: notes.window, notesAppWindow: notesWindow.nsWindow)`
 
@@ -3410,13 +3505,16 @@ new
         let folderItem = file.addItem(withTitle: "New Folder", action: #selector(newFolder), keyEquivalent: "N")
         folderItem.target = self
         file.addItem(.separator())
-        file.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        file.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileItem.submenu = file
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
-        NSApp.windowsMenu = windowMenu
+        windowMenu.addItem(.separator())
+        let notesWindowItem = windowMenu.addItem(withTitle: "Notes Window", action: #selector(openNotesWindow), keyEquivalent: "")
+        notesWindowItem.target = self
+        // No NSApp.windowsMenu: AppKit would list window titles and the Settings tab title, and drop
+        // "Notes Window" while the window is closed (0019 §11 pins this menu's items).
         let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
         windowItem.submenu = windowMenu
         let main = NSMenu()
@@ -3431,12 +3529,16 @@ new
     @objc private func openSettings() { coordinator?.openSettings() }
     @objc private func newNote() { coordinator?.newNoteInNotesWindow() }
     @objc private func newFolder() { coordinator?.newFolderInNotesWindow() }
+    @objc private func openNotesWindow() { coordinator?.openNotesWindow() }
+    @objc private func find() { coordinator?.focusNotesWindowSearch() }
 
-    /// ⌘N and ⇧⌘N belong to the Notes window: they are dimmed (and do nothing)
-    /// anywhere else, so they never fire from the panel or Settings.
+    /// ⌘N, ⇧⌘N and ⌘F belong to the Notes window: they are dimmed (and do
+    /// nothing) anywhere else, so they never fire from the panel or Settings.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(newNote) { return coordinator?.notesWindowCanCreateNote ?? false }
-        if menuItem.action == #selector(newFolder) { return coordinator?.notesWindowIsKey ?? false }
+        if menuItem.action == #selector(newFolder) || menuItem.action == #selector(find) {
+            return coordinator?.notesWindowIsKey ?? false
+        }
         return true
     }
 ```
@@ -3455,17 +3557,25 @@ new
     func applicationWillTerminate(_ notification: Notification) {
 ```
 6. Make `AppDelegate` a menu validator: old `final class AppDelegate: NSObject, NSApplicationDelegate {` → new `final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {`.
+7. ⌘F (the main menu is AppKit, so `.searchable` gets no Find command on its own): in `editMenu()`, old `        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")` → new
+```swift
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        let findItem = edit.addItem(withTitle: "Find", action: #selector(find), keyEquivalent: "f")
+        findItem.target = self
+```
 
-- [ ] **Step 7: Build and run the whole Swift suite**
+- [ ] **Step 3: Build and run the whole Swift suite**
 
 Run `cd /Users/eyakub/Desktop/Rallo && scripts/build-macos.sh` then the **Swift test command** with `-only-testing:RalloTests` (no class: all tests).
-Expected: build succeeds (`built: …/Rallo.app`); all tests pass. A compile error naming `notesModel.scope` means Task 1 recorded a different name for the panel's scope property: use it.
+Expected: build succeeds (`built: …/Rallo.app`); all tests pass.
 
-- [ ] **Step 8: Click-through check, Light and Dark**
+- [ ] **Step 4: Click-through check, Light and Dark**
 
 Follow **Scratch run** (seed, then launch with `--demo-open window`). Verify each, ticking only what you saw:
-- The window appears 1140×690, centred, titled "Rallo Notes" (hidden title), three columns showing the temporary Sidebar/List/Editor texts and the sidebar toggle; dragging it below 900×560 stops at the minimum; quit and relaunch: it comes back at the size you left it (frame autosave).
-- The Dock shows a Rallo icon and the menu bar shows **Rallo, File, Edit, Window** while it is open; `grep activation_policy "$RALLO_DATA_DIR/diagnostics/events.jsonl" | tail -3` shows `regular`.
+- The window appears 1140×690, centred, titled "Notes" (hidden title; Mission Control and the Window report name it "Notes", the panel stays "Rallo Notes"), three columns showing the temporary Sidebar/List/Editor texts and the sidebar toggle; dragging it below 900×560 stops at the minimum; move and resize it, quit and relaunch: it comes back where you left it, and `defaults read com.razlio.rallo.scratch RalloNotesWindow` prints the frame (the installed app's `com.razlio.rallo` domain gets nothing).
+- The Dock shows a Rallo icon and the menu bar shows **Rallo, File, Edit, Window** while it is open; `grep activation_policy "$RALLO_DATA_DIR/diagnostics/events.jsonl" | tail -3` shows `regular`. If the menu bar stays blank on the first open, change `show()` to follow the policy switch with `DispatchQueue.main.async { NSApp.activate(); window.makeKeyAndOrderFront(nil) }` and check again.
+- File reads **New Note** ⌘N, **New Folder** ⇧⌘N, **Close** ⌘W; Edit ends with **Find** ⌘F; Window reads **Minimize** ⌘M and **Notes Window**, nothing else (no window titles, no Settings tab name). ⌘N, ⇧⌘N and ⌘F are dimmed while Settings or the panel is key.
 - ⌘W closes it: the Dock icon goes, the menu bar menus go, the log shows `accessory`. The paw menu's **Notes Window** (under **Open Notes…**) reopens it. The red button does the same as ⌘W; Minimize keeps the Dock icon, and clicking the Dock icon brings the minimised window back (the log shows `app_reopen`).
 - Open Settings (⌘,) with the window open, then close the window with ⌘W: Settings stays on screen and key, the Dock icon is gone. Repeat with the notes panel (⌃⌥⌘N) in place of Settings.
 - With the window open, ⌃⌥⌘N and a pet click still toggle the panel; the panel's new expand button (top right, tooltip "Open Notes Window") closes the panel and brings the window forward. Inspect its position against the panda: nudge `.padding(.top, …)`/`.padding(.trailing, …)` so it clears the panda's ears and the title bar's buttons.
@@ -3473,11 +3583,11 @@ Follow **Scratch run** (seed, then launch with `--demo-open window`). Verify eac
 - Screenshot the window and the panel with its expand button in **Light and Dark**: `private/docs/folders-3-shots/t9-window-{light,dark}.png`, `t9-panel-{light,dark}.png`.
 Run the **Cleanup** from the Scratch run section afterwards.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 cd /Users/eyakub/Desktop/Rallo
-git add apps/macos/Rallo/NotesWindow/ActivationPolicyPlanner.swift apps/macos/Rallo/NotesWindow/NotesWindowController.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/RalloTests/ActivationPolicyPlannerTests.swift apps/macos/project.yml apps/macos/Rallo/App/AppDelegate.swift apps/macos/Rallo/App/AppCoordinator.swift apps/macos/Rallo/App/StatusMenuController.swift apps/macos/Rallo/Settings/SettingsWindowController.swift apps/macos/Rallo/Notes/NotesView.swift apps/macos/Rallo/Diagnostics/WindowReport.swift
+git add apps/macos/Rallo/NotesWindow/NotesWindowController.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/Rallo/App/AppDelegate.swift apps/macos/Rallo/App/AppCoordinator.swift apps/macos/Rallo/App/StatusMenuController.swift apps/macos/Rallo/Settings/SettingsWindowController.swift apps/macos/Rallo/Notes/NotesView.swift apps/macos/Rallo/Diagnostics/WindowReport.swift
 git commit -m "feat(app): notes window shell, Dock presence and the panel's expand button"
 ```
 
@@ -3494,7 +3604,7 @@ git commit -m "feat(app): notes window shell, Dock presence and the panel's expa
 - Modify: `apps/macos/project.yml` (test sources)
 
 **Interfaces:**
-- Consumes: `NotesWindowModel` (Task 8: `overview`, `folders`, `tags`, `selection`, `select`, `newFolderInline`, `renameFolder`, `requestDelete`, `confirmDelete`, `pendingFolderDelete`, `renamingFolderID`, `canDrop`, `drop`), `PendingFolderDelete`.
+- Consumes: `NotesWindowModel` (Task 8: `overview`, `folders`, `tags`, `selection`, `select`, `newFolderInline`, `renameFolder`, `requestDelete` (synchronous), `confirmDelete`, `pendingFolderDelete`, `renamingFolderID`, `canDrop`, `drop`), `PendingFolderDelete` (`noteCount` is the folder's `noteCount`, open + done).
 - Produces: `FolderDeleteCopy(folderName:noteCount:) { title, message, holdsNotes }`; `FolderSidebar(model:)`; `DeleteFolderSheet(pending:model:)`.
 
 - [ ] **Step 1: Write the failing copy tests**
@@ -3573,7 +3683,6 @@ struct FolderDeleteCopy: Equatable {
 Create `apps/macos/Rallo/NotesWindow/FolderSidebar.swift`:
 
 ```swift
-import AppKit
 import SwiftUI
 
 /// The window's left column (0019 §11): Folders (Notes first, then
@@ -3717,10 +3826,7 @@ private struct FolderRow: View {
                     }
                     .onAppear {
                         name = folder.name
-                        fieldFocused = true
-                        DispatchQueue.main.async {
-                            NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
-                        }
+                        fieldFocused = true  // a text field selects its text when it takes focus
                     }
                     .accessibilityLabel("Folder name")
             } else {
@@ -3743,7 +3849,7 @@ private struct FolderRow: View {
             if let folder {
                 Button("Rename") { model.renamingFolderID = folder.id }
                 Divider()
-                Button("Delete Folder…", role: .destructive) { Task { await model.requestDelete(folder) } }
+                Button("Delete Folder…", role: .destructive) { model.requestDelete(folder) }
             }
         }
         .accessibilityElement(children: .combine)
@@ -3866,16 +3972,16 @@ git commit -m "feat(app): notes window sidebar, inline folder rename and the del
 
 **Files:**
 - Create: `apps/macos/Rallo/NotesWindow/NoteListColumn.swift`
-- Create: `apps/macos/Rallo/NotesWindow/WindowToastBar.swift`
 - Create: `apps/macos/Rallo/NotesWindow/FolderPrompts.swift`
+- Modify: `apps/macos/Rallo/Notes/NotesView.swift` (`ToastBar` shared with the window)
 - Create: `apps/macos/Rallo/Notes/RemindMenuItems.swift`
 - Modify: `apps/macos/Rallo/Notes/NoteRow.swift` (use `RemindMenuItems`)
 - Modify: `apps/macos/Rallo/Notes/Thumbnails.swift` (`ThumbnailCache.image(for:points:)`)
 - Modify: `apps/macos/Rallo/NotesWindow/NotesWindowView.swift`
 
 **Interfaces:**
-- Consumes: `NotesWindowModel` (Task 8: `header`, `visibleItems`, `doneItems`, `doneExpanded`, `listIsGrouped`, `groupTimestamp`, `selectedNoteID`, `selectedItem`, `isDrafting`, `isSearching`, `canCreateNote`, `selectNote`, `toggleDone`, `delete`, `restore`, `remind`, `move`, `beginNewNote`, `undo`, `toast`, `folders`), `DateGrouping`, `RowTimeLabel`, `RowText`, `CountLabel` (Tasks 3 and 6), `FolderMoveMenu` and `FolderNamePrompt` (release 2), `NotesWindowModel.core`, `CompletionButton` and `ReminderSnapshot.deadline` (existing, `NoteRow.swift`), `ReminderLabel`, `ThumbnailCache`.
-- Produces: `NoteListColumn(model:)`; `WindowToastBar(toast:undo:)`; `RemindMenuItems(onPreset:onCustom:)` (the Remind Me choices, shared with the panel row); `WindowFolderPrompt.newFolder(for:model:)`; `ThumbnailCache.shared.image(for: String, points: CGFloat)`.
+- Consumes: `NotesWindowModel` (Task 8: `header`, `visibleItems`, `doneItems`, `open`/`done`/`found` (`totalCount`, `hasMore`, `items`), `loadMore(done:)`, `doneExpanded`, `listIsGrouped`, `groupTimestamp`, `selectedNoteID`, `selectedItem`, `isDrafting`, `isSearching`, `canCreateNote`, `selectNote`, `toggleDone`, `delete`, `restore`, `remind`, `move`, `beginNewNote`, `undo`, `toast`, `folders`), `DateGrouping`, `RowTimeLabel`, `RowText` (Tasks 3 and 6), `FolderMoveMenu` and `FolderNamePrompt` (release 2), `NotesWindowModel.core`, `CompletionButton` and `ReminderSnapshot.deadline` (existing, `NoteRow.swift`), `ReminderLabel`, `ThumbnailCache`.
+- Produces: `NoteListColumn(model:)`; `ToastBar(message:undoable:undoShortcut:undo:)` (the panel's, made shared); `RemindMenuItems(onPreset:onCustom:)` (the Remind Me choices, shared with the panel row); `WindowFolderPrompt.newFolder(for:model:)`; `ThumbnailCache.shared.image(for: String, points: CGFloat)`.
 
 - [ ] **Step 1: Share the Remind Me menu and decode thumbnails at any size**
 
@@ -3959,17 +4065,13 @@ new
     }
 ```
 
-- [ ] **Step 2: Write the toast and the New Folder… glue**
+- [ ] **Step 2: Share the panel's toast bar, and write the New Folder… glue**
 
-Create `apps/macos/Rallo/NotesWindow/WindowToastBar.swift`:
+In `apps/macos/Rallo/Notes/NotesView.swift` (Task 1 Step 2 checked `ToastBar` is still release 0.12's), two Edits. Old
 
 ```swift
-import SwiftUI
-
-/// The window's version of the panel's toast: a message, and Undo where there is one.
-/// (No ⌘Z binding here: in the window ⌘Z belongs to the text.)
-struct WindowToastBar: View {
-    let toast: WindowToast
+private struct ToastBar: View {
+    let toast: Toast
     let undo: () -> Void
 
     var body: some View {
@@ -3983,17 +4085,40 @@ struct WindowToastBar: View {
                     .buttonStyle(.plain)
                     .font(Theme.rounded(13, .semibold))
                     .foregroundStyle(Theme.toastAccent)
+                    .keyboardShortcut("z", modifiers: .command)
             }
         }
-        .font(Theme.rounded(13))
-        .foregroundStyle(Theme.onToast)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.toast))
-        .accessibilityElement(children: .contain)
-    }
-}
 ```
+
+new
+
+```swift
+/// A transient message with an optional Undo, at the bottom of the panel and
+/// of the notes window's list (0019 §11).
+struct ToastBar: View {
+    let message: String
+    let undoable: Bool
+    /// ⌘Z presses Undo in the panel; in the notes window ⌘Z belongs to the text.
+    var undoShortcut = true
+    let undo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(message)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            if undoable {
+                Button("Undo", action: undo)
+                    .buttonStyle(.plain)
+                    .font(Theme.rounded(13, .semibold))
+                    .foregroundStyle(Theme.toastAccent)
+                    .keyboardShortcut(undoShortcut ? KeyboardShortcut("z", modifiers: .command) : nil)
+            }
+        }
+```
+
+and old `                ToastBar(toast: toast) { Task { await model.undo() } }` new `                ToastBar(message: toast.message, undoable: toast.undo != nil) { Task { await model.undo() } }`.
 
 Create `apps/macos/Rallo/NotesWindow/FolderPrompts.swift`:
 
@@ -4033,7 +4158,7 @@ struct NoteListColumn: View {
     @FocusState private var listFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var hasDoneRow: Bool { !model.isSearching && !model.doneItems.isEmpty }
+    private var hasDoneRow: Bool { !model.isSearching && model.done.totalCount > 0 }
 
     private var isEmpty: Bool { model.visibleItems.isEmpty && !model.isDrafting && !hasDoneRow }
 
@@ -4046,7 +4171,7 @@ struct NoteListColumn: View {
         .background(Theme.surface)
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
-                WindowToastBar(toast: toast) { Task { await model.undo() } }
+                ToastBar(message: toast.message, undoable: toast.undo != nil, undoShortcut: false) { Task { await model.undo() } }
                     .id(toast.id)
                     .padding(12)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
@@ -4145,6 +4270,11 @@ struct NoteListColumn: View {
             listFocused = true
             Task { await model.selectNote(item.id) }
         }
+        .onAppear {
+            // The last loaded row came into view: the next page (0019 §9).
+            let list = dimmed ? model.done : (model.isSearching ? model.found : model.open)
+            if item.id == list.items.last?.id, list.hasMore { Task { await model.loadMore(done: dimmed) } }
+        }
     }
 
     /// "N done": collapsed by default; expanding shows the scope's finished notes, dimmed.
@@ -4156,7 +4286,7 @@ struct NoteListColumn: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
                     .rotationEffect(.degrees(model.doneExpanded ? 90 : 0))
-                Text("\(CountLabel.text(model.doneItems.count)) done")
+                Text("\(model.done.totalCount) done")
                     .font(.system(size: 12.5))
                 Spacer(minLength: 0)
             }
@@ -4169,7 +4299,7 @@ struct NoteListColumn: View {
         .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1) }
         .padding(.top, 10)
         .padding(.horizontal, 6)
-        .accessibilityLabel("\(model.doneItems.count) done")
+        .accessibilityLabel("\(model.done.totalCount) done")
         .accessibilityValue(model.doneExpanded ? "Expanded" : "Collapsed")
         .accessibilityHint("Shows or hides the finished notes")
     }
@@ -4441,19 +4571,20 @@ sqlite3 "$RALLO_DATA_DIR/rallo.sqlite3" "UPDATE items SET created_at_ms = create
 (The CLI may start a background app instance: stop it with the `pkill` line from Scratch run before launching; run the `sqlite3` line only while the app is stopped.) Then verify, ticking only what you saw (mark **Call the dentist** done with its circle first, so Done has a note):
 - The list header reads the scope's name and `N open · M done`; selecting each sidebar row changes the list: a folder shows only its notes, **All Notes** all open notes, **Due** the reminder note (no date groups), **Done** the done note under a completion-date group, **Deleted** empty ("Nothing deleted"), a tag its tagged notes across folders (`#bug` shows two).
 - Groups read **Today**, **Yesterday**, **Previous 7 Days**, and a month header for the 40-day-old note; the Today group has a time like `10:42`, the 3-day-old note its weekday, the reminder row a rust bell with "Today at …", the photo note a 38 pt thumbnail on the right. A note with a title shows the title on line one and the time + preview on line two.
-- Click a row: it takes the highlight colour; ↑/↓ move the selection; ⌫ deletes the selected note and the toast "Deleted “…”" appears at the bottom with **Undo**, which brings it back. The completion circle marks a note done (toast with Undo, and the row moves into the collapsed **N done** row); expanding that row shows the note dimmed, and its green check reopens it.
+- Click a row: it takes the highlight colour; ↑/↓ move the selection; ⌫ deletes the selected note and the toast "Deleted “…”" appears at the bottom with **Undo**, which brings it back (⌘Z does not press the window's Undo; the panel's toast still takes ⌘Z). The completion circle marks a note done (toast with Undo, and the row moves into the collapsed **N done** row); expanding that row shows the note dimmed, and its green check reopens it.
 - Right-click a row: **Mark as Done**, **Remind Me** (20 minutes, 1 hour, tomorrow; "Custom…" is wired in Task 12), **Move to** (Notes, folders with the current one checked and disabled, New Folder…), Copy Text, Copy ID, Delete. **Move to → Work** shows the toast "Moved to Work" with **Undo** (moves it back); in a folder scope the moved row leaves the list. **New Folder…** opens the alert, refuses `notes`/duplicates with the reason while staying up, then creates the folder and moves the note into it.
 - In **Deleted**, a row's context menu offers **Restore** only, the toolbar shows **Restore** instead of the trash, and ⌫ does nothing.
 - Drag a row onto **Work** in the sidebar: the folder row highlights, the note moves, the toast shows. Dragging onto **All Notes**, Views or Tags does nothing; dropping text from another app on a folder row is ignored.
-- ⌘F focuses the toolbar search field; typing `plan` lists matches across all folders under **Results** (flat), including done notes; the New Note toolbar button is disabled; clearing the field returns to the scope. The empty states read "No results", "Nothing done yet", etc.
+- ⌘F (Edit → Find) focuses the toolbar search field, whose placeholder reads "Search all notes". If it does nothing, log `window.toolbar?.items` in `NotesWindowController.focusSearch()`: when SwiftUI built no `NSSearchToolbarItem`, find the `NSSearchField` in the toolbar items' views and `window.makeFirstResponder` it instead. Typing `plan` lists matches across all folders under **Results** (flat), including done notes; the New Note toolbar button is disabled; clearing the field returns to the scope. The empty states read "No results", "Nothing done yet", etc.
 - `"$CLI" note "from the terminal"` while the window is open: the new note appears within a second without touching anything, and the counts in the sidebar update.
+- Paging (0019 §9): stop the app, seed 250 more notes (`for i in $(seq 1 250); do "$CLI" note "Idea $i"; done`, then the `pkill` line), relaunch. **All Notes**' header and sidebar count both read the exact open total, over 250 (never `200+`, never the 100 that loaded); scroll to the bottom: the rest load as the last row appears, with no row twice. Select a note near the bottom, run `"$CLI" note "one more"`: the list reloads and the selection stays. Search `Idea` and scroll the results the same way; the header says the full count.
 - Screenshots Light and Dark: the list with all groups, the Deleted view, the expanded done row, a context menu: `private/docs/folders-3-shots/t11-*.png`. Run the **Cleanup**.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 cd /Users/eyakub/Desktop/Rallo
-git add apps/macos/Rallo/NotesWindow/NoteListColumn.swift apps/macos/Rallo/NotesWindow/WindowToastBar.swift apps/macos/Rallo/NotesWindow/FolderPrompts.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/Rallo/Notes/RemindMenuItems.swift apps/macos/Rallo/Notes/NoteRow.swift apps/macos/Rallo/Notes/Thumbnails.swift
+git add apps/macos/Rallo/NotesWindow/NoteListColumn.swift apps/macos/Rallo/NotesWindow/FolderPrompts.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/Rallo/Notes/NotesView.swift apps/macos/Rallo/Notes/RemindMenuItems.swift apps/macos/Rallo/Notes/NoteRow.swift apps/macos/Rallo/Notes/Thumbnails.swift
 git commit -m "feat(app): notes window list with date groups, search, drag to folders and Undo"
 ```
 
@@ -4464,12 +4595,13 @@ git commit -m "feat(app): notes window list with date groups, search, drag to fo
 **Files:**
 - Create: `apps/macos/Rallo/NotesWindow/NoteTextEditor.swift`
 - Create: `apps/macos/Rallo/NotesWindow/NoteEditorColumn.swift`
+- Modify: `apps/macos/Rallo/Shared/Theme.swift` (`inkNS`, `rustNS`: the `NSColor`s behind `ink`, `rust`)
 - Modify: `apps/macos/Rallo/Notes/ImageStrip.swift` (callbacks and a tile size instead of the panel's model)
 - Modify: `apps/macos/Rallo/NotesWindow/NotesWindowView.swift`
 
 **Interfaces:**
 - Consumes: `NoteEditorSession` (Task 7: `text`, `textChanged`, `isComposing`, `showCount`, `focusToken`, `isDraft`, `isEditable`, `note`, `conflict`, `error`), `NotesWindowModel` (`selectedItem`, `showTheirs()`, `keepMine()`, `removeImage`), `PlainTextView`, `NoteTextStyler`, `tagRanges(text:)` (Tasks 6 and 1), `ImageStrip`, `QuickLookPresenter`.
-- Produces: `NoteTextEditor(session:)`; `NoteEditorColumn(model:editor:)`; `ImageStrip(item:tile:onRemove:onFocusChange:)` plus the panel's `ImageStrip(item:model:)` convenience initializer (unchanged call sites).
+- Produces: `Theme.inkNS`, `Theme.rustNS`, `NSColor.dynamic(light:lightAlpha:dark:darkAlpha:)`; `NoteTextEditor(session:)`; `NoteEditorColumn(model:editor:)`; `ImageStrip(item:tile:onRemove:onFocusChange:)` plus the panel's `ImageStrip(item:model:)` convenience initializer (unchanged call sites).
 
 - [ ] **Step 1: Let `ImageStrip` serve both the panel and the window**
 
@@ -4566,7 +4698,59 @@ new
 ```
 10. old `            thumbnail = await ThumbnailCache.shared.image(for: image.path)` new `            thumbnail = await ThumbnailCache.shared.image(for: image.path, points: max(size.width, size.height))`
 
-- [ ] **Step 2: Write the text editor**
+- [ ] **Step 2: Expose the theme's AppKit colours, then write the text editor**
+
+`Theme`'s colours are already dynamic `NSColor` providers wrapped in `Color`; the editor's attributes need the `NSColor` itself, which resolves in the text view's appearance whenever it draws (no appearance observer, no colour-space snapshot). In `apps/macos/Rallo/Shared/Theme.swift`, four Edits:
+
+1. old
+```swift
+    // Paw ink / belly cream.
+    static let ink = Color(light: 0x2B1A13, dark: 0xF5E8DC)
+```
+new
+```swift
+    // Paw ink / belly cream.
+    static let inkNS = NSColor.dynamic(light: 0x2B1A13, dark: 0xF5E8DC)
+    static let ink = Color(nsColor: inkNS)
+```
+2. old
+```swift
+    static let rust = Color(light: 0xB4501F, dark: 0xF08A4B)
+```
+new
+```swift
+    static let rustNS = NSColor.dynamic(light: 0xB4501F, dark: 0xF08A4B)
+    static let rust = Color(nsColor: rustNS)
+```
+3. old
+```swift
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(hex: isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha)
+        })
+```
+new
+```swift
+        self.init(nsColor: .dynamic(light: light, lightAlpha: lightAlpha, dark: dark, darkAlpha: darkAlpha))
+```
+4. old
+```swift
+extension NSColor {
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+```
+new
+```swift
+extension NSColor {
+    /// Resolves in the appearance it is drawn in (Light or Dark).
+    static func dynamic(light: UInt32, lightAlpha: CGFloat = 1, dark: UInt32, darkAlpha: CGFloat = 1) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(hex: isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha)
+        }
+    }
+
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+```
 
 Create `apps/macos/Rallo/NotesWindow/NoteTextEditor.swift`:
 
@@ -4588,9 +4772,7 @@ struct NoteTextEditor: NSViewRepresentable {
         let view = PlainTextView.make()
         view.delegate = context.coordinator
         view.setAccessibilityLabel("Note text")
-        view.onAppearanceChange = { [weak coordinator = context.coordinator, weak view] in
-            if let view { coordinator?.restyle(view) }
-        }
+        view.insertionPointColor = Theme.rustNS
         return view
     }
 
@@ -4603,6 +4785,7 @@ struct NoteTextEditor: NSViewRepresentable {
         if !view.hasMarkedText(), view.string != session.text {
             let kept = view.selectedRange()
             view.string = session.text
+            view.undoManager?.removeAllActions()  // undo across a programmatic replace would hit stale ranges
             view.setSelectedRange(NSRange(location: min(kept.location, (session.text as NSString).length), length: 0))
         }
         if coordinator.shown != session.showCount {  // another note: no undo across notes, caret at the start
@@ -4645,26 +4828,11 @@ struct NoteTextEditor: NSViewRepresentable {
             restyle(view)
         }
 
+        /// Dynamic colours: Light/Dark switches redraw them without a restyle.
         func restyle(_ view: PlainTextView) {
-            let palette = NoteTextStyler.Palette.theme(for: view)
-            view.insertionPointColor = palette.rust
+            let palette = NoteTextStyler.Palette(ink: Theme.inkNS, rust: Theme.rustNS)
             NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), palette: palette)
         }
-    }
-}
-
-extension NoteTextStyler.Palette {
-    /// The theme's colours as they resolve in `view`'s appearance (Light or Dark).
-    @MainActor
-    static func theme(for view: NSView) -> NoteTextStyler.Palette {
-        var palette = NoteTextStyler.Palette(ink: .labelColor, rust: .systemOrange)
-        view.effectiveAppearance.performAsCurrentDrawingAppearance {
-            palette = NoteTextStyler.Palette(
-                ink: NSColor(Theme.ink).usingColorSpace(.sRGB) ?? .labelColor,
-                rust: NSColor(Theme.rust).usingColorSpace(.sRGB) ?? .systemOrange
-            )
-        }
-        return palette
     }
 }
 ```
@@ -4788,7 +4956,9 @@ Follow **Scratch run** (use the Task 11 seed, with an image note). Verify, ticki
 - Typing saves 0.6 s after you stop: in a terminal `"$CLI" list` shows the old text at 0.3 s and the new at ~1 s. Switching to another note, ⌘W, and ⌘Q each save immediately (type, then do it at once, then check with the CLI / relaunch).
 - Select all, delete, wait 2 s: the CLI still shows the old text; switch to another note and back: the old text is back. A note with an image can be emptied of text and saves.
 - While you have typed, run `"$CLI" edit <id> "from the CLI"` (find the id with `"$CLI" list`), wait 1 s: the bar **This note changed somewhere else.** appears with **Show Theirs** and **Keep Mine**, your text stays; **Show Theirs** replaces the text with the CLI's and the bar goes; repeat and **Keep Mine** saves yours (CLI shows it). A reload (any CLI note added meanwhile) never overwrote your typing.
-- Input methods: switch to an IME (Japanese Hiragana, or Bangla Phonetic), start composing a word and pause longer than a second with the underlined text uncommitted: it stays underlined and unsaved until committed, and tags typed around it keep styling after. Paste formatted text from Safari: it arrives plain. ⌘Z undoes typing; the caret starts at the beginning of a note you open. A long note scrolls with the caret as you type at the bottom.
+- Input methods: switch to an IME (Japanese Hiragana, or Bangla Phonetic), start composing a word and pause longer than a second with the underlined text uncommitted: it stays underlined and unsaved until committed, and tags typed around it keep styling after. Start another composition and press ⌘W mid-word: what the CLI shows is the committed text, never the underlined form; repeat with ⌘Q and relaunch.
+- With the editor idle, `"$CLI" edit <id> "changed outside"`: the text updates within a second; ⌘Z then does nothing and nothing crashes (the undo stack was cleared with the replace).
+- Switch System Settings between Light and Dark with a note open: the title, body and tag colours follow at once. Paste formatted text from Safari: it arrives plain. ⌘Z undoes typing; the caret starts at the beginning of a note you open. A long note scrolls with the caret as you type at the bottom.
 - 70 KB paste (`python3 -c "print('a'*70000)" | pbcopy`, then ⌘V): the message about the size shows under the text in red, the text stays, and typing it shorter clears the message.
 - ⌘N (File menu → New Note, also the list toolbar button) in a folder: a **New Note** row at the top of the list, selected, the editor focused and empty; typing creates the note 0.6 s later in that folder (check with `"$CLI" list --folder Work`) and the row becomes the real note; ⌘N then clicking another row without typing leaves nothing behind. In a tag scope the text starts with `#bug `. ⌘N is dimmed in Due/Done/Deleted and while searching.
 - The image note shows its images as 210×140 tiles below the text; click opens Quick Look (arrow keys move between images, Space closes), a tile drags out to the Finder as a copy, and right-click offers Copy Image, Show in Finder, Remove Image (toast "Removed the image" with **Undo**, which attaches it again).
@@ -4799,7 +4969,7 @@ Follow **Scratch run** (use the Task 11 seed, with an image note). Verify, ticki
 
 ```bash
 cd /Users/eyakub/Desktop/Rallo
-git add apps/macos/Rallo/NotesWindow/NoteTextEditor.swift apps/macos/Rallo/NotesWindow/NoteEditorColumn.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/Rallo/Notes/ImageStrip.swift
+git add apps/macos/Rallo/NotesWindow/NoteTextEditor.swift apps/macos/Rallo/NotesWindow/NoteEditorColumn.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/Rallo/Notes/ImageStrip.swift apps/macos/Rallo/Shared/Theme.swift
 git commit -m "feat(app): notes window editor with styled plain text, conflict bar and image tiles"
 ```
 
@@ -5122,7 +5292,7 @@ Expected: `test result: ok` for every crate; `** TEST SUCCEEDED **`.
 
 - [ ] **Step 3: One last end-to-end pass on a fresh scratch run, both appearances**
 
-Follow **Scratch run** from an empty data dir and do the whole story once in Light, then once in Dark: create two folders from the sidebar (inline rename), create notes with ⌘N in each, tag one, drag a note between folders, search, mark one done and reopen it, delete it and restore it from Deleted, delete a folder keeping its notes, delete another deleting them, expand the panel into the window with a note expanded, close the window with ⌘W while Settings is open, reopen from the Dock after minimising, quit with ⌘Q mid-typing and relaunch to find the text saved. Confirm `lsregister -u` and the cleanup ran, `defaults` has no new keys beyond `NSWindow Frame RalloNotesWindow` (deleted), and `git status --short` shows only `assets/pet/rallo/launch-kit/` and `marketing/` as untracked.
+Follow **Scratch run** from an empty data dir and do the whole story once in Light, then once in Dark: create two folders from the sidebar (inline rename), create notes with ⌘N in each, tag one, drag a note between folders, search, mark one done and reopen it, delete it and restore it from Deleted, delete a folder keeping its notes, delete another deleting them, expand the panel into the window with a note expanded, close the window with ⌘W while Settings is open, reopen from the Dock after minimising, quit with ⌘Q mid-typing and relaunch to find the text saved. Confirm `lsregister -u` and the cleanup ran, and `git status --short` shows only `assets/pet/rallo/launch-kit/` and `marketing/` as untracked.
 
 - [ ] **Step 4: Commit**
 
@@ -5137,15 +5307,15 @@ git commit -m "docs: the notes window in the README"
 ## Self-Review
 
 **Spec coverage (§11, §12, and §14's third release).**
-- Window: `NSWindow` with titled/closable/miniaturizable/resizable/full-size content/unified toolbar, `isReleasedWhenClosed = false`, min 900×560, 1140×690 centred, autosave `RalloNotesWindow`, three-column `NavigationSplitView`, surface gradient, system sidebar material, `.tint(Theme.rust)`: Tasks 9, 10, 11, 12.
-- Expand button (symbol, help, accessibility label, closes the panel, opens on the panel's scope and expanded row): Task 9. Opening paths (button, status-menu "Notes Window", Dock icon): Task 9. `.regular` on open, `.accessory` on close, Settings and the panel considered, ⌘W, red button, ⌘Q, Dock reopen of a minimised window: Task 9 (`ActivationPolicyPlanner`, `handleReopen`, `applicationShouldTerminate`).
+- Window: `NSWindow` titled "Notes" with titled/closable/miniaturizable/resizable/full-size content/unified toolbar, `isReleasedWhenClosed = false`, min 900×560, 1140×690 centred, frame remembered as `RalloNotesWindow` in the coordinator's scratch-aware defaults (never AppKit autosave), three-column `NavigationSplitView`, surface gradient, system sidebar material, `.tint(Theme.rust)`: Tasks 9, 10, 11, 12.
+- Expand button (symbol, help, accessibility label, closes the panel, opens on the panel's scope and expanded row): Task 9. Opening paths (button, status-menu "Notes Window", Window-menu "Notes Window", Dock icon): Task 9. Menus exactly §11 (File: New Note, New Folder, Close; Window: Minimize, Notes Window; Find ⌘F): Task 9. `.regular` on open, `.accessory` on close (switched after the close sequence), Settings and the panel considered, ⌘W, red button, ⌘Q (marked text committed first), Dock reopen of a minimised window: Task 9 (`updateActivationPolicy`, `handleReopen`, `applicationShouldTerminate`).
 - Sidebar (Folders with +, Notes then alphabetical with counts, context menu Rename inline and Delete Folder…, footer + New Folder ⌘⇧N, Views with counts, Tags hidden when none, drop targets with id payload and unknown ids ignored): Task 10 (+ the model in Task 8).
-- List (header and subtitle, date groups, Due flat by deadline, Done by completion, Deleted by deletion, row anatomy with 38 pt thumbnail, selected highlight, collapsed "N done" row dimmed when expanded, Deleted rows Restore only, Delete ⌫ and New Note ⌘N disabled in Due/Done/Deleted/search, shared Undo toast, search ⌘F across folders under "Results"): Tasks 3, 8, 9, 11.
-- Editor (empty state, toolbar items, date, reminder pill with Cancel Reminder, plain-text `NSTextView`, 24 pt semibold rounded title, tinted tags via `tagRanges`, image tiles 210×140 with Quick Look/drag-out/remove, saving 0.6 s + on selection change/close/quit, `REVISION_CONFLICT` bar with Show Theirs/Keep Mine, emptied-note restore, `TEXT_TOO_LONG` inline, draft "New Note" created on the first non-empty save in the scope's folder with the `#tag ` seed, live reload that never overwrites typing, vanished note clears the selection, deleted scope folder switches to Notes): Tasks 5, 6, 7, 8, 12, 13.
-- §12: sheet copy exactly (plural/singular/empty), Keep Notes default, Delete Notes destructive, Cancel; `delete_folder(id, keep_notes)`; no undo beyond Deleted: Tasks 8 and 10.
+- List (header and subtitle from the core's `totalCount`, paged loading through `ItemPage` cursors with the next page on the last row's appearance and reloads that keep the loaded pages, no cap anywhere, date groups, Due flat by deadline, Done by completion, Deleted by deletion (all ordered by the core), row anatomy with 38 pt thumbnail, selected highlight, collapsed "N done" row dimmed when expanded, Deleted rows Restore only, Delete ⌫ and New Note ⌘N disabled in Due/Done/Deleted/search, shared Undo toast, search ⌘F across folders under "Results"): Tasks 3, 8, 9, 11.
+- Editor (empty state, toolbar items, date, reminder pill with Cancel Reminder (`cancel_reminder`: state `cancelled`, note open), plain-text `NSTextView`, 24 pt semibold rounded title, tinted tags via `tagRanges`, image tiles 210×140 with Quick Look/drag-out/remove, saving 0.6 s + on selection change/close/quit, `REVISION_CONFLICT` bar with Show Theirs/Keep Mine, emptied-note restore, `TEXT_TOO_LONG` inline, draft "New Note" created on the first non-empty save in the scope's folder with the `#tag ` seed, live reload that never overwrites typing, vanished note clears the selection, deleted scope folder switches to Notes): Tasks 5, 6, 7, 8, 12, 13.
+- §12: sheet copy exactly (plural/singular/empty) with the count from `FolderSnapshot.noteCount` (open + done), Keep Notes default, Delete Notes destructive, Cancel; `delete_folder(id, keep_notes)`; no undo beyond Deleted: Tasks 8 and 10.
 
 **Placeholder scan.** The only temporary content is Task 9's three `Text` column bodies, each replaced by an explicit Edit in Tasks 10, 11 and 12 (named in the code comments). No "TBD"/"add handling" steps; every code step has complete code; every test step has complete test code and an exact command.
 
-**Type consistency.** `NotesWindowModel` members used by the views (`header`, `visibleItems`, `doneItems`, `doneExpanded`, `listIsGrouped`, `groupTimestamp`, `selectedNoteID`, `selectedItem`, `isDrafting`, `isSearching`, `canCreateNote`, `customRemindOpen`, `renamingFolderID`, `pendingFolderDelete`, `toast`, `errorMessage`, `folders`, `folderName`, `overview`, `tags`, `editor`) are all defined in Task 8; `NoteEditorSession` members used by `NoteTextEditor`/`NoteEditorColumn` (`text`, `showCount`, `focusToken`, `isDraft`, `isEditable`, `note`, `conflict`, `error`, `isComposing`, `textChanged`) in Task 7; `CoreClient` calls in Task 2 (`createNote(_:images:folderID:)`, `listItems`, `searchItems`, `moveItem(_:toFolder:)`, `nonDeletedNoteCount(inFolder:)`); `FolderNaming.newFolderName(existing:)` in Tasks 4 and 8; `WindowFolderPrompt.newFolder(for:model:) async` in Tasks 11 and 13; `FolderDeleteCopy(folderName:noteCount:)` in Task 10; `CountLabel.text(_:)`/`DateGrouping.sections(_:timestampMs:now:calendar:locale:)` in Tasks 3, 8, 11; `RemindMenuItems(onPreset:onCustom:)` in Tasks 11 and 13; `CustomRemindPopover(onSet:onCancel:)` in Task 13 and the panel row; `ImageStrip(item:tile:onRemove:onFocusChange:)` in Tasks 12 and the panel's convenience init.
+**Type consistency.** `NotesWindowModel` members used by the views (`header`, `visibleItems`, `doneItems`, `open`, `done`, `found`, `loadMore(done:)`, `doneExpanded`, `listIsGrouped`, `groupTimestamp`, `selectedNoteID`, `selectedItem`, `isDrafting`, `isSearching`, `canCreateNote`, `customRemindOpen`, `renamingFolderID`, `pendingFolderDelete`, `toast`, `errorMessage`, `folders`, `folderName`, `overview`, `tags`, `editor`) are all defined in Task 8; `NoteEditorSession` members used by `NoteTextEditor`/`NoteEditorColumn` (`text`, `showCount`, `focusToken`, `isDraft`, `isEditable`, `note`, `conflict`, `error`, `isComposing`, `textChanged`) in Task 7; `CoreClient` calls from release 2 (`createNote(_:images:folderID:)`, `createFolder(_:)`, `folderOverview()`, `moveItem(_:folderID:)`) and Task 2 (`pageSize`, paged `listItems`/`searchItems` returning `ItemPage`, `listTags`, `renameFolder(_:to:)`, `deleteFolder(_:keepNotes:)`, `cancelReminder(_:)`), with no name defined twice; `NotesScope.folderScope` from release 2 only; `FolderNaming.newFolderName(existing:)` in Tasks 4 and 8; `WindowFolderPrompt.newFolder(for:model:) async` in Tasks 11 and 13; `FolderDeleteCopy(folderName:noteCount:)` in Task 10; `DateGrouping.sections(_:timestampMs:now:calendar:locale:)` in Tasks 3 and 11; `ToastBar(message:undoable:undoShortcut:undo:)` in Task 11 and the panel; `Theme.inkNS`/`rustNS` in Task 12; `RemindMenuItems(onPreset:onCustom:)` in Tasks 11 and 13; `CustomRemindPopover(onSet:onCancel:)` in Task 13 and the panel row; `ImageStrip(item:tile:onRemove:onFocusChange:)` in Tasks 12 and the panel's convenience init.
 
 **Review Focus.** Each of the five lines names its tests in the owning tasks (6, 7, 2, 8, 10, 4). The two checks that are manual by nature (IME with a real input method, quit while typing) are Task 12's click-through.
