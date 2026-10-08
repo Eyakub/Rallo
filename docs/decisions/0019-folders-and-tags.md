@@ -63,7 +63,7 @@ CREATE INDEX items_open_by_folder ON items (folder_id, created_at_ms, id)
 ### 3. Folder names
 
 - Trimmed; 1–50 characters (`chars().count()` after trim); no control
-  characters or line breaks → else `FOLDER_NAME_INVALID` (exit 2).
+  characters or line breaks (including U+2028/U+2029) → else `FOLDER_NAME_INVALID` (exit 2).
 - `name_key` is the same normalization as an item's `match_key`
   (trim, NFC, case fold). Two folders can't share a key → `FOLDER_EXISTS`
   (exit 4). A key equal to `notes` is reserved → `FOLDER_NAME_INVALID`.
@@ -152,13 +152,15 @@ succeed with `changed: false`.
 ### 7. Tags
 
 - **Grammar.** A tag is `#` followed by a letter, then any of letters,
-  combining marks, digits, `-` and `_`, where the `#` is at the start of the
-  text or right after whitespace:
-  `(?:^|\s)#(\p{L}[\p{L}\p{M}\p{N}_-]*)`. Combining marks matter: `#কাজ`
-  contains a vowel sign. A trailing `-` or `_` is dropped (`#bug-` → `bug`).
+  combining marks, digits, `-`, `_`, and the zero-width joiners U+200C/U+200D,
+  where the `#` is at the start of the text or right after whitespace:
+  `(?:^|\s)#(\p{L}[\p{L}\p{M}\p{N}_\u{200C}\u{200D}-]*)`. Combining marks
+  and joiners matter: `#কাজ` contains a vowel sign, and Bangla conjuncts such
+  as `#র‍্যালো` contain a ZWJ. A trailing `-` or `_` is dropped (`#bug-` → `bug`).
 - So `#bug`, `#meeting-notes`, `#Q4_plan`, `#কাজ` are tags; `fix #123`,
   `C#`, `# Heading`, `a#b`, and `https://x.y/#frag` are not.
-- **Key.** A tag's key is its text lowercased (`to_lowercase`); `#Bug` and
+- **Key.** A tag's key is its text NFC-normalized, then lowercased
+  (`to_lowercase`), so decomposed and precomposed spellings are one tag; `#Bug` and
   `#bug` are the same tag and are shown as `bug`. `--tag` accepts the tag
   with or without the leading `#`; anything that isn't one valid tag →
   `INVALID_INPUT`.
@@ -269,7 +271,10 @@ Mockup section 1, options B and C.
 - **Scope**: the list shows the chosen folder's open notes (`list_items(.open,
   scope, nil, …)`), the subtitle counts them, and the note field's
   placeholder is `Add to Work…` (`Add to Notes…` for Notes). On All Notes the
-  list, count and placeholder are exactly today's, and new notes go to Notes.
+  list and placeholder are today's, and new notes go to Notes. The count
+  line reads `N open notes`, or `No open notes` at zero (today's longer
+  empty wording doesn't fit beside the chip and the pet); the chip is at
+  most 110 pt wide and truncates a long folder name.
 - Panel subtitle and chip counts come from `folder_overview` (not the
   length of the listed page, which is capped).
 - The choice is a Swift `enum NotesScope: Hashable { case all, unfiled,

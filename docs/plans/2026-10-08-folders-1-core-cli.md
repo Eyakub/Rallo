@@ -20,7 +20,7 @@
 - No release, no version bump, no install: `scripts/release.sh` runs only when the user says so, and nothing in this plan installs over `~/Applications/Rallo.app`. `scripts/build-macos.sh` is run **without** `--install`.
 - Docs: `docs/cli-contract.md` and `skills/rallo/SKILL.md` are updated in the same release (Task 8); `README.md` only where it lists CLI commands (its Quick start); `docs/decisions/0004-export-import-formats.md` gets a pointer to export version 3.
 - The pet window configuration (`docs/decisions/0002-pet-window-configuration.md`), the spec files under `private/`, and `docs/decisions/0019-folders-and-tags.md` itself are not edited by this plan.
-- Spec values this plan must keep verbatim: schema `0006_folders.sql` as in 0019 §2; folder names trimmed, 1-50 characters (`chars().count()` after trim), no control characters or line breaks, `name_key` = the item `match_key` normalization, key `notes` reserved; error codes `FOLDER_NAME_INVALID` (exit 2), `FOLDER_NOT_FOUND` (3), `FOLDER_EXISTS` (4), `FOLDER_NOT_EMPTY` (2); receipt command kinds `folder_create`, `folder_rename`, `folder_delete`, `move`; the `FOLDER_NOT_EMPTY` message `Folder “Work” holds 5 notes: pass --keep-notes or --delete-notes`; the tag grammar `(?:^|\s)#(\p{L}[\p{L}\p{M}\p{N}_-]*)` with a trailing `-` or `_` dropped; the JSON contract version stays `1`; export version 3.
+- Spec values this plan must keep verbatim: schema `0006_folders.sql` as in 0019 §2; folder names trimmed, 1-50 characters (`chars().count()` after trim), no control characters or line breaks, `name_key` = the item `match_key` normalization, key `notes` reserved; error codes `FOLDER_NAME_INVALID` (exit 2), `FOLDER_NOT_FOUND` (3), `FOLDER_EXISTS` (4), `FOLDER_NOT_EMPTY` (2); receipt command kinds `folder_create`, `folder_rename`, `folder_delete`, `move`; the `FOLDER_NOT_EMPTY` message `Folder “Work” holds 5 notes: pass --keep-notes or --delete-notes`; the tag grammar `(?:^|\s)#(\p{L}[\p{L}\p{M}\p{N}_\u{200C}\u{200D}-]*)` (joiners U+200C/U+200D belong to a tag) with a trailing `-` or `_` dropped, keys NFC-normalized then lowercased; folder names also reject U+2028/U+2029; the JSON contract version stays `1`; export version 3.
 
 ## Review Focus
 
@@ -45,8 +45,10 @@ Read these before the tasks; each is implemented and tested below.
 - **One delete path.** The single-item delete is factored into `items::service::soft_delete` (mark deleted + disable the active reminder with `item_deleted`, queueing its cancel intent); `delete`, `delete --text` and `folder delete --delete-notes` all call it, so they cannot drift.
 - **`folder delete` results.** `moved` / `deleted` count **nondeleted** notes; `notes` is `none` when the folder held none (already-deleted items still leave the folder, uncounted); a folder holding only deleted notes needs no flag. Every item whose row changes gets `revision + 1`, so a note deleted by `--delete-notes` ends at `+2` (soft delete, then leaving the folder): 0019 §5 leaves that open. Also returned, not in the CLI JSON: `reminders_cancelled`, so the CLI launches the app (as for any reminder-intent change) only when a cancel intent was actually queued.
 - **Alphabetical means byte order of `name_key`** (SQL `ORDER BY name_key`), as 0019 §3 says; no locale collation, so `école` sorts after `work`.
-- **Tag grammar without a regex crate.** `\p{L}`, `\p{M}`, `\p{N}` are written with `char::is_alphabetic`, `unicode_normalization::char::is_combining_mark` (already a dependency) and `char::is_numeric`. `tag_ranges` ranges cover the `#` and the tag (UTF-16 units, for the text view); a trailing `-`/`_` is outside the range. `--tag` accepts one valid tag with or without `#`; `bug-` is `INVALID_INPUT` (strict, per 0019 §7 "anything that isn't one valid tag").
+- **Tag grammar without a regex crate** (and, per the current §7, with the zero-width joiners and NFC keys). `\p{L}`, `\p{M}`, `\p{N}` are written with `char::is_alphabetic`, `unicode_normalization::char::is_combining_mark` (already a dependency) and `char::is_numeric`. `tag_ranges` ranges cover the `#` and the tag (UTF-16 units, for the text view); a trailing `-`/`_` is outside the range. `--tag` accepts one valid tag with or without `#`; `bug-` is `INVALID_INPUT` (strict, per 0019 §7 "anything that isn't one valid tag").
 - **Item JSON fields (`folder`, `tags`) land in Task 3**, not in a task of their own: every folder test reads them, so splitting them out would only add a task that cannot be tested without Task 3. `ItemView` carries `folder: Option<FolderRef>` and `tags`; `Item.folder_id` is `#[serde(skip)]`, so the JSON has `folder: {id, name} | null`.
+- **Idempotency and replays.** `folder_create` fingerprints the trimmed name as typed (0003 §7 fingerprints original inputs; `WORK` after `Work` with one request id is `REQUEST_ID_CONFLICT`, like `folder_rename`). A replayed create/rename returns the folder as it is now (re-read by id), falling back to the stored copy when it is gone; a replayed delete returns the stored counts.
+- **CSV-named folders are created only for rows that are new.** Classification treats an unknown CSV folder name as "no such folder" (an existing note is never in it), then folders are planned from the `New` rows, so an id-less row that dedupes as identical cannot resurrect a folder the user deleted.
 - **CSV folder column is formula-guarded** with the existing 0004 guard (Review Focus 1); 0019 §8 is silent.
 - **FFI.** `folder_overview` is composed from existing counts (`list` totals for open/due/done/deleted, `Store::folders()` for per-folder counts, which now include `note_count`, open plus done, for the delete sheet), so the core gains no overview API. `delete_folder(id, keep_notes)` always passes a choice, so `FOLDER_NOT_EMPTY` is a CLI-only error. `list_items`/`search_items` take and return the core's opaque cursors in an `ItemPage {items, next_cursor, total_count}` (limit 1-200), and `cancel_reminder` exposes the CLI's `cancel-reminder`: all as the spec's current §9 says. `rallo-ffi` gains `tempfile` as a dev-dependency for its tests (`Cargo.lock` changes by one line).
 - **`FOLDER_NOT_EMPTY` is exit 2 on the command line and `Conflict` in the FFI (0019 §4).** The core raises it as `CoreError::Conflict` (so `RalloError::Conflict` in Swift) and `Failure::from(CoreError)` in the CLI maps that one code to exit 2; no other conflict changes exit code.
@@ -380,6 +382,23 @@ mod tests {
     }
 
     #[test]
+    fn a_zero_width_joiner_stays_inside_a_bangla_tag() {
+        assert_eq!(tags("#র\u{200D}্যালো"), ["র\u{200d}্যালো"], "র‍্যালো is one tag, not 'র'");
+        assert_eq!(tags("#a\u{200C}b"), ["a\u{200c}b"]);
+        // The joiner is one UTF-16 unit: "#" + 7 units.
+        assert_eq!(tag_ranges("#র\u{200D}্যালো"), [(0, 8, "র\u{200d}্যালো".to_owned())]);
+        assert!(tags("#\u{200D}x").is_empty(), "a tag still starts with a letter");
+    }
+
+    #[test]
+    fn decomposed_and_precomposed_spellings_are_one_tag() {
+        assert_eq!(tags("#e\u{301}cole #\u{e9}cole #\u{c9}COLE"), ["\u{e9}cole"]);
+        assert_eq!(parse_tag_argument("e\u{301}cole").unwrap(), "\u{e9}cole");
+        // The range keeps the text as written: "#e" + U+0301 + "cole" is 7 units.
+        assert_eq!(tag_ranges("#e\u{301}cole"), [(0, 7, "\u{e9}cole".to_owned())]);
+    }
+
+    #[test]
     fn a_note_at_the_size_limit_parses_in_one_pass() {
         let limit = crate::shared::text::MAX_TEXT_BYTES;
         let many = "#a ".repeat(limit / 3);
@@ -405,7 +424,7 @@ mod tests {
 }
 ````
 
-They cover every example of 0019 §7: `#bug`, `#meeting-notes`, `#Q4_plan`, `#কাজ` are tags; `fix #123`, `C#`, `# Heading`, `a#b`, `https://x.y/#frag` are not; a trailing `-`/`_` is dropped; keys are lowercased and deduplicated in first-appearance order; ranges are UTF-16 units; `--tag` arguments take an optional `#`; the SQL function filters rows and is NULL-safe. `a_note_at_the_size_limit_parses_in_one_pass` is Review Focus 4.
+They cover every example of 0019 §7 (plus its joiner and NFC rules: `#র‍্যালো` with a ZWJ is one tag, and decomposed and precomposed `école` are one tag): `#bug`, `#meeting-notes`, `#Q4_plan`, `#কাজ` are tags; `fix #123`, `C#`, `# Heading`, `a#b`, `https://x.y/#frag` are not; a trailing `-`/`_` is dropped; keys are lowercased and deduplicated in first-appearance order; ranges are UTF-16 units; `--tag` arguments take an optional `#`; the SQL function filters rows and is NULL-safe. `a_note_at_the_size_limit_parses_in_one_pass` is Review Focus 4.
 
 `crates/rallo-core/src/items/mod.rs`:
 
@@ -461,13 +480,14 @@ Put this above the test module in `crates/rallo-core/src/items/tags.rs`:
 //! when notes are read, by this one parser, which the app reaches through the
 //! FFI so Swift never re-implements the grammar.
 //!
-//! Grammar: `(?:^|\s)#(\p{L}[\p{L}\p{M}\p{N}_-]*)`, minus a trailing `-` or `_`.
+//! Grammar: `(?:^|\s)#(\p{L}[\p{L}\p{M}\p{N}_\u{200C}\u{200D}-]*)`, minus a trailing `-` or `_`.
 //! There is no regex crate here: `is_letter`, `is_mark` and `is_number` below
 //! are the three Unicode classes written out with `std` and
 //! `unicode-normalization` (already a dependency for `match_key`).
 
 use rusqlite::Connection;
 use rusqlite::functions::FunctionFlags;
+use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
 use crate::shared::errors::{CoreError, CoreResult, ErrorCode};
@@ -488,12 +508,13 @@ fn is_letter(c: char) -> bool {
 }
 
 fn is_tag_char(c: char) -> bool {
-    is_letter(c) || is_mark(c) || is_number(c) || c == '-' || c == '_'
+    // U+200C/U+200D (Cf) spell Bangla conjuncts such as র‍্যালো, so they belong to a tag (0019 §7).
+    is_letter(c) || is_mark(c) || is_number(c) || matches!(c, '-' | '_' | '\u{200C}' | '\u{200D}')
 }
 
 /// Every tag in `text`, in order of appearance, as `(utf16_start, utf16_len,
 /// key)`. The range covers the `#` and the tag, for highlighting in an
-/// `NSTextView` (UTF-16 offsets); `key` is the lowercased tag without the `#`.
+/// `NSTextView` (UTF-16 offsets); `key` is the tag without the `#`, NFC-normalized then lowercased.
 /// A trailing `-` or `_` is outside the range (`#bug-` is `#bug`).
 pub fn tag_ranges(text: &str) -> Vec<(u32, u32, String)> {
     if !text.contains('#') {
@@ -526,7 +547,7 @@ pub fn tag_ranges(text: &str) -> Vec<(u32, u32, String)> {
         while matches!(chars[end - 1], '-' | '_') {
             end -= 1;
         }
-        let key: String = chars[i + 1..end].iter().collect::<String>().to_lowercase();
+        let key: String = chars[i + 1..end].iter().collect::<String>().nfc().collect::<String>().to_lowercase();
         found.push((offsets[i], offsets[end] - offsets[i], key));
         i = end;
     }
@@ -544,7 +565,7 @@ pub fn tags(text: &str) -> Vec<String> {
     keys
 }
 
-/// Whether `text` carries the tag `key` (already lowercased).
+/// Whether `text` carries the tag `key` (already NFC and lowercased).
 pub fn has_tag(text: &str, key: &str) -> bool {
     tag_ranges(text).iter().any(|(_, _, found)| found == key)
 }
@@ -606,7 +627,7 @@ export PATH=/opt/homebrew/opt/rustup/bin:$PATH
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
 
-Expected: all green, including the 9 new unit tests in `items::tags`.
+Expected: all green, including the 11 new unit tests in `items::tags`.
 
 - [ ] **Step 7: Commit**
 
@@ -638,6 +659,7 @@ Stage only the named paths: `assets/pet/rallo/launch-kit/` and `marketing/` are 
   - `Store::folders(&self) -> CoreResult<Vec<FolderCount>>` (Notes first); `Store::create_folder(&mut self, name: &str, request_id: Option<&str>) -> CoreResult<FolderOutcome>`; `Store::rename_folder(&mut self, folder: &FolderSelector, new_name: &str, request_id: Option<&str>) -> CoreResult<FolderOutcome>`; `Store::delete_folder(&mut self, folder: &FolderSelector, notes: Option<DeleteNotes>, request_id: Option<&str>) -> CoreResult<FolderDeleteOutcome>`.
   - `Store::move_item(&mut self, selector: &str, folder: &FolderSelector, opts: &MutationOptions) -> CoreResult<MutationOutcome>`.
   - `Store::create_note_in(&mut self, text: &str, images: &[Vec<u8>], folder: &FolderSelector, request_id: Option<&str>) -> CoreResult<MutationOutcome>`; `Store::create_reminder_in(&mut self, text: &str, when: &TimeSpec, images: &[Vec<u8>], folder: &FolderSelector, request_id: Option<&str>) -> CoreResult<MutationOutcome>`.
+  - `rallo_core::items::TagCount { name: String, open_count: u64 }` (defined here, used by Task 4's `tag_counts`).
   - `Item.folder_id: Option<Uuid>` (not serialized); `ItemView.folder: Option<FolderRef>`, `ItemView.tags: Vec<String>` (serialized as `folder` / `tags`).
   - `pub(crate) items::service::soft_delete(tx, item_id, now_ms)`; `pub(crate) folders::repository::{resolve, get, by_key, all, folder_ref, counts}`.
 
@@ -717,7 +739,19 @@ fn names_are_trimmed_and_limited_to_fifty_characters_without_control_characters(
     assert_eq!(store.create_folder("  Work  ", None).unwrap().folder.name, "Work");
     assert!(store.create_folder(&"a".repeat(50), None).is_ok());
     assert!(store.create_folder(&"ক".repeat(50), None).is_ok(), "50 characters, not 50 bytes");
-    for bad in ["", "   ", &"a".repeat(51), "two\nlines", "tab\there", "bell\u{7}", "Notes", " notes ", "NOTES"] {
+    for bad in [
+        "",
+        "   ",
+        &"a".repeat(51),
+        "two\nlines",
+        "tab\there",
+        "bell\u{7}",
+        "a\u{2028}b",
+        "a\u{2029}b",
+        "Notes",
+        " notes ",
+        "NOTES",
+    ] {
         let error = store.create_folder(bad, None).unwrap_err();
         assert_eq!(error.code(), ErrorCode::FolderNameInvalid, "{bad:?}");
     }
@@ -859,16 +893,20 @@ fn request_ids_replay_folder_commands_and_collide_on_different_inputs() {
     let mut store = support::open(temp.path());
 
     let first = store.create_folder("Work", Some("create-1")).unwrap();
-    let replay = store.create_folder("work", Some("create-1")).unwrap();
+    let replay = store.create_folder("Work", Some("create-1")).unwrap();
     assert!(!first.replayed && replay.replayed);
     assert_eq!(replay.folder.id, first.folder.id);
     assert_eq!(folder_names(&store), ["Notes", "Work"], "the retry created nothing");
     let conflict = store.create_folder("Other", Some("create-1")).unwrap_err();
     assert_eq!(conflict.code(), ErrorCode::RequestIdConflict);
+    let recased = store.create_folder("WORK", Some("create-1")).unwrap_err();
+    assert_eq!(recased.code(), ErrorCode::RequestIdConflict, "0003 §7: the original input, not its key");
 
     let renamed = store.rename_folder(&named("Work"), "Projects", Some("rename-1")).unwrap();
     let replay = store.rename_folder(&named("Work"), "Projects", Some("rename-1")).unwrap();
     assert!(replay.replayed && replay.folder.revision == renamed.folder.revision, "a replay doesn't rename twice");
+    let again = store.create_folder("Work", Some("create-1")).unwrap();
+    assert_eq!(again.folder.name, "Projects", "a replay reports the folder as it is now");
 
     let id = store.create_note("n", None).unwrap().item.item.id.to_string();
     let moved = MutationOptions { request_id: Some("move-1".into()), if_revision: None };
@@ -1123,7 +1161,7 @@ pub mod service;
 
 pub use model::{
     DeleteNotes, Folder, FolderCount, FolderDeleteOutcome, FolderOutcome, FolderRef, FolderSelector, MAX_NAME_CHARS,
-    NotesDisposition, TagCount, validate_name,
+    NotesDisposition, validate_name,
 };
 ````
 
@@ -1196,13 +1234,6 @@ pub struct FolderCount {
     pub open_count: u64,
 }
 
-/// One line of `rallo tags`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TagCount {
-    pub name: String,
-    pub open_count: u64,
-}
-
 /// What `folder delete` was asked to do with the notes it holds (0019 §5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeleteNotes {
@@ -1256,7 +1287,7 @@ pub fn validate_name(raw: &str) -> CoreResult<(String, String)> {
             format!("a folder name is 1-{MAX_NAME_CHARS} characters (got {chars})"),
         ));
     }
-    if name.chars().any(char::is_control) {
+    if name.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) {
         return Err(CoreError::invalid(
             ErrorCode::FolderNameInvalid,
             "a folder name can't contain control characters or line breaks",
@@ -1529,10 +1560,15 @@ impl Store {
         let (name, key) = validate_name(name)?;
         let now = self.now_ms();
         let tx = self.write_tx()?;
-        let inputs = CreateInputs { command: "folder_create", name: &key };
+        // The trimmed name as typed: 0003 §7 fingerprints original inputs, so `WORK` is not a retry of `Work`.
+        let inputs = CreateInputs { command: "folder_create", name: &name };
         let fingerprint = match check_receipt::<FolderOutcome>(&tx, request_id, &inputs)? {
             Receipt::Replay(mut outcome) => {
                 outcome.replayed = true;
+                // 0003 §7: a replay reports the current snapshot (the folder may have been renamed since).
+                if let Some(current) = repository::get(&tx, outcome.folder.id)? {
+                    outcome.folder = current;
+                }
                 tx.commit()?;
                 return Ok(outcome);
             }
@@ -1569,6 +1605,10 @@ impl Store {
         let fingerprint = match check_receipt::<FolderOutcome>(&tx, request_id, &inputs)? {
             Receipt::Replay(mut outcome) => {
                 outcome.replayed = true;
+                // 0003 §7: a replay reports the current snapshot (the folder may have been renamed since).
+                if let Some(current) = repository::get(&tx, outcome.folder.id)? {
+                    outcome.folder = current;
+                }
                 tx.commit()?;
                 return Ok(outcome);
             }
@@ -1623,6 +1663,10 @@ impl Store {
         let fingerprint = match check_receipt::<FolderDeleteOutcome>(&tx, request_id, &inputs)? {
             Receipt::Replay(mut outcome) => {
                 outcome.replayed = true;
+                // 0003 §7: a replay reports the current snapshot (the folder may have been renamed since).
+                if let Some(current) = repository::get(&tx, outcome.folder.id)? {
+                    outcome.folder = current;
+                }
                 tx.commit()?;
                 return Ok(outcome);
             }
@@ -1723,6 +1767,34 @@ impl Store {
  }
  
  #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+@@ -66,6 +74,13 @@
+     Deleted,
+     /// Open items with an active reminder whose deadline has passed.
+     Due,
++}
++
++/// One line of `rallo tags` (0019 §6): `open_count` is open, nondeleted notes.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct TagCount {
++    pub name: String,
++    pub open_count: u64,
+ }
+ 
+ /// Idempotency and optimistic-concurrency controls accepted by every
+````
+
+`crates/rallo-core/src/items/mod.rs` (`TagCount` is defined once, here; Task 4 uses it):
+
+````diff
+--- a/crates/rallo-core/src/items/mod.rs
++++ b/crates/rallo-core/src/items/mod.rs
+@@ -4,5 +4,5 @@
+ pub mod service;
+ pub mod tags;
+ 
+-pub use model::{Item, ItemStatus, ItemView, ListFilter, MutationOptions, MutationOutcome};
++pub use model::{Item, ItemStatus, ItemView, ListFilter, MutationOptions, MutationOutcome, TagCount};
+ pub use query::{ListQuery, Page, SearchQuery};
 ````
 
 `crates/rallo-core/src/items/repository.rs`:
@@ -2112,6 +2184,7 @@ git add crates/rallo-core/src/folders \
   crates/rallo-core/src/lib.rs \
   crates/rallo-core/src/shared/errors.rs \
   crates/rallo-core/src/items/model.rs \
+  crates/rallo-core/src/items/mod.rs \
   crates/rallo-core/src/items/repository.rs \
   crates/rallo-core/src/items/service.rs \
   crates/rallo-core/src/reminders/service.rs \
@@ -2128,7 +2201,7 @@ Stage only the named paths: `assets/pet/rallo/launch-kit/` and `marketing/` are 
 ## Task 4: List and search by folder and tag, `--done`, and the counts
 
 **Files:**
-- Modify: `crates/rallo-core/src/items/{query,model,mod,repository,service}.rs`, `crates/rallo-core/src/folders/{model,mod}.rs`
+- Modify: `crates/rallo-core/src/items/{query,model,mod,repository,service}.rs`
 - Test: `crates/rallo-core/tests/folder_listing.rs`
 
 **Interfaces:**
@@ -2137,7 +2210,7 @@ Stage only the named paths: `assets/pet/rallo/launch-kit/` and `marketing/` are 
   - `ListFilter::Done` (done, nondeleted; `ORDER BY completed_at_ms DESC, id DESC`).
   - `rallo_core::items::ItemScope { folder: Option<FolderSelector>, tag: Option<String> }` (`Default` = no restriction).
   - `Store::list_scoped(&self, query: ListQuery, scope: &ItemScope) -> CoreResult<Page<ItemView>>`; `Store::search_scoped(&self, query: SearchQuery, scope: &ItemScope) -> CoreResult<Page<ItemView>>`; `Store::list` / `Store::search` unchanged (empty scope).
-  - `rallo_core::items::TagCount { name: String, open_count: u64 }`; `Store::tag_counts(&self) -> CoreResult<Vec<TagCount>>`.
+  - `Store::tag_counts(&self) -> CoreResult<Vec<TagCount>>` (`TagCount { name, open_count: u64 }` is defined in Task 3's `items/model.rs`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2427,7 +2500,7 @@ cargo test -p rallo-core --test folder_listing
 
 Expected: FAIL to compile (`unresolved imports \`rallo_core::items::ItemScope\`, \`rallo_core::items::TagCount\``, `no method named \`list_scoped\``, `no variant ... named \`Done\` found for enum \`ListFilter\``).
 
-- [ ] **Step 3: Add `ItemScope`, `TagCount` and `ListFilter::Done`**
+- [ ] **Step 3: Add `ItemScope` and `ListFilter::Done`**
 
 `crates/rallo-core/src/items/query.rs`:
 
@@ -2467,22 +2540,15 @@ Expected: FAIL to compile (`unresolved imports \`rallo_core::items::ItemScope\`,
 ````diff
 --- a/crates/rallo-core/src/items/model.rs
 +++ b/crates/rallo-core/src/items/model.rs
-@@ -74,6 +74,15 @@
+@@ -74,6 +74,8 @@
      Deleted,
      /// Open items with an active reminder whose deadline has passed.
      Due,
 +    /// Done, nondeleted items, newest completion first (0019 §6).
 +    Done,
-+}
-+
-+/// One line of `rallo tags` (0019 §6): `open_count` is open, nondeleted notes.
-+#[derive(Debug, Clone, PartialEq, Eq)]
-+pub struct TagCount {
-+    pub name: String,
-+    pub open_count: u64,
  }
  
- /// Idempotency and optimistic-concurrency controls accepted by every
+ /// One line of `rallo tags` (0019 §6): `open_count` is open, nondeleted notes.
 ````
 
 `crates/rallo-core/src/items/mod.rs`:
@@ -2490,49 +2556,12 @@ Expected: FAIL to compile (`unresolved imports \`rallo_core::items::ItemScope\`,
 ````diff
 --- a/crates/rallo-core/src/items/mod.rs
 +++ b/crates/rallo-core/src/items/mod.rs
-@@ -4,5 +4,5 @@
- pub mod service;
+@@ -5,4 +5,4 @@
  pub mod tags;
  
--pub use model::{Item, ItemStatus, ItemView, ListFilter, MutationOptions, MutationOutcome};
+ pub use model::{Item, ItemStatus, ItemView, ListFilter, MutationOptions, MutationOutcome, TagCount};
 -pub use query::{ListQuery, Page, SearchQuery};
-+pub use model::{Item, ItemStatus, ItemView, ListFilter, MutationOptions, MutationOutcome, TagCount};
 +pub use query::{ItemScope, ListQuery, Page, SearchQuery};
-````
-
-`crates/rallo-core/src/folders/model.rs` (`TagCount` lives with items, not folders):
-
-````diff
---- a/crates/rallo-core/src/folders/model.rs
-+++ b/crates/rallo-core/src/folders/model.rs
-@@ -61,13 +61,6 @@
-     /// Open and done, nondeleted notes: what "It holds N notes" counts (0019 §9, §12).
-     pub note_count: u64,
-     /// Open, nondeleted notes (0019 §1).
--    pub open_count: u64,
--}
--
--/// One line of `rallo tags`.
--#[derive(Debug, Clone, PartialEq, Eq)]
--pub struct TagCount {
--    pub name: String,
-     pub open_count: u64,
- }
- 
-````
-
-`crates/rallo-core/src/folders/mod.rs`:
-
-````diff
---- a/crates/rallo-core/src/folders/mod.rs
-+++ b/crates/rallo-core/src/folders/mod.rs
-@@ -7,5 +7,5 @@
- 
- pub use model::{
-     DeleteNotes, Folder, FolderCount, FolderDeleteOutcome, FolderOutcome, FolderRef, FolderSelector, MAX_NAME_CHARS,
--    NotesDisposition, TagCount, validate_name,
-+    NotesDisposition, validate_name,
- };
 ````
 
 - [ ] **Step 4: Rewrite the list and search queries around one `Filter`**
@@ -2842,8 +2871,6 @@ git add crates/rallo-core/src/items/query.rs \
   crates/rallo-core/src/items/mod.rs \
   crates/rallo-core/src/items/repository.rs \
   crates/rallo-core/src/items/service.rs \
-  crates/rallo-core/src/folders/model.rs \
-  crates/rallo-core/src/folders/mod.rs \
   crates/rallo-core/tests/folder_listing.rs
 git commit --author="Eyakub <eyakubsorkar@gmail.com>" -m "feat(core): list/search by folder and tag, --done, tag counts (0019 §6)"
 ```
@@ -3243,7 +3270,7 @@ Expected: FAIL, all 9: the first folder command exits 2 (`error: unrecognized su
          /// Page size (1-200).
          #[arg(long, default_value_t = DEFAULT_PAGE_SIZE)]
          limit: u32,
-@@ -113,6 +131,27 @@
+@@ -113,6 +131,29 @@
          /// Fail with a conflict unless the item is currently at this revision.
          #[arg(long, value_name = "N")]
          if_revision: Option<i64>,
@@ -3255,8 +3282,10 @@ Expected: FAIL, all 9: the first folder command exits 2 (`error: unrecognized su
 +        /// The folder's name; it must exist.
 +        #[arg(long, value_name = "NAME")]
 +        folder: String,
++        /// Idempotency key: retrying with the same key and inputs replays the original result.
 +        #[arg(long, value_name = "KEY")]
 +        request_id: Option<String>,
++        /// Fail with a conflict unless the item is currently at this revision.
 +        #[arg(long, value_name = "N")]
 +        if_revision: Option<i64>,
 +    },
@@ -3271,7 +3300,7 @@ Expected: FAIL, all 9: the first folder command exits 2 (`error: unrecognized su
      },
      /// Add images to a note (PNG, JPEG, HEIC, GIF or WebP; 10 MB each, 10 per note).
      Attach {
-@@ -300,6 +339,35 @@
+@@ -300,6 +341,38 @@
      Agents {
          #[command(subcommand)]
          command: Option<AgentsCommand>,
@@ -3283,6 +3312,7 @@ Expected: FAIL, all 9: the first folder command exits 2 (`error: unrecognized su
 +    /// Create a folder (1-50 characters; "Notes" is taken).
 +    Create {
 +        name: String,
++        /// Idempotency key: retrying with the same key and inputs replays the original result.
 +        #[arg(long, value_name = "KEY")]
 +        request_id: Option<String>,
 +    },
@@ -3290,6 +3320,7 @@ Expected: FAIL, all 9: the first folder command exits 2 (`error: unrecognized su
 +    Rename {
 +        name: String,
 +        new_name: String,
++        /// Idempotency key: retrying with the same key and inputs replays the original result.
 +        #[arg(long, value_name = "KEY")]
 +        request_id: Option<String>,
 +    },
@@ -3302,6 +3333,7 @@ Expected: FAIL, all 9: the first folder command exits 2 (`error: unrecognized su
 +        /// Delete the folder's notes too (they stay in Deleted, where `rallo restore` brings them back to Notes).
 +        #[arg(long)]
 +        delete_notes: bool,
++        /// Idempotency key: retrying with the same key and inputs replays the original result.
 +        #[arg(long, value_name = "KEY")]
 +        request_id: Option<String>,
      },
@@ -3707,7 +3739,7 @@ Stage only the named paths: `assets/pet/rallo/launch-kit/` and `marketing/` are 
 
 - [ ] **Step 1: Write the failing tests**
 
-Core tests for 0019 §8: version 3 with `folders` and `folder_id` (null for Notes), the zip document too; a JSON round trip (a dry run creates nothing; folders keep their ids; an empty folder travels); **mapping rule 1** (same id exists: used, a different name kept with a warning naming both), **rule 2** (same name key: mapped, nothing new), **rule 3** (created with the imported id and name); an existing note that differs only by folder is `IMPORT_CONFLICT` and nothing is written; **version 1 and 2 files still import, every note to Notes**, and an old file never compares folders; bad folder data is `INVALID_IMPORT` with nothing written, a newer version is `IncompatibleSchema`; CSV gains a trailing `folder` column, CSV import creates a missing folder by name and reuses an existing one by key, an older CSV (and the name `Notes`) imports to Notes, a header is case-insensitive. Review Focus 1 and 5 are `csv_folder_names_get_the_same_formula_guard_as_note_text`, `two_folders_in_one_file_with_the_same_name_key_become_one` and `an_old_file_never_compares_folders`.
+Core tests for 0019 §8: version 3 with `folders` and `folder_id` (null for Notes), the zip document too; a JSON round trip (a dry run creates nothing; folders keep their ids; an empty folder travels); **mapping rule 1** (same id exists: used, a different name kept with a warning naming both), **rule 2** (same name key: mapped, nothing new), **rule 3** (created with the imported id and name); an existing note that differs only by folder is `IMPORT_CONFLICT` and nothing is written; **version 1 and 2 files still import, every note to Notes**, and an old file never compares folders; bad folder data is `INVALID_IMPORT` with nothing written, a newer version is `IncompatibleSchema`; CSV gains a trailing `folder` column, CSV import creates a missing folder by name and reuses an existing one by key, an older CSV (and the name `Notes`) imports to Notes, a header is case-insensitive. `a_csv_folder_is_only_created_for_rows_that_are_new` pins that an id-less CSV row that is `identical` does not recreate a deleted folder, and the JSON folder-only conflict test changes the folder with a raw `UPDATE` so nothing but the folder differs. Review Focus 1 and 5 are `csv_folder_names_get_the_same_formula_guard_as_note_text`, `two_folders_in_one_file_with_the_same_name_key_become_one` and `an_old_file_never_compares_folders`.
 
 `crates/rallo-core/tests/folder_transfer.rs` (new file):
 
@@ -3717,8 +3749,8 @@ Core tests for 0019 §8: version 3 with `folders` and `folder_id` (null for Note
 
 mod support;
 
-use rallo_core::folders::FolderSelector;
-use rallo_core::items::{ListFilter, ListQuery, MutationOptions};
+use rallo_core::folders::{DeleteNotes, FolderSelector};
+use rallo_core::items::{ListFilter, ListQuery};
 use rallo_core::shared::errors::ConflictDetail;
 use rallo_core::transfer::ExportFormat;
 use rallo_core::{ErrorCode, Store};
@@ -3882,7 +3914,10 @@ fn an_existing_note_that_differs_only_by_folder_is_a_conflict_and_nothing_is_wri
     let dir = tempfile::tempdir().unwrap();
     let mut target = support::open(dir.path());
     target.apply_import(&document).unwrap();
-    target.move_item(&source.work_note.to_string(), &FolderSelector::Notes, &MutationOptions::default()).unwrap();
+    // Only the folder changes: the note keeps its text, status and timestamps, so a conflict can only be the folder.
+    support::raw_connection(dir.path())
+        .execute("UPDATE items SET folder_id = NULL WHERE id = ?1", [source.work_note.to_string()])
+        .unwrap();
     target.delete_folder(&named("Empty"), None, None).unwrap();
 
     let revision = target.change_revision().unwrap();
@@ -4077,7 +4112,9 @@ fn two_folders_in_one_file_with_the_same_name_key_become_one() {
         .as_array_mut()
         .unwrap()
         .push(json!({ "id": twin, "name": "WORK", "created_at_ms": 1, "updated_at_ms": 1 }));
-    document["items"][1]["folder_id"] = json!(twin); // the loose note says "WORK"
+    // The loose note says "WORK" (found by text: same-millisecond notes export in id order).
+    let loose = document["items"].as_array_mut().unwrap().iter_mut().find(|item| item["text"] == "loose note").unwrap();
+    loose["folder_id"] = json!(twin);
 
     let dir = tempfile::tempdir().unwrap();
     let mut target = support::open(dir.path());
@@ -4107,6 +4144,29 @@ fn csv_folder_names_get_the_same_formula_guard_as_note_text() {
     let report = target.apply_import(&csv).unwrap();
     assert_eq!((report.new, report.new_folders), (4, 4));
     assert_eq!(folder_names(&target), ["+1", "-archive", "=HYPERLINK(\"x\")", "@home"], "the guard is stripped again");
+}
+
+#[test]
+fn a_csv_folder_is_only_created_for_rows_that_are_new() {
+    let source = source();
+    let csv = String::from_utf8(source.store.export_bytes(ExportFormat::Csv).unwrap()).unwrap();
+    let created = csv.lines().find(|line| line.contains("work note")).unwrap().split(',').nth(3).unwrap().to_owned();
+    let idless = format!("text,created_at,folder\r\nwork note,{created},Work\r\n");
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut target = support::open(dir.path());
+    target.apply_import(csv.as_bytes()).unwrap();
+    target.delete_folder(&named("Work"), Some(DeleteNotes::Keep), None).unwrap();
+
+    // The row is the note already here (same text and creation time): identical, so Work stays deleted.
+    let preview = target.preview_import(idless.as_bytes()).unwrap();
+    assert_eq!((preview.new, preview.identical, preview.new_folders), (0, 1, 0));
+    target.apply_import(idless.as_bytes()).unwrap();
+    assert!(folder_names(&target).is_empty());
+
+    // A genuinely new row does create it.
+    let fresh = "text,folder\r\na new row,Work\r\n";
+    assert_eq!(target.apply_import(fresh.as_bytes()).unwrap().new_folders, 1);
 }
 ````
 
@@ -4497,7 +4557,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      pub conflicts: Vec<ImportConflictRecord>,
      /// All conflicting records; `conflicts` lists at most 20 of them.
      pub conflict_total: u64,
-@@ -131,7 +134,106 @@
+@@ -131,7 +134,117 @@
      reminder: Option<NormalizedReminder>,
      /// Empty for CSV and version-1 JSON.
      images: Vec<NormalizedImage>,
@@ -4555,7 +4615,10 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
 +            RecordFolder::Unspecified => None,
 +            RecordFolder::Notes => Some(None),
 +            RecordFolder::Imported(id) => Some(self.mapped.get(id).copied()),
-+            RecordFolder::Named(name) => Some(self.by_key.get(&text::match_key(name)).copied()),
++            // A name with no folder yet maps to the nil id: no existing note is in it.
++            RecordFolder::Named(name) => {
++                Some(Some(self.by_key.get(&text::match_key(name)).copied().unwrap_or_else(Uuid::nil)))
++            }
 +        }
 +    }
 +}
@@ -4583,13 +4646,23 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
 +            plan.create.push(folder.clone());
 +        }
 +    }
-+    for record in &parsed.records {
-+        if let RecordFolder::Named(name) = &record.folder {
++    plan.by_key = by_key;
++    Ok(plan)
++}
++
++impl FolderPlan {
++    /// CSV-named folders (no ids in CSV) are created only for rows that are
++    /// themselves `New`: a row that dedupes as identical must not resurrect a
++    /// folder the user deleted. Runs after classification, so classification
++    /// sees an unnamed folder as "no such folder" (see `resolve`).
++    fn add_named(&mut self, parsed: &ParsedDocument, decisions: &[RecordDecision]) {
++        for (record, decision) in parsed.records.iter().zip(decisions) {
++            let (RecordFolder::Named(name), RecordDecision::New) = (&record.folder, decision) else { continue };
 +            let name_key = text::match_key(name);
-+            if !by_key.contains_key(&name_key) {
++            if !self.by_key.contains_key(&name_key) {
 +                let id = ids::new_id();
-+                by_key.insert(name_key.clone(), id);
-+                plan.create.push(ImportFolder {
++                self.by_key.insert(name_key.clone(), id);
++                self.create.push(ImportFolder {
 +                    id,
 +                    name: name.clone(),
 +                    name_key,
@@ -4599,12 +4672,10 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
 +            }
 +        }
 +    }
-+    plan.by_key = by_key;
-+    Ok(plan)
  }
  
  /// An image whose file in the archive directory has already been checked.
-@@ -145,6 +247,8 @@
+@@ -145,6 +258,8 @@
  
  struct ParsedDocument {
      format: ExportFormat,
@@ -4613,7 +4684,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      records: Vec<NormalizedRecord>,
      warnings: Vec<String>,
  }
-@@ -205,7 +309,17 @@
+@@ -205,7 +320,17 @@
      format: String,
      version: u32,
      #[serde(default)]
@@ -4631,7 +4702,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
  }
  
  #[derive(Deserialize)]
-@@ -217,6 +331,9 @@
+@@ -217,6 +342,9 @@
      updated_at_ms: i64,
      completed_at_ms: Option<i64>,
      deleted_at_ms: Option<i64>,
@@ -4641,7 +4712,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      #[serde(default)]
      reminder: Option<RawReminder>,
      #[serde(default)]
-@@ -254,11 +371,15 @@
+@@ -254,11 +382,15 @@
      if doc.version > EXPORT_VERSION {
          return Err(CoreError::IncompatibleSchema { found: doc.version, supported: EXPORT_VERSION });
      }
@@ -4658,7 +4729,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
          for image in &record.images {
              if !seen_images.insert(image.id) {
                  return Err(CoreError::invalid(
-@@ -269,7 +390,32 @@
+@@ -269,7 +401,32 @@
          }
          records.push(record);
      }
@@ -4692,7 +4763,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
  }
  
  fn normalize_json_image(
-@@ -305,6 +451,7 @@
+@@ -305,6 +462,7 @@
      raw: RawItem,
      seen_ids: &mut HashSet<Uuid>,
      archive: Option<&Path>,
@@ -4700,7 +4771,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
  ) -> CoreResult<NormalizedRecord> {
      let origin = RecordOrigin::Json { index };
      let id = Uuid::parse_str(&raw.id).map_err(|_| invalid_import(&origin, "id", "is not a valid UUID"))?;
-@@ -336,6 +483,18 @@
+@@ -336,6 +494,18 @@
          return Err(invalid_import(&origin, "completed_at_ms", "must be set if and only if status is \"done\""));
      }
      let reminder = raw.reminder.map(|reminder| normalize_json_reminder(&origin, reminder)).transpose()?;
@@ -4719,7 +4790,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      Ok(NormalizedRecord {
          id: Some(id),
          text: raw.text,
-@@ -346,6 +505,7 @@
+@@ -346,6 +516,7 @@
          deleted_at_ms: raw.deleted_at_ms,
          reminder,
          images,
@@ -4727,7 +4798,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
          origin,
      })
  }
-@@ -419,7 +579,7 @@
+@@ -419,7 +590,7 @@
          let origin = RecordOrigin::Csv { line };
          records.push(normalize_csv_row(&origin, &row, &index_of, text_idx, &mut seen_ids)?);
      }
@@ -4736,7 +4807,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
  }
  
  fn normalize_csv_row(
-@@ -481,6 +641,22 @@
+@@ -481,6 +652,22 @@
          updated_at_ms: None,
      });
  
@@ -4759,7 +4830,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      Ok(NormalizedRecord {
          id,
          text,
-@@ -491,6 +667,7 @@
+@@ -491,6 +678,7 @@
          deleted_at_ms: None,
          reminder,
          images: Vec::new(),
@@ -4767,7 +4838,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
          origin: origin.clone(),
      })
  }
-@@ -504,9 +681,19 @@
+@@ -504,9 +692,19 @@
  /// resolved deadline, not its raw enabled/state bookkeeping — import always
  /// normalizes an inserted reminder to disabled/`imported`, so comparing that
  /// bookkeeping would make every legitimate re-import look like a conflict
@@ -4789,7 +4860,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
          return false;
      }
      if let Some(value) = record.created_at_ms
-@@ -536,13 +723,13 @@
+@@ -536,13 +734,13 @@
  /// assertion to conflict with — it is either an exact duplicate of an
  /// existing item's text and `created_at` (identical) or a fresh row (new);
  /// with neither an id nor a `created_at` it is always new.
@@ -4805,7 +4876,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
                      Ok(RecordDecision::Identical)
                  } else {
                      Ok(RecordDecision::Conflict)
-@@ -563,12 +750,13 @@
+@@ -563,12 +761,13 @@
  /// failing on them.
  fn classify_collect(
      conn: &Connection,
@@ -4814,7 +4885,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
 -    let mut decisions = Vec::with_capacity(records.len());
 +    parsed: &ParsedDocument,
 +) -> CoreResult<(Vec<RecordDecision>, Vec<ImportConflictRecord>, u64, FolderPlan)> {
-+    let plan = plan_folders(conn, parsed)?;
++    let mut plan = plan_folders(conn, parsed)?;
 +    let mut decisions = Vec::with_capacity(parsed.records.len());
      let mut conflicts = Vec::new();
 -    for record in records {
@@ -4824,8 +4895,11 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
          if matches!(decision, RecordDecision::New)
              && let Some(image) = record.images.iter().find(|image| images_repository::exists(conn, image.id))
          {
-@@ -589,15 +777,15 @@
+@@ -587,17 +786,18 @@
+         }
+         decisions.push(decision);
      }
++    plan.add_named(parsed, &decisions);
      let total = conflicts.len() as u64;
      conflicts.truncate(MAX_REPORTED_CONFLICTS);
 -    Ok((decisions, conflicts, total))
@@ -4843,7 +4917,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      if total > 0 {
          return Err(CoreError::conflict_detail(
              ErrorCode::ImportConflict,
-@@ -605,12 +793,13 @@
+@@ -605,12 +805,13 @@
              ConflictDetail::ImportConflicts { total, conflicts },
          ));
      }
@@ -4858,7 +4932,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      applied: bool,
      backup_path: Option<PathBuf>,
  ) -> ImportReport {
-@@ -621,9 +810,10 @@
+@@ -621,9 +822,10 @@
          total_records: parsed.records.len() as u64,
          new,
          identical,
@@ -4870,7 +4944,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
          applied,
          backup_path,
      }
-@@ -635,6 +825,7 @@
+@@ -635,6 +837,7 @@
  fn insert_record(
      tx: &Transaction<'_>,
      record: &NormalizedRecord,
@@ -4878,7 +4952,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      now_ms: i64,
      data_dir: &Path,
      copied: &mut Vec<PathBuf>,
-@@ -652,7 +843,7 @@
+@@ -652,7 +855,7 @@
          completed_at_ms: record.completed_at_ms,
          deleted_at_ms: record.deleted_at_ms,
          revision: 1,
@@ -4887,7 +4961,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      };
      items_repository::insert(tx, &item, &text::match_key(&item.text))?;
      if let Some(reminder) = &record.reminder {
-@@ -694,8 +885,8 @@
+@@ -694,8 +897,8 @@
      pub fn preview_import(&self, bytes: &[u8]) -> CoreResult<ImportReport> {
          validate_size(bytes)?;
          let parsed = parse_document(bytes, None)?;
@@ -4898,7 +4972,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      }
  
      /// Like `preview_import`, but reports conflicts in the returned report
-@@ -714,8 +905,8 @@
+@@ -714,8 +917,8 @@
      }
  
      fn inspect_parsed(&self, parsed: ParsedDocument) -> CoreResult<ImportReport> {
@@ -4909,7 +4983,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
          report.conflicts = conflicts;
          report.conflict_total = total;
          Ok(report)
-@@ -743,8 +934,8 @@
+@@ -743,8 +946,8 @@
      pub fn preview_import_dir(&self, dir: &Path) -> CoreResult<ImportReport> {
          let bytes = read_archive_document(dir)?;
          let parsed = parse_document(&bytes, Some(dir))?;
@@ -4920,7 +4994,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
      }
  
      /// `apply_import` for a zip export's unpacked directory (0018): every
-@@ -755,7 +946,7 @@
+@@ -755,7 +958,7 @@
      }
  
      fn apply_parsed(&mut self, parsed: ParsedDocument) -> CoreResult<ImportReport> {
@@ -4929,7 +5003,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
  
          let now = self.now_ms();
          let backup_path =
-@@ -763,8 +954,8 @@
+@@ -763,8 +966,8 @@
  
          let data_dir = self.data_dir().to_path_buf();
          let tx = self.write_tx()?;
@@ -4940,7 +5014,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
              Err(error) => {
                  let _ = std::fs::remove_file(&backup_path);
                  return Err(error);
-@@ -776,14 +967,26 @@
+@@ -776,14 +979,26 @@
          // failure the files copied so far are removed and the rows roll back.
          let mut copied = Vec::new();
          let applied: CoreResult<()> = (|| {
@@ -4969,7 +5043,7 @@ The importer reads `folders`/`folder_id` only for `version >= 3`. A `FolderPlan`
                  bump_revision(&tx)?;
              }
              Ok(())
-@@ -802,6 +1005,6 @@
+@@ -802,6 +1017,6 @@
              return Err(error);
          }
  
@@ -5018,7 +5092,7 @@ export PATH=/opt/homebrew/opt/rustup/bin:$PATH
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
 
-Expected: all green, including the 15 new tests in `tests/folder_transfer.rs` and the new CLI test; the old `transfer.rs` and `images_transfer.rs` tests still pass (v1/v2 behavior unchanged).
+Expected: all green, including the 16 new tests in `tests/folder_transfer.rs` and the new CLI test; the old `transfer.rs` and `images_transfer.rs` tests still pass (v1/v2 behavior unchanged).
 
 - [ ] **Step 7: Commit**
 
@@ -5792,7 +5866,7 @@ Expected: all green, including the 6 new `rallo-ffi` tests.
      func testTheSweepRunsOnAnEmptyStore() throws {
 ````
 
-- [ ] **Step 7: Regenerate the bindings and type-check the Swift side quickly**
+- [ ] **Step 7: Regenerate the bindings and check their names**
 
 ```bash
 cd /Users/eyakub/Desktop/Rallo
@@ -5801,13 +5875,9 @@ scripts/generate-bindings.sh
 grep -n "func createNoteWithImages(text" apps/macos/Rallo/Generated/rallo_ffi.swift | head -1
 grep -n "func createReminderWithImages(text" apps/macos/Rallo/Generated/rallo_ffi.swift | head -1
 git status --short apps/macos/Rallo/Generated
-cd apps/macos && G=Rallo/Generated && PF=$(xcrun --show-sdk-platform-path)/Developer
-xcrun swiftc -typecheck -parse-as-library -Xcc -fmodule-map-file=$G/module.modulemap -I $G \
-  -F $PF/Library/Frameworks -I $PF/usr/lib \
-  $G/rallo_ffi.swift Rallo/Core/CoreWorker.swift RalloTests/CoreBridgeTests.swift
 ```
 
-Expected: the two `grep` lines show `createNoteWithImages(text: String, images: [Data], folderId: String?)` and `createReminderWithImages(text: String, when: String, images: [Data], folderId: String?)`; `git status` prints nothing (the directory is gitignored: never edit or commit it); `swiftc -typecheck` prints nothing. (If the typecheck is picky about the platform path on this Mac, skip it: the next step compiles the same files.)
+Expected: the two `grep` lines show `createNoteWithImages(text: String, images: [Data], folderId: String?)` and `createReminderWithImages(text: String, when: String, images: [Data], folderId: String?)`; `git status` prints nothing (the directory is gitignored: never edit or commit it). The next step compiles the Swift files against these bindings.
 
 - [ ] **Step 8: Build the app and run the Swift tests**
 
@@ -6141,7 +6211,7 @@ git log --format='%h %an <%ae> %s' -8
 git status --short
 ```
 
-Expected: the eight conventional commits of Tasks 1-8 (on top of the spec commit), all authored `eyakubsorkar@gmail.com`, none with a `Co-Authored-By` line; `git status` shows nothing of this plan's work uncommitted. Still listed, and not ours to commit here: the untracked `assets/pet/rallo/launch-kit/` and `marketing/`, this plan file under `docs/plans/`, and whatever the user has pending in `docs/decisions/0019-folders-and-tags.md` (at the time of writing the spec had uncommitted edits).
+Expected: the eight conventional commits of Tasks 1-8 (on top of the spec commit), all authored `eyakubsorkar@gmail.com`, none with a `Co-Authored-By` line; `git status` shows nothing of this plan's work uncommitted. Still listed, and not ours to commit here: the untracked `assets/pet/rallo/launch-kit/` and `marketing/`.
 
 ## Self-Review
 
@@ -6161,8 +6231,6 @@ Expected: the eight conventional commits of Tasks 1-8 (on top of the spec commit
 | §13 Skill | Task 8 |
 
 **Spec gaps and contradictions found, and how the plan resolves them** (also in "Decisions" above): §8 is silent on formula injection in the CSV `folder` column (guarded; Review Focus 1); §5 does not say what `revision` a note gets when `--delete-notes` deletes it and then clears its folder (two bumps); §5's result counts "of notes" are read as nondeleted notes, with `notes: "none"` for a folder holding none; §3/§4 never say what `folder delete Notes` / `folder rename Notes` is (`FOLDER_NAME_INVALID`); §8 says to "check how the importer uses the version number" (it only rejected newer versions; now it also gates reading folders on `>= 3`); 0004 documented plain JSON as version 1 and the zip as 2 (now both 3, 0004 pointed at 0019 §8); §7's `\p{L}` is approximated with `std` (only circled letters like `Ⓐ` differ); §4 lists `FOLDER_NOT_EMPTY` as exit 2 yet `Conflict` in the FFI (conflicts are exit 4 elsewhere), so the CLI special-cases that one code; §3 "alphabetical" is byte order of the key.
-
-**The spec moved while this plan was written.** `docs/decisions/0019-folders-and-tags.md` has uncommitted edits in the working tree dated 2026-10-09 (§4's FFI `RalloError` column, §7's range wording, §9's `note_count`, `ItemPage`, cursors on `list_items`/`search_items`, `cancel_reminder`). This plan follows that version; the panel and window sections changed too but belong to other plans. If the spec changes again before execution, re-check Tasks 3, 5 and 7 against it.
 
 **Placeholder scan.** No step is left as a stub or defers to another task's code; every code step shows the code (new files in full, existing files as unified diffs with their context lines, the one rewritten region of `items/repository.rs` in full). Line numbers in diff hunks are approximate: the context lines are what locate each change.
 

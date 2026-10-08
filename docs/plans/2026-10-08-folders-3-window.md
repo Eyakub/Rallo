@@ -14,11 +14,13 @@ Scope: §11 (window, expand button) and §12 (delete-folder sheet). §9 (FFI), �
 
 ## Swift API this plan assumes from releases 1 and 2
 
-Task 1 compiles every line of this list; if the repo differs, Task 1 says where, and the later tasks' code is adjusted to the real name in the same commit.
+Task 1 compiles release 1's list and checks release 2's names; if the repo differs, it stops and says where (the later tasks' code is not adjusted on the fly).
 
-**Release 1 (UniFFI names, from §9).** The FFI class is `RalloStore` (the spec's `RalloCore`). Methods on it: `folderOverview() throws -> FolderOverview`, `listTags() throws -> [TagSnapshot]`, `createFolder(name: String) throws -> FolderSnapshot`, `renameFolder(id: String, name: String) throws -> FolderSnapshot`, `deleteFolder(id: String, keepNotes: Bool) throws -> FolderDeleteResult`, `moveItem(id: String, folderId: String?, ifRevision: Int64?) throws -> ItemSnapshot`, `listItems(kind: ItemListKind, scope: FolderScope, tag: String?, limit: UInt32) throws -> [ItemSnapshot]`, `searchItems(query: String, limit: UInt32) throws -> [ItemSnapshot]`, `createNoteWithImages(text: String, images: [Data], folderId: String?)`, `createReminderWithImages(text:when:images:folderId:)`; existing and unchanged: `editItemText(id:text:ifRevision:)`, `acknowledgeReminder(id:ifRevision:)`, `completeItem`, `reopenItem`, `deleteItem`, `restoreItem`, `remindIn`, `remindAt`, `attachImages`, `detachImage`, `changeRevision`. Free function `tagRanges(text: String) -> [TagRange]`. Types: `FolderSnapshot { id, name, openCount: UInt32, revision: Int64 }`, `FolderOverview { allOpen, unfiledOpen, due, done, deleted: UInt32; folders: [FolderSnapshot] }`, `TagSnapshot { name, openCount: UInt32 }`, `TagRange { utf16Start: UInt32, utf16Len: UInt32, name: String }` (public memberwise `init`), `enum FolderScope { case all, unfiled, folder(id: String) }`, `enum ItemListKind { case open, done, due, deleted }`, `FolderDeleteResult { moved: UInt32, deleted: UInt32 }`, and `ItemSnapshot.folderId: String?`, `.folderName: String?`, `.tags: [String]`. `RalloError` keeps its five cases (`InvalidInput`, `NotFound`, `Conflict`, `Storage`, `IncompatibleSchema`); folder errors arrive with `code` `FOLDER_NAME_INVALID` (`InvalidInput`), `FOLDER_NOT_FOUND` (`NotFound`), `FOLDER_EXISTS` (`Conflict`); stale revisions as `Conflict(code: "REVISION_CONFLICT", …)`. `tagRanges` ranges are UTF-16, cover the `#`, and are computed on exactly the string passed in (§7).
+**Release 1 (UniFFI names, from §9).** The FFI class is `RalloStore`. Methods on it: `folderOverview() throws -> FolderOverview`, `listTags() throws -> [TagSnapshot]`, `createFolder(name: String) throws -> FolderSnapshot`, `renameFolder(id: String, name: String) throws -> FolderSnapshot`, `deleteFolder(id: String, keepNotes: Bool) throws -> FolderDeleteResult`, `moveItem(id: String, folderId: String?, ifRevision: Int64?) throws -> ItemSnapshot`, `listItems(kind: ItemListKind, scope: FolderScope, tag: String?, limit: UInt32, cursor: String?) throws -> ItemPage`, `searchItems(query: String, limit: UInt32, cursor: String?) throws -> ItemPage`, `cancelReminder(id: String, ifRevision: Int64?) throws -> ItemSnapshot`, `createNoteWithImages(text: String, images: [Data], folderId: String?)`, `createReminderWithImages(text:when:images:folderId:)`; existing and unchanged: `editItemText(id:text:ifRevision:)`, `completeItem`, `reopenItem`, `deleteItem`, `restoreItem`, `remindIn`, `remindAt`, `attachImages`, `detachImage`, `changeRevision`. Free function `tagRanges(text: String) -> [TagRange]`. Types: `FolderSnapshot { id, name, openCount: UInt32, noteCount: UInt32, revision: Int64 }` (`noteCount` is open + done, nondeleted), `FolderOverview { allOpen, unfiledOpen, due, done, deleted: UInt32; folders: [FolderSnapshot] }`, `TagSnapshot { name, openCount: UInt32 }`, `TagRange { utf16Start: UInt32, utf16Len: UInt32, name: String }`, `ItemPage { items: [ItemSnapshot], nextCursor: String?, totalCount: UInt32 }`, `enum FolderScope { case all, unfiled, folder(id: String) }`, `enum ItemListKind { case open, done, due, deleted }`, `FolderDeleteResult { moved: UInt32, deleted: UInt32 }`, and `ItemSnapshot.folderId: String?`, `.folderName: String?`, `.tags: [String]`. `RalloError` keeps its five cases; `FOLDER_NAME_INVALID` is `InvalidInput`, `FOLDER_NOT_FOUND` `NotFound`, `FOLDER_EXISTS` `Conflict`, stale revisions `Conflict(code: "REVISION_CONFLICT", …)`. `tagRanges` ranges are UTF-16, cover the `#`, and are computed on exactly the string passed in (§7).
 
-**Release 2 (panel, §10).** `enum NotesScope: Hashable { case all, unfiled, folder(String) }` in `apps/macos/Rallo/Notes/NotesScope.swift`; `NotesViewModel.scope: NotesScope` (the panel's current choice); `struct FolderMoveMenu: View { currentFolderID: String?; folders: [FolderSnapshot]; onMove: (String?) -> Void; onNewFolder: () -> Void }`; `@MainActor enum FolderNamePrompt { static func ask(title: String, initial: String, validate: (String) async throws -> Void) async -> String? }` (an `NSAlert` with a text field; `validate` is the real create call, so the core's own message shows in the alert, which stays up until it succeeds or is cancelled; Swift never re-implements the name rules, §3 and §10); the panel's `Toast`/`ToastBar` stay private to the panel (the window has its own, Task 8 and 11). `CoreClient` may already have some of the folder wrappers Task 2 lists; Task 1 reports which.
+**Release 2 (panel; exactly the "API this plan produces for release 3" section of `docs/plans/2026-10-08-folders-2-panel.md`).** `CoreClient`: `createNote(_:images:folderID:)` (default `nil`), `createReminder(_:when:images:folderID:)`, `openItems(scope:limit:)`, `folderOverview()`, `createFolder(_:)`, `moveItem(_:folderID:)`. `enum NotesScope: Hashable { case all, unfiled, folder(String) }` in `Notes/NotesScope.swift` with `folderScope: FolderScope` (release 2's `RalloTests` sources already list `NotesScope.swift` and `Theme.swift`). `struct FolderMoveMenu: View { currentFolderID: String?; folders: [FolderSnapshot]; onMove: (String?) -> Void; onNewFolder: () -> Void }`. `@MainActor enum FolderNamePrompt { static func ask(title: String, initial: String, validate: @escaping (String) async throws -> Void) async -> String? }` (`validate` is the real create call, so the core's own message shows in the alert; Swift never re-implements the name rules, §3 and §10). `NotesViewModel`: `init(core:defaults: UserDefaults = .standard)` and `private(set) var scope: NotesScope` (plus existing `expandedID`). The panel's `Toast`/`ToastBar` (`Toast.Undo` gains `move`): the window reuses `ToastBar` (Task 11) and has its own `WindowToast`.
+
+**What this plan adds to `CoreClient` (Task 2):** `listTags`, `renameFolder`, `deleteFolder`, paged `listItems`/`searchItems` (return `ItemPage`), `cancelReminder`, `static let pageSize`.
 
 ## Global Constraints
 
@@ -46,13 +48,13 @@ Task 1 compiles every line of this list; if the repo differs, Task 1 says where,
   ```
   Dark Mode: stop it (`pkill -f -- "--data-dir $RALLO_DATA_DIR"`; if an open menu or sheet ignores SIGTERM, `sleep 1; pkill -9 -f -- "--data-dir $RALLO_DATA_DIR"`) and relaunch with `--demo-appearance dark`. Window screenshots: copy the `windows.swift` helper from `scripts/screenshots.sh` (the heredoc under "Capture"), `swiftc -O -o "$SCRATCH/windows" "$SCRATCH/windows.swift"`, then `"$SCRATCH/windows" $(pgrep -f -- "--demo-open window" | head -1)` prints `id layer name`; `screencapture -x -l <id> private/docs/folders-3-shots/<task>-<what>-<light|dark>.png` (needs Screen Recording permission for the terminal). `private/` is gitignored.
   Cleanup after the last check of a session: `pkill -f -- "--data-dir $RALLO_DATA_DIR"; /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$APP"; rm -rf "$SCRATCH"`.
-  The scratch app shares the bundle id `com.razlio.rallo`, and therefore the `defaults` domain, with the installed one (release 2 keeps the panel's scope in a separate suite for scratch builds, but the window's frame autosave is not): run `defaults read com.razlio.rallo > "$SCRATCH-defaults-before.txt"` before the first launch and, afterwards, delete the key it added, `defaults delete com.razlio.rallo "NSWindow Frame RalloNotesWindow"` (only if the file shows it was not there).
+  The scratch app keeps the panel's scope and the window's frame in a separate defaults suite (`com.razlio.rallo.scratch`), so the installed app's preferences are never touched; `defaults delete com.razlio.rallo.scratch` clears them.
 - UI: build, launch the scratch build on a temp data dir, click through every behaviour of the task, and screenshot **Light and Dark Mode** before calling a task done.
 - **Commits:** conventional (`feat(app): …`, `test(app): …`, `docs: …`), author `eyakubsorkar@gmail.com` (already the repo's git config), **no AI attribution and no Co-Authored-By trailer** (this overrides any default trailer). Stage only the paths each commit step names; the untracked `assets/pet/rallo/launch-kit/` and `marketing/` are not ours.
 - No release, version bump or changelog in this plan. The last task updates the README (the in-app features table); release notes wait for release time.
-- Copy is exact (spec §11/§12): "Open Notes Window" (expand button help and accessibility label), "Notes Window" (status-menu item), "No note selected", "This note changed somewhere else." with **Show Theirs** / **Keep Mine**, "New Folder", "New Note", "N done", "Results", and the delete sheet: **Delete “Work”?** / "It holds 5 notes. Keep them in Notes, or delete them too? Deleted notes stay in Deleted, where you can restore them." / **Keep Notes** (default), **Delete Notes** (destructive), **Cancel**; empty folder: **Delete “Work”?** / "The folder is empty." / **Delete**, **Cancel**.
-- Window: `isReleasedWhenClosed = false`, min 900×560, first open 1140×690 centred, frame autosave name `RalloNotesWindow`, `.tint(Theme.rust)`, `.regular` activation policy only while open. The pet window and the panel keep ADR 0002's configuration untouched.
-- The core's lists take `limit` 1…200 and the FFI has no cursor, so the window lists stop at 200 (header shows "200+"). Do not work around it in this plan.
+- Copy is exact (spec §11/§12): "Open Notes Window" (expand button help and accessibility label), "Notes Window" (status-menu item and Window-menu item), File menu: "New Note", "New Folder", "Close"; window title "Notes", search prompt "Search all notes", "No note selected", "This note changed somewhere else." with **Show Theirs** / **Keep Mine**, "New Folder", "New Note", "N done", "Results", and the delete sheet: **Delete “Work”?** / "It holds 5 notes. Keep them in Notes, or delete them too? Deleted notes stay in Deleted, where you can restore them." / **Keep Notes** (default), **Delete Notes** (destructive), **Cancel**; empty folder: **Delete “Work”?** / "The folder is empty." / **Delete**, **Cancel**.
+- Window: `isReleasedWhenClosed = false`, min 900×560, first open 1140×690 centred, frame remembered under the key `RalloNotesWindow` in the scratch-aware defaults, `.tint(Theme.rust)`, `.regular` activation policy only while open. The pet window and the panel keep ADR 0002's configuration untouched.
+- Lists are paged (§9): the window loads a page of `CoreClient.pageSize` rows, the next page when the last row appears, and counts come from the core's `totalCount`/`noteCount`. Nothing in the window is capped or reads "200+".
 
 ## Review Focus
 
@@ -61,8 +63,8 @@ The five inputs the spec implies but no obvious test covers, most likely first. 
 1. **IME composition.** Typing Bangla/Japanese with marked text while the 0.6 s save timer fires or the text restyles must not break the composition (no string replacement, no attribute writes, no save of half-composed text). Pinned in Task 6 (`testRestyleLeavesMarkedTextAlone`) and Task 7 (`testMarkedTextDelaysTheSave`).
 2. **Select-all, delete, then leave.** An emptied note with no images must never be saved, and leaving it puts the saved text back. Pinned in Task 7 (`testAnEmptiedNoteIsNeverSavedAndComesBack`).
 3. **Changed while typing.** An agent or the CLI edits the note while the user types: the next save raises the conflict bar, Show Theirs/Keep Mine both end clean, and a reload never overwrites unsaved typing. Pinned in Task 7 (`testAChangeSomewhereElseShowsTheConflictBar`, `testKeepMineSavesOnTheNewRevision`, `testAReloadNeverOverwritesTyping`).
-4. **A folder holding only done notes.** `FolderSnapshot.openCount` says 0, so the delete sheet must still say "It holds 1 note" and Keep Notes must file it in Notes. Pinned in Task 2 (`testNonDeletedNoteCountIncludesDoneNotes`), Task 8 (`testDeletingAFolderOfOnlyDoneNotesKeepsThem`) and Task 10 (`FolderDeleteCopyTests`).
-5. **The selected folder or tag vanishes** (deleted by the CLI, or its last tagged note edited) while selected or while its note is open: the window falls back to Notes / All Notes and never shows a stale list. Pinned in Task 4 (`SelectionFallbackTests`) and Task 8 (`testADeletedScopeFolderFallsBackToNotes`, `testAVanishedTagFallsBackToAllNotes`, `testASelectedNoteDeletedElsewhereClearsTheSelection`).
+4. **A folder holding only done notes.** `FolderSnapshot.openCount` says 0, so the delete sheet (which reads `noteCount`) must still say "It holds 1 note" and Keep Notes must file it in Notes. Pinned in Task 2 (`testNoteCountIncludesDoneNotesWhileOpenCountDoesNot`), Task 8 (`testDeletingAFolderOfOnlyDoneNotesKeepsThem`) and Task 10 (`FolderDeleteCopyTests`).
+5. **The selected folder or tag vanishes** (deleted by the CLI, or its last tagged note edited) while selected or while its note is open: the window falls back to Notes / All Notes and never shows a stale list; a note selected on a later page stays selected across a reload. Pinned in Task 4 (`SelectionFallbackTests`) and Task 8 (`testADeletedScopeFolderFallsBackToNotes`, `testAVanishedTagFallsBackToAllNotes`, `testASelectedNoteDeletedElsewhereClearsTheSelection`, `testASelectionOnALaterPageSurvivesAReload`).
 
 ## File Structure
 
@@ -70,25 +72,24 @@ New, under `apps/macos/Rallo/NotesWindow/` (the folder is new; pure files are Fo
 
 | File | Responsibility |
 |---|---|
-| `DateGrouping.swift` | pure: list date sections, row time label, "200+" count label |
-| `FolderNaming.swift` | pure: the first free "New Folder N" (the core judges every name) |
+| `DateGrouping.swift` | pure: list date sections and the row time label |
+| `FolderNaming.swift` | pure: a guess at the first free "New Folder N" (the core judges every name) |
 | `NotesWindowSelection.swift` | pure: `NotesWindowSelection`, `NotesScope.folderScope`, selection fallback |
 | `SaveScheduler.swift` | pure: save debounce state machine with an injected clock |
 | `EditorStyling.swift` | pure: title/tag spans in UTF-16, `RowText` (list title and preview) |
 | `NoteTextStyler.swift` | AppKit only: `PlainTextView`, attribute-only restyle that skips marked text |
 | `NoteEditorSession.swift` | the open note: text, save/conflict/draft, backed by `CoreClient` |
 | `NotesWindowModel.swift`, `NotesWindowModel+Notes.swift` | window state, reload, folders, note changes |
-| `ActivationPolicyPlanner.swift` | pure: `.regular`/`.accessory` as a function of open windows |
 | `FolderDeleteCopy.swift` | pure: the delete sheet's exact copy |
 | `NotesWindowController.swift` | the `NSWindow`, delegate, open/close |
 | `NotesWindowView.swift` | root `NavigationSplitView`, error banner, delete sheet |
 | `FolderSidebar.swift`, `DeleteFolderSheet.swift` | sidebar and the §12 sheet |
-| `NoteListColumn.swift`, `WindowToastBar.swift` | list column, rows, toast |
+| `NoteListColumn.swift` | list column, rows, paging, toast |
 | `NoteEditorColumn.swift`, `NoteTextEditor.swift`, `FolderPrompts.swift` | editor column, the `NSTextView` wrapper, New Folder… glue |
 
 New elsewhere: `Notes/RemindPreset.swift` (moved out of `NotesView.swift`), `Notes/RemindMenuItems.swift` (shared by the panel and the window), `RalloTests/*Tests.swift`.
 
-Modified: `Core/CoreClient.swift`, `Notes/RalloError+Display.swift`, `Notes/NotesView.swift`, `Notes/NoteRow.swift`, `Notes/CustomRemindPopover.swift`, `Notes/ImageStrip.swift`, `Notes/Thumbnails.swift`, `App/AppCoordinator.swift`, `App/AppDelegate.swift`, `App/StatusMenuController.swift`, `Settings/SettingsWindowController.swift`, `Diagnostics/WindowReport.swift`, `apps/macos/project.yml`, `README.md`.
+Modified: `Core/CoreClient.swift`, `Notes/RalloError+Display.swift`, `Shared/Theme.swift`, `Notes/NotesView.swift` (`RemindPreset` moved out, `ToastBar` made reusable, expand button), `Notes/NoteRow.swift`, `Notes/CustomRemindPopover.swift`, `Notes/ImageStrip.swift`, `Notes/Thumbnails.swift`, `App/AppCoordinator.swift`, `App/AppDelegate.swift`, `App/StatusMenuController.swift`, `Settings/SettingsWindowController.swift`, `Diagnostics/WindowReport.swift`, `apps/macos/project.yml`, `README.md`.
 
 ---
 
@@ -96,12 +97,10 @@ Modified: `Core/CoreClient.swift`, `Notes/RalloError+Display.swift`, `Notes/Note
 
 **Files:**
 - Create: `apps/macos/RalloTests/FolderAPIAssumptionsTests.swift`
-- Create (temporary, deleted before the commit): `apps/macos/Rallo/NotesWindow/ReleaseAssumptionsCheck.swift`
-- Modify: `apps/macos/project.yml` (only if `NotesScope.swift` is not in the `RalloTests` sources)
 
 **Interfaces:**
-- Consumes: releases 1 and 2 merged on this branch (the "Swift API this plan assumes" list above).
-- Produces: a permanent test that fails to compile when a generated name or label drifts; a written record (in the task's commit message body) of any real name that differs from the plan's, which later tasks use.
+- Consumes: releases 1 and 2 merged on this branch (the "Swift API this plan assumes" list above; release 2's names are those in `docs/plans/2026-10-08-folders-2-panel.md`, "API this plan produces for release 3").
+- Produces: a permanent test that stops compiling when a generated name or label drifts, and a sanity check that release 2's names exist; if anything differs, stop and tell the orchestrator (a global rename in this plan is not a task for the executor).
 
 - [ ] **Step 1: Write the compile-check test**
 
@@ -110,8 +109,8 @@ Create `apps/macos/RalloTests/FolderAPIAssumptionsTests.swift`:
 ```swift
 import XCTest
 
-/// 0019 releases 1 and 2 as release 3 uses them. If a generated name or label
-/// differs, this file stops compiling, which is the point.
+/// 0019 release 1 as release 3 uses it. If a generated name or label differs,
+/// this file stops compiling, which is the point.
 final class FolderAPIAssumptionsTests: XCTestCase {
     private var dataDir: URL!
 
@@ -128,6 +127,7 @@ final class FolderAPIAssumptionsTests: XCTestCase {
         let work: FolderSnapshot = try store.createFolder(name: "Work")
         XCTAssertEqual(work.name, "Work")
         XCTAssertEqual(work.openCount, 0)
+        XCTAssertEqual(work.noteCount, 0)
         let note: ItemSnapshot = try store.createNoteWithImages(text: "Ship #release", images: [], folderId: work.id)
         XCTAssertEqual(note.folderId, work.id)
         XCTAssertEqual(note.folderName, "Work")
@@ -137,17 +137,23 @@ final class FolderAPIAssumptionsTests: XCTestCase {
         XCTAssertEqual([overview.allOpen, overview.unfiledOpen, overview.due, overview.done, overview.deleted], [1, 0, 0, 0, 0])
         XCTAssertEqual(overview.folders.map(\.name), ["Work"])
         XCTAssertEqual(overview.folders.first?.openCount, 1)
+        XCTAssertEqual(overview.folders.first?.noteCount, 1)
         let tags: [TagSnapshot] = try store.listTags()
         XCTAssertEqual(tags.map(\.name), ["release"])
         XCTAssertEqual(tags.first?.openCount, 1)
 
         let scopes: [FolderScope] = [.all, .unfiled, .folder(id: work.id)]
         let kinds: [ItemListKind] = [.open, .done, .due, .deleted]
-        XCTAssertEqual(try store.listItems(kind: kinds[0], scope: scopes[2], tag: nil, limit: 200).map(\.id), [note.id])
-        XCTAssertEqual(try store.listItems(kind: kinds[0], scope: scopes[0], tag: "release", limit: 200).count, 1)
-        XCTAssertEqual(try store.listItems(kind: kinds[0], scope: scopes[1], tag: nil, limit: 200).count, 0)
-        XCTAssertEqual(try store.listItems(kind: kinds[1], scope: scopes[0], tag: nil, limit: 200).count, 0)
-        XCTAssertEqual(try store.searchItems(query: "release", limit: 200).map(\.id), [note.id])
+        let inWork: ItemPage = try store.listItems(kind: kinds[0], scope: scopes[2], tag: nil, limit: 200, cursor: nil)
+        XCTAssertEqual(inWork.items.map(\.id), [note.id])
+        XCTAssertEqual(inWork.totalCount, 1)
+        XCTAssertNil(inWork.nextCursor)
+        XCTAssertEqual(try store.listItems(kind: kinds[0], scope: scopes[0], tag: "release", limit: 200, cursor: nil).totalCount, 1)
+        XCTAssertEqual(try store.listItems(kind: kinds[0], scope: scopes[1], tag: nil, limit: 200, cursor: nil).totalCount, 0)
+        XCTAssertEqual(try store.listItems(kind: kinds[1], scope: scopes[0], tag: nil, limit: 200, cursor: nil).totalCount, 0)
+        let found: ItemPage = try store.searchItems(query: "release", limit: 200, cursor: nil)
+        XCTAssertEqual(found.items.map(\.id), [note.id])
+        XCTAssertNil(found.nextCursor)
 
         let moved = try store.moveItem(id: note.id, folderId: nil, ifRevision: note.revision)
         XCTAssertNil(moved.folderId)
@@ -158,6 +164,15 @@ final class FolderAPIAssumptionsTests: XCTestCase {
         XCTAssertEqual(result.deleted, 0)
         let edited = try store.editItemText(id: note.id, text: "Ship it", ifRevision: moved.revision)
         XCTAssertEqual(edited.text, "Ship it")
+    }
+
+    func testCancelReminderLeavesTheNoteOpenWithACancelledReminder() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        let reminded = try store.createReminderWithImages(text: "Stretch", when: "in 2 hours", images: [], folderId: nil)
+        XCTAssertEqual(reminded.reminder?.state, .active)
+        let cancelled = try store.cancelReminder(id: reminded.id, ifRevision: reminded.revision)
+        XCTAssertEqual(cancelled.reminder?.state, .cancelled)
+        XCTAssertEqual(cancelled.status, .open)
     }
 
     /// The editor highlights `#tag` ranges the core computed (§7): UTF-16, covering the `#`.
@@ -172,89 +187,65 @@ final class FolderAPIAssumptionsTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Write the temporary UI compile check**
-
-This pins the release 2 types that live in the app target (not in `RalloTests`). Create `apps/macos/Rallo/NotesWindow/ReleaseAssumptionsCheck.swift`:
-
-```swift
-import SwiftUI
-
-// TEMPORARY (Task 1): compiles the release 2 names Task 9 and later use. Deleted before the commit.
-@MainActor
-private func releaseTwoAssumptions(model: NotesViewModel) async {
-    let _: NotesScope = model.scope
-    let _ = FolderMoveMenu(currentFolderID: nil, folders: [FolderSnapshot](), onMove: { (_: String?) in }, onNewFolder: {})
-    let _: String? = await FolderNamePrompt.ask(title: "New Folder", initial: "", validate: { (_: String) async throws in })
-}
-```
-
-- [ ] **Step 3: Report which `CoreClient` wrappers already exist, and the real names**
-
-Run:
+- [ ] **Step 2: Check that release 2's names are where its plan says**
 
 ```bash
 cd /Users/eyakub/Desktop/Rallo/apps/macos/Rallo
-for f in folderOverview listTags createFolder renameFolder deleteFolder moveItem listItems searchItems nonDeletedNoteCount; do printf '%-22s %s\n' "$f" "$(grep -c "func $f(" Core/CoreClient.swift)"; done
-grep -n "func createNote\|func createReminder" Core/CoreClient.swift
-grep -rn "FolderScope\|folderScope" --include=*.swift . | grep -v Generated
-grep -n "scope" Notes/NotesView.swift | head -12
-grep -n "NotesScope.swift" ../project.yml
+grep -n "func moveItem(_ item: ItemSnapshot, folderID" Core/CoreClient.swift
+grep -n "func createNote(_ text: String, images: \[Data\], folderID" Core/CoreClient.swift
+grep -n "func folderOverview\|func createFolder" Core/CoreClient.swift
+grep -n "var folderScope" Notes/NotesScope.swift
+grep -n "static func ask" Notes/FolderNamePrompt.swift
+grep -n "private(set) var scope\|init(core: CoreClient, defaults" Notes/NotesView.swift
+grep -n "NotesScope.swift\|Theme.swift" ../project.yml
 ```
 
-Expected: a count per wrapper (0 = Task 2 adds it, 1 = release 2 already has it; keep release 2's and skip it in Task 2), the `createNote` overloads, any release 2 mapping from `NotesScope` to `FolderScope` (if one exists, use its name instead of `folderScope` in Tasks 4 and 8), `NotesViewModel`'s scope property name, and whether `NotesScope.swift` is already a `RalloTests` source (no output = add it in Step 4).
+Expected: every command prints at least one line (`createFolder` and `folderOverview` one each). An empty result means release 2 differs from its plan: stop and report which.
 
-- [ ] **Step 4: Add `NotesScope.swift` to the `RalloTests` sources if Step 3 printed nothing for it**
+- [ ] **Step 3: Run the test; it must compile and pass**
 
-Edit `apps/macos/project.yml`: after the line `      - path: Rallo/Notes/RalloError+Display.swift` add
+Run the **Swift test command** with `-only-testing:RalloTests/FolderAPIAssumptionsTests`.
+Expected: `Test Suite 'FolderAPIAssumptionsTests' passed`. A compile error names a drifted symbol; §7 says a tag range covers its `#`, so a failing `testTagRangesCoverTheHashInUTF16` means release 1 and the spec differ: stop and tell the orchestrator.
 
-```yaml
-      - path: Rallo/Notes/NotesScope.swift
-```
-
-(The pure window logic in Tasks 4 and 8 mentions `NotesScope`. `NotesScope.swift` must be Foundation-only; if release 2 put UI in it, split the enum out in this step.)
-
-- [ ] **Step 5: Run the check; it must compile and pass**
-
-Run the **Scratch app build** (this compiles the temporary UI file with the app) and the **Swift test command** with `-only-testing:RalloTests/FolderAPIAssumptionsTests`.
-Expected: both succeed. A compile error names the drifted symbol: fix the plan's name for it everywhere it appears in later tasks (a global rename in your working copy of this plan), note the change in the commit body, and rerun. (§7 says a tag range covers its `#`; if `testTagRangesCoverTheHashInUTF16` disagrees, release 1 and the spec differ: stop and tell the orchestrator.)
-
-- [ ] **Step 6: Delete the temporary file and commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-rm /Users/eyakub/Desktop/Rallo/apps/macos/Rallo/NotesWindow/ReleaseAssumptionsCheck.swift
 cd /Users/eyakub/Desktop/Rallo
-git add apps/macos/RalloTests/FolderAPIAssumptionsTests.swift apps/macos/project.yml
-git commit -m "test(app): pin the folders API the notes window builds on"
+git add apps/macos/RalloTests/FolderAPIAssumptionsTests.swift
+git commit -m "test(app): pin the folders FFI the notes window builds on"
 ```
 
 ---
 
-### Task 2: `CoreClient` folder wrappers
+### Task 2: `CoreClient` calls the window adds
 
 **Files:**
 - Modify: `apps/macos/Rallo/Core/CoreClient.swift` (insert before `// MARK: Export and import (0004)`)
-- Create: `apps/macos/RalloTests/CoreClientFoldersTests.swift`
+- Create: `apps/macos/RalloTests/CoreClientWindowTests.swift`
 
 **Interfaces:**
-- Consumes: Task 1's confirmed FFI; `CoreWorker.perform`.
-- Produces (all `async throws` on `CoreClient`; skip any Task 1 found already present, and use release 2's signature in later tasks if it differs):
-  `static let listLimit: UInt32 = 200`;
-  `folderOverview() -> FolderOverview`; `listTags() -> [TagSnapshot]`; `createFolder(_ name: String) -> FolderSnapshot`; `renameFolder(_ folder: FolderSnapshot, to name: String) -> FolderSnapshot`; `deleteFolder(_ folder: FolderSnapshot, keepNotes: Bool) -> FolderDeleteResult`; `moveItem(_ item: ItemSnapshot, toFolder folderID: String?) -> ItemSnapshot`; `listItems(_ kind: ItemListKind, scope: FolderScope = .all, tag: String? = nil, limit: UInt32 = CoreClient.listLimit) -> [ItemSnapshot]`; `searchItems(_ query: String, limit: UInt32 = CoreClient.listLimit) -> [ItemSnapshot]`; `createNote(_ text: String, images: [Data], folderID: String?) -> ItemSnapshot`; `nonDeletedNoteCount(inFolder id: String) -> Int` (open + done: what `folder delete` calls "holds").
+- Consumes: Task 1's confirmed FFI; release 2's `CoreClient` wrappers (`createNote(_:images:folderID:)`, `createFolder(_:)`, `folderOverview()`, `moveItem(_:folderID:)`, `openItems(scope:limit:)`); `CoreWorker.perform`.
+- Produces (all `async throws` on `CoreClient`; release 2 does not define these):
+  `static let pageSize: UInt32 = 100`;
+  `listTags() -> [TagSnapshot]`; `renameFolder(_ folder: FolderSnapshot, to name: String) -> FolderSnapshot`; `deleteFolder(_ folder: FolderSnapshot, keepNotes: Bool) -> FolderDeleteResult`;
+  `listItems(_ kind: ItemListKind, scope: FolderScope = .all, tag: String? = nil, cursor: String? = nil, limit: UInt32 = CoreClient.pageSize) -> ItemPage`;
+  `searchItems(_ query: String, cursor: String? = nil, limit: UInt32 = CoreClient.pageSize) -> ItemPage`;
+  `cancelReminder(_ item: ItemSnapshot) -> ItemSnapshot`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `apps/macos/RalloTests/CoreClientFoldersTests.swift`:
+Create `apps/macos/RalloTests/CoreClientWindowTests.swift`:
 
 ```swift
 import XCTest
 
 /// The window's `CoreClient` calls, against a real temp store (never the real data directory).
-final class CoreClientFoldersTests: XCTestCase {
+final class CoreClientWindowTests: XCTestCase {
     private var dataDir: URL!
     private var core: CoreClient!
 
     override func setUp() async throws {
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("rallo-core-folders-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("rallo-core-window-\(UUID().uuidString)")
         core = CoreClient(dataDir: dataDir.path)
         try await core.open()
     }
@@ -263,75 +254,92 @@ final class CoreClientFoldersTests: XCTestCase {
         try? FileManager.default.removeItem(at: dataDir)
     }
 
-    func testCreateListMoveRenameAndSearch() async throws {
+    func testListSearchTagsAndRename() async throws {
         let work = try await core.createFolder("Work")
         let note = try await core.createNote("Ship #release", images: [], folderID: work.id)
-        XCTAssertEqual(note.folderId, work.id)
 
         let inWork = try await core.listItems(.open, scope: .folder(id: work.id))
-        XCTAssertEqual(inWork.map(\.id), [note.id])
+        XCTAssertEqual(inWork.items.map(\.id), [note.id])
+        XCTAssertEqual(inWork.totalCount, 1)
         let unfiled = try await core.listItems(.open, scope: .unfiled)
-        XCTAssertTrue(unfiled.isEmpty)
+        XCTAssertTrue(unfiled.items.isEmpty)
         let byTag = try await core.listItems(.open, tag: "release")
-        XCTAssertEqual(byTag.map(\.id), [note.id])
+        XCTAssertEqual(byTag.items.map(\.id), [note.id])
         let found = try await core.searchItems("ship")
-        XCTAssertEqual(found.map(\.id), [note.id])
+        XCTAssertEqual(found.items.map(\.id), [note.id])
         let tags = try await core.listTags()
         XCTAssertEqual(tags.map(\.name), ["release"])
 
-        let moved = try await core.moveItem(note, toFolder: nil)
-        XCTAssertNil(moved.folderId)
         let renamed = try await core.renameFolder(work, to: "Work 2")
         XCTAssertEqual(renamed.name, "Work 2")
+        let moved = try await core.moveItem(note, folderID: nil)
+        XCTAssertNil(moved.folderId)
         let overview = try await core.folderOverview()
         XCTAssertEqual(overview.folders.map(\.name), ["Work 2"])
         XCTAssertEqual(overview.unfiledOpen, 1)
     }
 
-    /// Review focus 4.
-    func testNonDeletedNoteCountIncludesDoneNotes() async throws {
+    func testListsAndSearchPageThroughCursors() async throws {
+        for number in 1...5 { _ = try await core.createNote("Note \(number)") }
+        let first = try await core.listItems(.open, limit: 2)
+        XCTAssertEqual(first.items.count, 2)
+        XCTAssertEqual(first.totalCount, 5, "the total is the whole list, not the page")
+        XCTAssertNotNil(first.nextCursor)
+        let second = try await core.listItems(.open, cursor: first.nextCursor, limit: 2)
+        let third = try await core.listItems(.open, cursor: second.nextCursor, limit: 2)
+        XCTAssertEqual(third.items.count, 1)
+        XCTAssertNil(third.nextCursor)
+        XCTAssertEqual(Set((first.items + second.items + third.items).map(\.id)).count, 5, "no row twice, none missing")
+
+        let hits = try await core.searchItems("Note", limit: 3)
+        XCTAssertEqual(hits.items.count, 3)
+        let rest = try await core.searchItems("Note", cursor: hits.nextCursor, limit: 3)
+        XCTAssertEqual(rest.items.count, 2)
+        XCTAssertNil(rest.nextCursor)
+    }
+
+    /// Review focus 4: the delete sheet reads `noteCount`, which counts done notes.
+    func testNoteCountIncludesDoneNotesWhileOpenCountDoesNot() async throws {
         let folder = try await core.createFolder("Done only")
         let note = try await core.createNote("Finished", images: [], folderID: folder.id)
         _ = try await core.completeItem(note)
 
         let overview = try await core.folderOverview()
         XCTAssertEqual(overview.folders.first?.openCount, 0, "the sidebar count is open notes only")
-        let held = try await core.nonDeletedNoteCount(inFolder: folder.id)
-        XCTAssertEqual(held, 1, "the delete sheet must still say the folder holds a note")
+        XCTAssertEqual(overview.folders.first?.noteCount, 1, "the delete sheet must still say the folder holds a note")
 
-        let result = try await core.deleteFolder(folder, keepNotes: true)
+        let result = try await core.deleteFolder(try XCTUnwrap(overview.folders.first), keepNotes: true)
         XCTAssertEqual(result.moved, 1)
-        let unfiled = try await core.listItems(.done, scope: .unfiled)
-        XCTAssertEqual(unfiled.map(\.text), ["Finished"])
+        let kept = try await core.listItems(.done, scope: .unfiled)
+        XCTAssertEqual(kept.items.map(\.text), ["Finished"])
+    }
+
+    func testCancelReminderCancelsAndKeepsTheNoteOpen() async throws {
+        let reminded = try await core.createReminder("Stretch", when: "in 2 hours")
+        let cancelled = try await core.cancelReminder(reminded)
+        XCTAssertEqual(cancelled.reminder?.state, .cancelled)
+        XCTAssertEqual(cancelled.status, .open)
     }
 }
 ```
 
 - [ ] **Step 2: Run it to see it fail**
 
-Run the **Swift test command** with `-only-testing:RalloTests/CoreClientFoldersTests`.
-Expected: compile FAIL, `value of type 'CoreClient' has no member 'createFolder'` (or the equivalent for any wrapper not present).
+Run the **Swift test command** with `-only-testing:RalloTests/CoreClientWindowTests`.
+Expected: compile FAIL, `value of type 'CoreClient' has no member 'listTags'`.
 
 - [ ] **Step 3: Add the wrappers**
 
-In `apps/macos/Rallo/Core/CoreClient.swift`, insert before `    // MARK: Export and import (0004)` (skip any method Task 1 found already defined):
+In `apps/macos/Rallo/Core/CoreClient.swift`, insert before `    // MARK: Export and import (0004)`:
 
 ```swift
-    // MARK: Folders and tags (0019)
+    // MARK: The notes window (0019 §9, §11)
 
-    /// The core's page limit (1…200); the FFI has no cursor, so lists stop here.
-    static let listLimit: UInt32 = 200
-
-    func folderOverview() async throws -> FolderOverview {
-        try await worker.perform { try $0.folderOverview() }
-    }
+    /// How many rows a list asks for at a time (the core allows 1…200).
+    static let pageSize: UInt32 = 100
 
     func listTags() async throws -> [TagSnapshot] {
         try await worker.perform { try $0.listTags() }
-    }
-
-    func createFolder(_ name: String) async throws -> FolderSnapshot {
-        try await worker.perform { try $0.createFolder(name: name) }
     }
 
     func renameFolder(_ folder: FolderSnapshot, to name: String) async throws -> FolderSnapshot {
@@ -342,54 +350,42 @@ In `apps/macos/Rallo/Core/CoreClient.swift`, insert before `    // MARK: Export 
         try await worker.perform { try $0.deleteFolder(id: folder.id, keepNotes: keepNotes) }
     }
 
-    /// `nil` files the note in Notes.
-    func moveItem(_ item: ItemSnapshot, toFolder folderID: String?) async throws -> ItemSnapshot {
-        try await worker.perform { try $0.moveItem(id: item.id, folderId: folderID, ifRevision: item.revision) }
-    }
-
+    /// One page per call; pass the previous page's `nextCursor` for the next.
     func listItems(
-        _ kind: ItemListKind, scope: FolderScope = .all, tag: String? = nil, limit: UInt32 = CoreClient.listLimit
-    ) async throws -> [ItemSnapshot] {
-        try await worker.perform { try $0.listItems(kind: kind, scope: scope, tag: tag, limit: limit) }
+        _ kind: ItemListKind, scope: FolderScope = .all, tag: String? = nil, cursor: String? = nil,
+        limit: UInt32 = CoreClient.pageSize
+    ) async throws -> ItemPage {
+        try await worker.perform { try $0.listItems(kind: kind, scope: scope, tag: tag, limit: limit, cursor: cursor) }
     }
 
-    /// Open and done notes in every folder.
-    func searchItems(_ query: String, limit: UInt32 = CoreClient.listLimit) async throws -> [ItemSnapshot] {
-        try await worker.perform { try $0.searchItems(query: query, limit: limit) }
+    /// Open and done notes in every folder, a page at a time.
+    func searchItems(_ query: String, cursor: String? = nil, limit: UInt32 = CoreClient.pageSize) async throws -> ItemPage {
+        try await worker.perform { try $0.searchItems(query: query, limit: limit, cursor: cursor) }
     }
 
-    func createNote(_ text: String, images: [Data], folderID: String?) async throws -> ItemSnapshot {
-        try await worker.perform { try $0.createNoteWithImages(text: text, images: images, folderId: folderID) }
+    /// The CLI's `cancel-reminder`: the reminder's state becomes `cancelled`; the note stays open.
+    func cancelReminder(_ item: ItemSnapshot) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.cancelReminder(id: item.id, ifRevision: item.revision) }
     }
 
-    /// What `folder delete` calls "holds": nondeleted notes, open and done.
-    /// `FolderSnapshot.openCount` alone would call a folder of finished notes empty.
-    func nonDeletedNoteCount(inFolder id: String) async throws -> Int {
-        let scope = FolderScope.folder(id: id)
-        let open = try await listItems(.open, scope: scope)
-        let done = try await listItems(.done, scope: scope)
-        return open.count + done.count
-    }
 ```
-
-If release 2's existing `createNote(_ text: String, images: [Data])` calls `createNoteWithImages(text:images:)` without `folderId:`, release 2's own tests would not have compiled; leave it as release 2 left it.
 
 - [ ] **Step 4: Run the tests and see them pass**
 
-Run the **Swift test command** with `-only-testing:RalloTests/CoreClientFoldersTests`.
-Expected: `Test Suite 'CoreClientFoldersTests' passed`.
+Run the **Swift test command** with `-only-testing:RalloTests/CoreClientWindowTests`.
+Expected: `Test Suite 'CoreClientWindowTests' passed`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /Users/eyakub/Desktop/Rallo
-git add apps/macos/Rallo/Core/CoreClient.swift apps/macos/RalloTests/CoreClientFoldersTests.swift
-git commit -m "feat(app): CoreClient calls for folders, tags, listing and search"
+git add apps/macos/Rallo/Core/CoreClient.swift apps/macos/RalloTests/CoreClientWindowTests.swift
+git commit -m "feat(app): CoreClient paged lists, tags, folder rename and delete, cancel reminder"
 ```
 
 ---
 
-### Task 3: Date grouping, row time label and count label (pure)
+### Task 3: Date grouping and the row time label (pure)
 
 **Files:**
 - Create: `apps/macos/Rallo/NotesWindow/DateGrouping.swift`
@@ -397,12 +393,12 @@ git commit -m "feat(app): CoreClient calls for folders, tags, listing and search
 - Modify: `apps/macos/project.yml` (test sources)
 
 **Interfaces:**
-- Consumes: `CoreClient.listLimit` (Task 2).
+- Consumes: nothing.
 - Produces:
   `enum DateGroup: Hashable { case today, yesterday, previous7Days, previous30Days; case month(year: Int, month: Int) }`;
   `struct DateSection<Element>: Identifiable { let group: DateGroup; let title: String; let elements: [Element]; var id: DateGroup }`;
   `DateGrouping.group(for:now:calendar:) -> DateGroup`; `DateGrouping.title(_:now:calendar:locale:) -> String`; `DateGrouping.sections(_:timestampMs:now:calendar:locale:) -> [DateSection<Element>]`;
-  `RowTimeLabel.text(for:now:calendar:locale:) -> String`; `CountLabel.pageLimit: Int`, `CountLabel.text(_ count: Int) -> String`.
+  `RowTimeLabel.text(for:now:calendar:locale:) -> String`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -499,12 +495,6 @@ final class DateGroupingTests: XCTestCase {
         XCTAssertEqual(label(date(utc, 2026, 10, 6, 9, 0)), "Tuesday")
         XCTAssertEqual(label(date(utc, 2026, 10, 2, 9, 0)), "Friday")
         XCTAssertEqual(label(date(utc, 2026, 10, 1, 9, 0)), "01/10/2026")
-    }
-
-    func testAFullPageReadsAsMoreThanItShows() {
-        XCTAssertEqual(CountLabel.text(0), "0")
-        XCTAssertEqual(CountLabel.text(199), "199")
-        XCTAssertEqual(CountLabel.text(200), "200+")
     }
 }
 ```
@@ -608,15 +598,6 @@ enum RowTimeLabel {
         return formatter.string(from: date)
     }
 }
-
-/// The core's lists stop at one page (no cursor over the FFI); a full page reads "200+".
-enum CountLabel {
-    static let pageLimit = Int(CoreClient.listLimit)
-
-    static func text(_ count: Int) -> String {
-        count >= pageLimit ? "\(pageLimit)+" : "\(count)"
-    }
-}
 ```
 
 - [ ] **Step 4: Run the tests and see them pass**
@@ -644,10 +625,10 @@ git commit -m "feat(app): date sections and row time labels for the notes window
 - Modify: `apps/macos/project.yml` (test sources)
 
 **Interfaces:**
-- Consumes: `NotesScope` (release 2), `FolderScope` (release 1).
+- Consumes: `NotesScope` (release 2, already a `RalloTests` source).
 - Produces:
-  `FolderNaming.key(_:) -> String` (the core's `name_key`); `FolderNaming.newFolderName(existing: [String]) -> String`;
-  `enum NotesWindowSelection: Hashable { case scope(NotesScope), due, done, deleted, tag(String) }`; `NotesScope.folderScope: FolderScope`; `SelectionFallback.resolve(_:folderIDs:tagNames:) -> NotesWindowSelection`; `SelectionFallback.noteID(_:loaded:) -> String?`.
+  `FolderNaming.newFolderName(existing: [String]) -> String`;
+  `enum NotesWindowSelection: Hashable { case scope(NotesScope), due, done, deleted, tag(String) }`; `SelectionFallback.resolve(_:folderIDs:tagNames:) -> NotesWindowSelection`; `SelectionFallback.noteID(_:loaded:) -> String?`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -662,12 +643,6 @@ final class FolderNamingTests: XCTestCase {
         XCTAssertEqual(FolderNaming.newFolderName(existing: ["Work", "Ideas"]), "New Folder")
         XCTAssertEqual(FolderNaming.newFolderName(existing: ["Work", "new folder"]), "New Folder 2", "case does not matter")
         XCTAssertEqual(FolderNaming.newFolderName(existing: ["New Folder", "New Folder 2", "NEW FOLDER 4"]), "New Folder 3")
-    }
-
-    func testTheKeyTrimsComposesAndFoldsCaseLikeTheCore() {
-        XCTAssertEqual(FolderNaming.key("  Café "), FolderNaming.key("CAFE\u{301}"))
-        XCTAssertEqual(FolderNaming.key("কাজ"), FolderNaming.key(" কাজ"))
-        XCTAssertNotEqual(FolderNaming.key("Work"), FolderNaming.key("Work 2"))
     }
 }
 ```
@@ -703,12 +678,6 @@ final class SelectionFallbackTests: XCTestCase {
         XCTAssertNil(SelectionFallback.noteID("gone", loaded: ["a", "b"]))
         XCTAssertNil(SelectionFallback.noteID(nil, loaded: ["a"]))
     }
-
-    func testTheScopeMapsToTheFFIScope() {
-        XCTAssertEqual(NotesScope.all.folderScope, .all)
-        XCTAssertEqual(NotesScope.unfiled.folderScope, .unfiled)
-        XCTAssertEqual(NotesScope.folder("w").folderScope, .folder(id: "w"))
-    }
 }
 ```
 
@@ -733,22 +702,16 @@ import Foundation
 
 /// Names for folders the window makes itself (0019 §3). The core decides what
 /// a valid name is (`FOLDER_NAME_INVALID`, `FOLDER_EXISTS`) and the window
-/// shows its message; Swift never re-implements those rules. This only finds
-/// the first free "New Folder".
+/// shows its message; Swift never re-implements those rules. This only
+/// guesses the first free "New Folder"; a wrong guess is answered by
+/// `FOLDER_EXISTS` and the caller tries the next.
 enum FolderNaming {
-    /// The core's `name_key`: trimmed, NFC, case folded.
-    static func key(_ name: String) -> String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-            .precomposedStringWithCanonicalMapping
-            .folding(options: .caseInsensitive, locale: nil)
-    }
-
     /// "New Folder", then "New Folder 2", "New Folder 3", …
     static func newFolderName(existing: [String]) -> String {
-        let taken = Set(existing.map(key))
-        guard taken.contains(key("New Folder")) else { return "New Folder" }
+        let taken = Set(existing.map { $0.lowercased() })
+        guard taken.contains("new folder") else { return "New Folder" }
         var number = 2
-        while taken.contains(key("New Folder \(number)")) { number += 1 }
+        while taken.contains("new folder \(number)") { number += 1 }
         return "New Folder \(number)"
     }
 }
@@ -764,17 +727,6 @@ enum NotesWindowSelection: Hashable {
     case scope(NotesScope)
     case due, done, deleted
     case tag(String)
-}
-
-extension NotesScope {
-    /// The FFI's name for the same choice.
-    var folderScope: FolderScope {
-        switch self {
-        case .all: .all
-        case .unfiled: .unfiled
-        case let .folder(id): .folder(id: id)
-        }
-    }
 }
 
 enum SelectionFallback {
@@ -795,8 +747,6 @@ enum SelectionFallback {
     }
 }
 ```
-
-(If Task 1 found a release 2 mapping from `NotesScope` to `FolderScope`, delete the `NotesScope` extension here and use that name in the test and in Task 8.)
 
 - [ ] **Step 4: Run the tests and see them pass**
 

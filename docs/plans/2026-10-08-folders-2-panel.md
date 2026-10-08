@@ -14,13 +14,14 @@
 
 ```swift
 // records / enums (memberwise inits are public)
-FolderSnapshot(id: String, name: String, openCount: UInt32, revision: Int64)
+FolderSnapshot(id: String, name: String, openCount: UInt32, noteCount: UInt32, revision: Int64)
 FolderOverview(allOpen: UInt32, unfiledOpen: UInt32, due: UInt32, done: UInt32, deleted: UInt32, folders: [FolderSnapshot])
 TagSnapshot(name: String, openCount: UInt32)
 TagRange(utf16Start: UInt32, utf16Len: UInt32, name: String)        // Equatable, Hashable
 enum FolderScope: Equatable { case all, unfiled, folder(id: String) }
 enum ItemListKind { case open, done, due, deleted }
 FolderDeleteResult { moved: UInt32, deleted: UInt32 }
+ItemPage(items: [ItemSnapshot], nextCursor: String?, totalCount: UInt32)
 ItemSnapshot.folderId: String?   ItemSnapshot.folderName: String?   ItemSnapshot.tags: [String]
 // RalloStore methods
 func folderOverview() throws -> FolderOverview
@@ -29,15 +30,16 @@ func createFolder(name: String) throws -> FolderSnapshot
 func renameFolder(id: String, name: String) throws -> FolderSnapshot
 func deleteFolder(id: String, keepNotes: Bool) throws -> FolderDeleteResult
 func moveItem(id: String, folderId: String?, ifRevision: Int64?) throws -> ItemSnapshot
-func listItems(kind: ItemListKind, scope: FolderScope, tag: String?, limit: UInt32) throws -> [ItemSnapshot]
-func searchItems(query: String, limit: UInt32) throws -> [ItemSnapshot]
+func listItems(kind: ItemListKind, scope: FolderScope, tag: String?, limit: UInt32, cursor: String?) throws -> ItemPage
+func searchItems(query: String, limit: UInt32, cursor: String?) throws -> ItemPage
+func cancelReminder(id: String, ifRevision: Int64?) throws -> ItemSnapshot
 func createNoteWithImages(text: String, images: [Data], folderId: String?) throws -> ItemSnapshot
 func createReminderWithImages(text: String, when: String, images: [Data], folderId: String?) throws -> ItemSnapshot
 // free function (not throwing)
 func tagRanges(text: String) -> [TagRange]
 ```
 
-Error mapping assumed (spec §4 gives exit codes only): `FOLDER_NAME_INVALID` is `RalloError.InvalidInput`, `FOLDER_NOT_FOUND` is `.NotFound`, `FOLDER_EXISTS` is `.Conflict`. `tagRanges` ranges cover the `#` and the tag as written (`"fix #Bug- now"` gives start 4, len 4, name `bug`).
+Error mapping per spec §4 (FFI `RalloError` column): `FOLDER_NAME_INVALID` is `RalloError.InvalidInput`, `FOLDER_NOT_FOUND` is `.NotFound`, `FOLDER_EXISTS` is `.Conflict`. Per spec §7, `tagRanges` ranges cover the `#` and the tag as written, in UTF-16 offsets of the string passed (`"fix #Bug- now"` gives start 4, len 4, name `bug`). The panel reads only the first `ItemPage` (`.items`); release 3 does the paging.
 
 ## Global Constraints
 
@@ -47,20 +49,87 @@ Error mapping assumed (spec §4 gives exit codes only): `FOLDER_NAME_INVALID` is
 - UI changes: build, launch the scratch build on a temp data dir, click through every new behaviour, and screenshot Light and Dark Mode before calling a task done (`screencapture -l <windowid>`; `scripts/screenshots.sh` is how prior work captured the panel, and the harness below copies its approach).
 - Commits: conventional (`feat(app): …`), author eyakubsorkar@gmail.com (already `git config user.email`), NO AI attribution and no Co-Authored-By trailer (the repo rule overrides any tool default); stage only the named paths. Untracked `assets/pet/rallo/launch-kit/` and `marketing/` are not ours; never `git add -A` or `git add .`.
 - No release, version bump, `docs/images` regeneration or README change in this plan.
-- Spec copy, verbatim: chip `[folder icon] Work ⌄  5 open notes`, `[tray icon] All Notes ⌄  24 open notes`; placeholder `Add to Work…` (`Add to Notes…` for Notes); All Notes keeps today's list, count and placeholder and new notes go to Notes; `UserDefaults` key `notesPanelScope` holding `"all"`, `"unfiled"` or the folder id; row label `· [folder icon] Name` on All Notes only (Notes included); toast `Moved to Work` with **Undo**; tags `Theme.rust` and semibold via `tag_ranges`; the chip menu is All Notes (count), separator, Notes (count), folders alphabetically (count), separator, New Folder…; the Move menu is Notes, folders alphabetically (current one checked and disabled), separator, New Folder….
+- Spec copy, verbatim: chip `[folder icon] Work ⌄  5 open notes`, `[tray icon] All Notes ⌄  24 open notes`; placeholder `Add to Work…` (`Add to Notes…` for Notes); All Notes keeps today's list and placeholder and new notes go to Notes; the count line is `N open notes` or `No open notes` at zero; the chip is at most 110 pt wide and truncates a long name; subtitle and chip counts come from `folderOverview`; `UserDefaults` key `notesPanelScope` holding `"all"`, `"unfiled"` or the folder id; row label `· [folder icon] Name` on All Notes only (Notes included); toast `Moved to Work` with **Undo**; tags `Theme.rust` and semibold via `tag_ranges`; the chip menu is All Notes (count), separator, Notes (count), folders alphabetically (count), separator, New Folder…; the Move menu is Notes, folders alphabetically (current one checked and disabled), separator, New Folder….
 - Pinned names, copied exactly: `enum NotesScope: Hashable { case all, unfiled, folder(String) }` in `Notes/NotesScope.swift`; `struct FolderMoveMenu: View { let currentFolderID: String?; let folders: [FolderSnapshot]; let onMove: (String?) -> Void; let onNewFolder: () -> Void }`; `FolderNamePrompt.ask(title:initial:validate:) -> String?`.
 - The agents ("Waiting for you") section, the shortcut and the pet click are unchanged.
 
-## Spec notes (gaps and contradictions in 0019 §10 and how this plan resolves them)
+## Spec notes (where §10 is silent, this plan decides)
 
-1. §9 calls the FFI object `RalloCore`; the generated Swift type is `RalloStore` (see `CoreWorker`). The plan uses `RalloStore`.
-2. §10 pins `FolderNamePrompt.ask(title:initial:validate:)` with a `validate` that "throws", but the only way to ask the core is `CoreWorker`, which is async. A synchronous `validate` would force Swift to re-implement the name rules of §3. Resolution: `ask` is `async` and `validate` is `async throws`; callers make `validate` do the real create/rename, so the core's own error (`FOLDER_NAME_INVALID`, `FOLDER_EXISTS`) is what the alert shows. Everything else matches the pinned shape.
-3. §7 says `tag_ranges` returns offsets "for highlighting" but not whether the `#` is inside the range, and offsets are relative to the text passed. The plan assumes the range includes `#`, pins that with a Task 1 runtime probe, and calls `tagRanges` on each displayed string (title, body, preview) because rows show substrings of `item.text`, never the whole text.
-4. §10 stores the scope in `UserDefaults`, which is per bundle id, not per data directory: a scratch instance (`--data-dir`) would overwrite the real app's choice. The plan injects `UserDefaults(suiteName: "com.razlio.rallo.scratch")` when `AppCoordinator.isScratch`.
-5. §10 says the subtitle "counts them" (the listed notes), but the list is capped at 50 and the chip menu shows the core's counts. The subtitle uses the overview's count (identical up to 50 notes, and never disagrees with the menu).
-6. Counts in the menus are unformatted in the spec: rendered as `Work (5)`.
-7. Not stated in §10: a New Folder… started from Move to keeps the current scope (creates and moves; inside a folder scope the row then leaves the list); Move to the note's current folder is disabled, so no no-op toast; Undo after the source folder was deleted shows the core's error through the existing `report()` path.
-8. `createNoteWithImages`/`createReminderWithImages` gain a required last parameter in release 1, so the existing `CoreClient` wrappers change here (Task 2); callers elsewhere (`CaptureService`) keep compiling through a `nil` default.
+1. Menu counts render as `Work (5)`.
+2. A New Folder… started from Move to keeps the current scope (it creates and moves; inside a folder scope the row then leaves the list).
+3. Move to the note's current folder is disabled, so there is no no-op toast; Undo after the source folder was deleted shows the core's error through the existing `report()` path.
+4. The existing `CoreClient` image-creating wrappers gain `folderID: String? = nil` (Task 2); `CaptureService` keeps compiling through the default.
+
+## API this plan produces for release 3
+
+Release 3 (the window) compiles against exactly these names; do not rename them without updating that plan.
+
+```swift
+// CoreClient (apps/macos/Rallo/Core/CoreClient.swift); all `async throws`
+func createNote(_ text: String, images: [Data], folderID: String? = nil) async throws -> ItemSnapshot
+func createReminder(_ text: String, when: String, images: [Data], folderID: String? = nil) async throws -> ItemSnapshot
+func openItems(scope: FolderScope = .all, limit: UInt32 = 50) async throws -> [ItemSnapshot]   // first page of .open only
+func folderOverview() async throws -> FolderOverview
+func createFolder(_ name: String) async throws -> FolderSnapshot
+func moveItem(_ item: ItemSnapshot, folderID: String?) async throws -> ItemSnapshot            // uses item.revision; nil = Notes
+// Not added here (release 3 adds): renameFolder, deleteFolder, listTags, listItems/searchItems with cursors, cancelReminder wrappers.
+
+// apps/macos/Rallo/Notes/NotesScope.swift (Foundation only; compiled into RalloTests)
+enum NotesScope: Hashable { case all, unfiled, folder(String) }
+static let defaultsKey = "notesPanelScope"
+init(stored: String?)                       // the raw value: "all" | "unfiled" | folder id; nil/"" = .all
+static func load(from defaults: UserDefaults) -> NotesScope
+func save(to defaults: UserDefaults)
+var stored: String                          // the rawValue
+var folderScope: FolderScope                // .all / .unfiled / .folder(id:)
+var newNoteFolderID: String?                // nil for .all and .unfiled
+var symbol: String                          // "tray" or "folder"
+func resolved(in folders: [FolderSnapshot]) -> NotesScope   // vanished folder -> .all
+func title(in folders: [FolderSnapshot]) -> String
+func placeholder(in folders: [FolderSnapshot], hasNotes: Bool) -> String
+func openCount(in overview: FolderOverview) -> Int
+static func countLine(open count: Int) -> String
+
+// apps/macos/Rallo/Notes/FolderMenuItems.swift (pure; compiled into RalloTests)
+struct ScopeMenuItem: Equatable { let scope: NotesScope; let title: String; let checked: Bool }
+struct MoveMenuItem: Equatable { let folderID: String?; let title: String; let checked: Bool }
+enum FolderMenus {
+    static func scopeItems(current: NotesScope, overview: FolderOverview) -> [ScopeMenuItem]
+    static func moveItems(currentFolderID: String?, folders: [FolderSnapshot]) -> [MoveMenuItem]
+}
+
+// apps/macos/Rallo/Notes/FolderMoveMenu.swift
+struct FolderMoveMenu: View {
+    let currentFolderID: String?; let folders: [FolderSnapshot]
+    let onMove: (String?) -> Void; let onNewFolder: () -> Void
+}
+struct MenuChoice: View { let title: String; let checked: Bool; let action: () -> Void }   // native checkmark row
+
+// apps/macos/Rallo/Notes/FolderNamePrompt.swift
+@MainActor enum FolderNamePrompt {
+    static func ask(title: String, initial: String, validate: @escaping (String) async throws -> Void) async -> String?
+}
+
+// apps/macos/Rallo/Notes/NotesView.swift: NotesViewModel (@MainActor, ObservableObject)
+init(core: CoreClient, defaults: UserDefaults = .standard)
+@Published private(set) var scope: NotesScope
+@Published private(set) var overview: FolderOverview?
+var folders: [FolderSnapshot]
+func setScope(_ scope: NotesScope) async
+func move(_ item: ItemSnapshot, to folderID: String?) async          // toast "Moved to X" + Undo
+func newFolder(moving item: ItemSnapshot) async                      // New Folder… then move
+
+// Toast.Undo gains:  case move(ItemSnapshot, backTo: String?)   (existing: reopen, restore, reattach)
+// Toast itself is unchanged: Toast(message: String, undo: Toast.Undo?)
+
+// apps/macos/Rallo/Notes/TagTint.swift (compiled into RalloTests)
+enum TagTint {
+    static func attributed(_ text: String, size: CGFloat) -> AttributedString
+    static func attributed(_ text: String, ranges: [TagRange], size: CGFloat) -> AttributedString
+}
+```
+
+Test files this plan creates: `RalloTests/FolderFFIContractTests.swift`, `CoreClientFoldersTests.swift` (class `CoreClientFoldersTests`), `FolderFixtures.swift` (`testFolder(_:_:open:)`, `testOverview(all:unfiled:folders:)`), `NotesScopeTests.swift`, `FolderMenuTests.swift`, `TagTintTests.swift`. `project.yml` `RalloTests` sources gain `NotesScope.swift`, `FolderMenuItems.swift`, `TagTint.swift`, `Theme.swift`.
 
 ## Review Focus
 
@@ -117,10 +186,16 @@ export H_APP="$PWD/build/DerivedData/Build/Products/Release/Rallo.app"
 export H_CLI="$H_APP/Contents/Helpers/rallo"
 export RALLO_DATA_DIR="$H_DIR/data"
 
-h_stop() {
+h_kill() {
   pkill -f -- "--data-dir .*rallo-folders-2/data" 2>/dev/null || return 0
   sleep 1
   pkill -9 -f -- "--data-dir .*rallo-folders-2/data" 2>/dev/null || true
+}
+# Unregister the scratch build so notification clicks never reach it
+# (repo CLAUDE.md); the next `open` registers it again.
+h_stop() {
+  h_kill
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$H_APP" 2>/dev/null || true
 }
 
 # A fresh data dir: three folders, a spread of notes (a tag, Bangla, emoji,
@@ -181,7 +256,7 @@ h_seed && h_launch light          # then click through; h_shot light-<what> whil
 h_stop; h_launch dark             # repeat the visual checks; h_shot dark-<what>
 ```
 
-View every PNG with the Read tool. Click through by hand or with the computer-use tools; `h_shot` while a menu or alert is open captures it as its own window. Close with `h_clean` (Task 8 does this once at the end; between tasks only `h_stop`).
+`screencapture -l` needs Screen Recording permission for the terminal running it (System Settings > Privacy & Security). View every PNG with the Read tool. Click through by hand or with the computer-use tools; `h_shot` while a menu or alert is open captures it as its own window. Close with `h_clean` (`h_stop` also unregisters the build; `h_clean` also deletes the scratch files).
 
 ---
 
@@ -213,7 +288,7 @@ final class FolderFFIContractTests: XCTestCase {
     }
 
     func testRecordsHavePublicMemberwiseInits() {
-        let folder = FolderSnapshot(id: "f1", name: "Work", openCount: 5, revision: 1)
+        let folder = FolderSnapshot(id: "f1", name: "Work", openCount: 5, noteCount: 7, revision: 1)
         let overview = FolderOverview(allOpen: 24, unfiledOpen: 12, due: 1, done: 2, deleted: 3, folders: [folder])
         XCTAssertEqual(overview.folders.first?.name, "Work")
         XCTAssertEqual(overview.unfiledOpen, 12)
@@ -244,9 +319,13 @@ final class FolderFFIContractTests: XCTestCase {
         XCTAssertEqual(overview.folders.map(\.name), ["Work"])
         XCTAssertEqual(overview.folders.first?.openCount, 1)
 
-        XCTAssertEqual(try store.listItems(kind: .open, scope: .folder(id: work.id), tag: nil, limit: 50).map(\.id), [note.id])
-        XCTAssertEqual(try store.listItems(kind: .open, scope: .unfiled, tag: nil, limit: 50).map(\.id), [loose.id])
-        XCTAssertEqual(Set(try store.listItems(kind: .open, scope: .all, tag: nil, limit: 50).map(\.id)), [note.id, loose.id])
+        XCTAssertEqual(try store.listItems(kind: .open, scope: .folder(id: work.id), tag: nil, limit: 50, cursor: nil).items.map(\.id), [note.id])
+        XCTAssertEqual(try store.listItems(kind: .open, scope: .unfiled, tag: nil, limit: 50, cursor: nil).items.map(\.id), [loose.id])
+        XCTAssertEqual(Set(try store.listItems(kind: .open, scope: .all, tag: nil, limit: 50, cursor: nil).items.map(\.id)), [note.id, loose.id])
+        // The panel reads page 1 only; release 3 pages with the cursor.
+        let page = try store.listItems(kind: .open, scope: .all, tag: nil, limit: 1, cursor: nil)
+        XCTAssertEqual(page.totalCount, 2)
+        XCTAssertNotNil(page.nextCursor)
 
         let moved = try store.moveItem(id: note.id, folderId: nil, ifRevision: note.revision)
         XCTAssertNil(moved.folderId)
@@ -254,12 +333,13 @@ final class FolderFFIContractTests: XCTestCase {
 
         XCTAssertEqual(try store.renameFolder(id: work.id, name: "Work 2").name, "Work 2")
         XCTAssertEqual(try store.listTags().map(\.name), ["bug"])
-        XCTAssertEqual(try store.searchItems(query: "plan", limit: 10).map(\.id), [note.id])
+        XCTAssertEqual(try store.searchItems(query: "plan", limit: 10, cursor: nil).items.map(\.id), [note.id])
         let deleted = try store.deleteFolder(id: work.id, keepNotes: true)
         XCTAssertEqual(deleted.moved, 0)
 
         // Referenced so a missing label or parameter fails the build.
         _ = store.createReminderWithImages(text:when:images:folderId:)
+        _ = store.cancelReminder(id:ifRevision:)   // release 3 consumes it; pinned here too
     }
 
     func testFolderErrorsMapToTheRalloErrorCases() throws {
@@ -297,7 +377,7 @@ Run:
 cd /Users/eyakub/Desktop/Rallo && export PATH=/opt/homebrew/opt/rustup/bin:$PATH
 (cd apps/macos && xcodegen generate --quiet) && xcodebuild -project apps/macos/Rallo.xcodeproj -scheme Rallo -configuration Release -derivedDataPath build/DerivedData -only-testing:RalloTests/FolderFFIContractTests test -quiet
 ```
-Expected: PASS (4 tests). If the build fails, it is almost certainly in the `CoreClient.swift` lines that call `createNoteWithImages`/`createReminderWithImages` (release 1 added a required `folderId`); that is fixed in Task 2, so for this run only, if the failure is exactly those two call sites, do Task 2 Step 3's two replacements first and re-run. Any other compile error, or any failed assertion (a different label, a different `RalloError` case, a range that excludes the `#`), means release 1 differs from spec §9: STOP and report the exact mismatch to the orchestrator.
+Expected: PASS (4 tests). If the build fails, or any assertion (a different label, a different `RalloError` case, a range that excludes the `#`) fails, it means release 1 differs from spec §9: STOP and report the exact mismatch to the orchestrator.
 
 - [ ] **Step 3: Commit**
 
@@ -474,9 +554,9 @@ Replace `openItems`:
 with:
 
 ```swift
-    /// Open notes of a scope (0019); the default is every folder, as before.
+    /// First page of a scope's open notes (0019); the default is every folder, as before.
     func openItems(scope: FolderScope = .all, limit: UInt32 = 50) async throws -> [ItemSnapshot] {
-        try await worker.perform { try $0.listItems(kind: .open, scope: scope, tag: nil, limit: limit) }
+        try await worker.perform { try $0.listItems(kind: .open, scope: scope, tag: nil, limit: limit, cursor: nil).items }
     }
 
     // MARK: Folders (0019)
@@ -534,7 +614,7 @@ git commit -m "feat(app): CoreClient folders, scoped listing and move"
 import Foundation
 
 func testFolder(_ id: String, _ name: String, open: UInt32 = 0) -> FolderSnapshot {
-    FolderSnapshot(id: id, name: name, openCount: open, revision: 1)
+    FolderSnapshot(id: id, name: name, openCount: open, noteCount: open, revision: 1)
 }
 
 func testOverview(all: UInt32, unfiled: UInt32, folders: [FolderSnapshot]) -> FolderOverview {
@@ -601,7 +681,7 @@ final class NotesScopeTests: XCTestCase {
     }
 
     func testCountLine() {
-        XCTAssertEqual(NotesScope.countLine(open: 0), "Nothing held right now")
+        XCTAssertEqual(NotesScope.countLine(open: 0), "No open notes")
         XCTAssertEqual(NotesScope.countLine(open: 1), "1 open note")
         XCTAssertEqual(NotesScope.countLine(open: 24), "24 open notes")
     }
@@ -789,7 +869,7 @@ enum NotesScope: Hashable {
 
     static func countLine(open count: Int) -> String {
         switch count {
-        case 0: "Nothing held right now"
+        case 0: "No open notes"
         case 1: "1 open note"
         default: "\(count) open notes"
         }
@@ -1046,7 +1126,6 @@ enum FolderNamePrompt {
         alert.layout()
         alert.window.initialFirstResponder = field
 
-        var accepted: String?
         let handler = ConfirmHandler()
         handler.run = {
             let name = field.stringValue
@@ -1056,8 +1135,9 @@ enum FolderNamePrompt {
             Task { @MainActor in
                 do {
                     try await validate(name)
-                    accepted = name
-                    NSApp.stopModal(withCode: .alertFirstButtonReturn)
+                    handler.accepted = name
+                    // abortModal wakes the modal loop from outside an event handler; runModal's return code is ignored.
+                    NSApp.abortModal()
                 } catch {
                     alert.informativeText = (error as? RalloError)?.displayMessage ?? error.localizedDescription
                     alert.layout()
@@ -1071,12 +1151,13 @@ enum FolderNamePrompt {
         ok.target = handler
         ok.action = #selector(ConfirmHandler.confirm(_:))
         withExtendedLifetime(handler) { _ = alert.runModal() }
-        return accepted
+        return handler.accepted
     }
 }
 
 private final class ConfirmHandler: NSObject {
     var run: () -> Void = {}
+    var accepted: String?
 
     @objc func confirm(_ sender: Any?) { run() }
 }
@@ -1140,7 +1221,7 @@ struct FolderChip: View {
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.hover))
             .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Theme.fieldStroke))
             // A long folder name must not push the count line or the pet.
-            .frame(maxWidth: 124, alignment: .leading)
+            .frame(maxWidth: 110, alignment: .leading)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -1333,7 +1414,7 @@ cd /Users/eyakub/Desktop/Rallo && export PATH=/opt/homebrew/opt/rustup/bin:$PATH
 scripts/build-macos.sh
 (cd apps/macos && xcodegen generate --quiet) && xcodebuild -project apps/macos/Rallo.xcodeproj -scheme Rallo -configuration Release -derivedDataPath build/DerivedData test -quiet
 ```
-Expected: both succeed (a build error here is usually the `[core]` capture in `askForFolder`: `core` is `private let`, so it is accessible inside the class; fix by `let core = self.core` above the call).
+Expected: both succeed.
 
 - [ ] **Step 8: Click through (Light, then Dark)**
 
@@ -1344,7 +1425,7 @@ Expected: both succeed (a build error here is usually the `[core]` capture in `a
 3. Choose Work: chip becomes `[folder] Work ⌄  4 open notes` (3 notes + the reminder), list shows only Work's notes, placeholder `Add to Work…`. Type `Standup agenda` and Return: the note appears in the list. In a terminal: `RALLO_DATA_DIR=/tmp/rallo-folders-2/data "$H_CLI" list --folder Work` shows it, and `rallo list --folder Work` is the only folder holding it.
 4. Choose Notes: placeholder `Add to Notes…`; add `Loose idea`: appears here, and under All Notes. Choose All Notes: new notes go to Notes (check with the CLI).
 5. Quit and relaunch (`h_stop; h_launch light`): the panel reopens on the folder last chosen.
-6. Chip, New Folder…: alert "New Folder" with a field. Try, in order: empty OK, spaces then OK, `notes`, `NOTES`, a 51-character name, `work` (duplicate by case): each time the alert stays up and its text shows the core's message, buttons usable again. `h_shot light-folder-error`. Cancel: no folder created (CLI `folders`). Type `Errands` and OK: alert closes, panel switches to `Errands` (empty: the empty-state text, placeholder `Add to Errands…`).
+6. Chip, New Folder…: alert "New Folder" with a field. Try, in order: empty OK, spaces then OK, `notes`, `NOTES`, a 51-character name, `work` (duplicate by case): each time the alert stays up and its text shows the core's message, buttons usable again. `h_shot light-folder-error`. Cancel: no folder created (CLI `folders`). Type `Errands` and OK: alert closes, panel switches to `Errands` (empty: the empty-state text, the count line `No open notes`, placeholder `Add to Errands…`).
 7. Select the 50-character folder and the `কাজ 🦊` folder: the chip truncates the long name with `…`, the `n open notes` text and the pet are not pushed or overlapped. `h_shot light-long-name`.
 8. In a terminal: `"$H_CLI" folder delete Errands` (empty folder, no flag needed) while the panel shows Errands. Within a second the panel is on All Notes (chip, list, count, placeholder), and after quit and relaunch it stays on All Notes.
 9. Esc still collapses/closes as before; the shortcut and pet click still toggle the panel; the "Waiting for you" section (seed one with `"$H_CLI" agent-event` as `scripts/screenshots.sh` does if you want to see it) is unchanged.
@@ -1426,7 +1507,13 @@ struct FolderMoveMenu: View {
             if moved.revision != item.revision {
                 show(Toast(message: "Moved to \(moved.folderName ?? "Notes")", undo: .move(moved, backTo: item.folderId)))
             }
-            if expandedID == item.id, scope != .all { expandedID = nil }
+            if scope != .all {
+                // The row leaves the list: drop its swipe tray and edit state, as delete() does.
+                if openSwipe?.id == item.id { openSwipe = nil }
+                if liveSwipe?.id == item.id { liveSwipe = nil }
+                if expandedID == item.id { expandedID = nil }
+                if editingID == item.id { editingID = nil }
+            }
             await reload()
             highlight(moved.id)
         } catch {
@@ -1504,7 +1591,7 @@ Expected: both succeed.
 6. Move to > Notes on a row already in Notes is greyed. Moving a Work row to Notes inside Work: row leaves, toast `Moved to Notes`.
 7. Move to > New Folder… on a Work row: alert; a duplicate name keeps the alert up with the core's message; a fresh name `Later` closes it, the row leaves Work, the toast says `Moved to Later`; `"$H_CLI" folders` shows Later with 1 open note.
 8. Cancel New Folder… from Move to: nothing created, nothing moved.
-9. Stale cases: move a Work row to Personal, then `"$H_CLI" folder delete Work --keep-notes`, then Undo: the panel shows the core's error text (folder not found), reloads, and the note stays in Personal, no crash, nothing lands in Notes by mistake.
+9. Stale cases: type `"$H_CLI" folder delete Work --keep-notes` in a terminal beforehand but do not run it; move a Work row to Personal, run the command at once and click Undo within the toast's 5 seconds: the panel shows the core's error text (folder not found), reloads, and the note stays in Personal, no crash, nothing lands in Notes by mistake.
 10. Done/Delete/Remind/swipe/Edit still work on rows; keyboard focus and Esc unchanged.
 
 Repeat 1, 3, 4 under `h_stop; h_launch dark` and `h_shot dark-…`; view all PNGs: label contrast (bark) readable, checkmark visible, toast readable in both modes.
@@ -1643,6 +1730,10 @@ git status --short
 ```
 Expected: `h_clean` unregisters the scratch build from LaunchServices (`lsregister -u`) and deletes `/tmp/rallo-folders-2`; `git status --short` shows only the two pre-existing untracked paths (`assets/pet/rallo/launch-kit/`, `marketing/`). `defaults read com.razlio.rallo notesPanelScope` is unchanged from before this plan's first run; `~/Applications/Rallo.app` and the real data directory were never touched. `defaults delete com.razlio.rallo.scratch` removes the scratch preferences.
 
-- [ ] **Step 4: Hand-off note**
+- [ ] **Step 4: Progress notes**
+
+If `private/docs/` exists on this machine (it is gitignored, so a fresh clone has none; then skip this step), append a dated entry to `private/docs/progress.md` and the click-through lists of Tasks 5-7 to `private/docs/manual-checks.md` (both gitignored; do not commit them).
+
+- [ ] **Step 5: Hand-off note**
 
 Report to the orchestrator: the commits (`git log --oneline` since `66a1082`), the screenshots seen (Light and Dark: chip, chip menu, New Folder error alert, Move menu, row labels, tags), and the open items for release 3 that reuse `NotesScope`, `FolderMoveMenu`, `FolderNamePrompt` (note `ask`'s async `validate`, spec note 2).
