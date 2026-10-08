@@ -2,8 +2,9 @@ import AppKit
 import Carbon.HIToolbox
 
 /// Registers Rallo's global shortcuts (0008): ⌃⌥⌘J jumps to the
-/// longest-waiting agent, ⌃⌥⌘N toggles the notes panel; ⌃⌥⌘V (voice typing)
-/// and ⌃⌥⌘S (screenshot to a note) are opt-in. Carbon's
+/// longest-waiting agent, ⌃⌥⌘N toggles the notes panel; ⌃⌥⌘V (hands-free
+/// voice typing; the voice key, 0013, also starts it) and ⌃⌥⌘S (screenshot to
+/// a note) are opt-in. Carbon's
 /// `RegisterEventHotKey`/`InstallEventHandler` need no Accessibility or
 /// Input Monitoring permission — Rallo only ever sees these two key
 /// combinations, never other keystrokes. ⌃⌥⌘ because plain ⌃⌥ letters

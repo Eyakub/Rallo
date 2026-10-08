@@ -37,7 +37,7 @@ your desktop keeps them quietly in view. A note can be words, a screenshot, or b
 paste or drop an image into it, or press **⌃⌥⌘S** to capture part of the screen straight
 into a new note. When something needs you, a reminder coming
 due, an agent asking for permission, or a teammate's message, it waves. And when typing
-is slower than talking, press **⌃⌥⌘V** and speak: Rallo types for you in any app, from
+is slower than talking, hold **Right ⌥** and speak: Rallo types for you in any app, from
 the terminal to the browser.
 
 Everything lives on your Mac. No account, no server, no telemetry.
@@ -126,7 +126,7 @@ the same interface you do. `rallo --help` lists them all;
 | **Screenshot to a note** | Turn it on in Settings → General, then press **⌃⌥⌘S**, select part of the screen, and the capture waits in the notes panel: add a few words and press Return. Needs Screen Recording access (macOS asks the first time). |
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
 | **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, voice typing, screenshots, export (with images) and import, updates (including an opt-in daily check). |
-| **Voice typing (experimental)** | Turn it on in Settings → Voice, then press **⌃⌥⌘V**, talk, and Rallo types into whatever app has focus; press again to stop (it also stops after 10 s of silence). Pick Apple's built-in engine (macOS 26), Whisper large-v3 turbo (macOS 14+, a 1.6 GB download you start yourself), or a cloud engine that uses your own Groq, OpenAI or compatible API key (macOS 14+). It never presses Return, so a dictated command waits for you in the terminal. Add names it should know ("Rallo", your teammates) under Words to recognize; "um"s and stutters ("like like") are dropped. The pet cups an ear while it listens. Needs Microphone and Accessibility access. |
+| **Voice typing (experimental)** | Turn it on in Settings → Voice, then hold **Right ⌥** (or **Right ⌘**, your pick), talk, and Rallo types into whatever app has focus; let go to stop. Double-tap the key, or press **⌃⌥⌘V**, to keep listening hands-free until you press it again (it also stops after 120 s of silence). Pick Apple's built-in engine (macOS 26), Whisper large-v3 turbo (macOS 14+, a 1.6 GB download you start yourself), or a cloud engine that uses your own Groq, OpenAI or compatible API key (macOS 14+). It never presses Return, so a dictated command waits for you in the terminal. Add names it should know ("Rallo", your teammates) under Words to recognize; "um"s and stutters ("like like") are dropped. The pet cups an ear while it listens. Needs Microphone and Accessibility access. |
 | **Reminders** | Delivered by macOS Notification Center, even after Rallo quits. Up to 32 active at once. |
 
 <p align="center">

@@ -25,6 +25,7 @@ final class AppCoordinator {
     private lazy var settings = SettingsWindowController(model: settingsModel)
     private let globalShortcuts = GlobalShortcuts()
     private let voice: VoiceTyping
+    private let voiceKey = VoiceKeyMonitor()
     private var animationsPaused = false
     private var statusMenu: StatusMenuController?
     private var systemObservers: [NSObjectProtocol] = []
@@ -140,6 +141,14 @@ final class AppCoordinator {
         }
         globalShortcuts.onVoice = { [weak self] in self?.voice.toggle() }
         globalShortcuts.onScreenshot = { [weak self] in Task { await self?.takeScreenshot() } }
+        voiceKey.isListening = { [weak self] in self?.voice.isListening ?? false }
+        voiceKey.onAction = { [weak self] in
+            switch $0 {
+            case .startHold, .startHandsFree: self?.voice.start()
+            case .endHold: self?.voice.stop(reason: .release)
+            case .stop: self?.voice.stop(reason: .shortcut)
+            }
+        }
         voice.onListening = { [weak self] in self?.pet.setListening($0) }
         voice.onTyped = { [weak self] in self?.pet.heard() }
         voice.petFrame = { [weak self] in
@@ -148,6 +157,7 @@ final class AppCoordinator {
         }
         globalShortcuts.register()
         globalShortcuts.setVoice(enabled: Self.voiceTypingEnabled)
+        voiceKey.setEnabled(Self.voiceTypingEnabled)
         globalShortcuts.setScreenshot(enabled: Self.screenshotHotkeyEnabled)
         observer.onPossibleChange = { [weak self] in Task { await self?.checkForChanges() } }
         observer.onShowRequest = { [weak self] in Task { await self?.handleShowRequest() } }
@@ -469,6 +479,7 @@ final class AppCoordinator {
             guard let self else { return }
             UserDefaults.standard.set(enabled, forKey: "voiceTypingEnabled")
             globalShortcuts.setVoice(enabled: enabled)
+            voiceKey.setEnabled(enabled)
             if enabled {
                 Task {
                     _ = await VoicePermissions.requestMicrophone()
