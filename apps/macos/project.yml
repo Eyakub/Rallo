@@ -76,6 +76,8 @@ targets:
       - path: Rallo/Notes/RalloError+Display.swift
       - path: Rallo/Notes/NotesScope.swift
       - path: Rallo/Notes/FolderMenuItems.swift
+      - path: Rallo/Notes/TagTint.swift
+      - path: Rallo/Shared/Theme.swift
       - path: Rallo/ClickUp/ClickUpWaiting.swift
       - path: Rallo/Notifications/NotificationAdapter.swift
       - path: Rallo/Notifications/AgentNotificationIdentifier.swift
