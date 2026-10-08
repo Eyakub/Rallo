@@ -1,4 +1,5 @@
 use rallo_core::agents as core_agents;
+use rallo_core::folders::Folder;
 use rallo_core::images::{ImageView, SweepSummary};
 use rallo_core::items::{ItemStatus as CoreItemStatus, ItemView};
 use rallo_core::pet as core_pet;
@@ -68,6 +69,11 @@ pub struct ItemSnapshot {
     pub revision: i64,
     pub reminder: Option<ReminderSnapshot>,
     pub images: Vec<ImageSnapshot>,
+    /// `None`: the note is in the built-in "Notes" (0019).
+    pub folder_id: Option<String>,
+    pub folder_name: Option<String>,
+    /// Tag keys in the text, first-appearance order, no duplicates (0019 §6).
+    pub tags: Vec<String>,
 }
 
 impl From<ItemView> for ItemSnapshot {
@@ -87,6 +93,9 @@ impl From<ItemView> for ItemSnapshot {
             deleted_at_ms: item.deleted_at_ms,
             revision: item.revision,
             images: view.images.into_iter().map(Into::into).collect(),
+            folder_id: view.folder.as_ref().map(|folder| folder.id.to_string()),
+            folder_name: view.folder.map(|folder| folder.name),
+            tags: view.tags,
             reminder: view.reminder.map(|reminder| ReminderSnapshot {
                 id: reminder.id.to_string(),
                 deadline_ms: reminder.deadline_ms,
@@ -96,6 +105,97 @@ impl From<ItemView> for ItemSnapshot {
             }),
         }
     }
+}
+
+/// A folder with its open, nondeleted note count (0019 §1) and its open-plus-done
+/// count, which is what the delete sheet's "It holds N notes" says (§12).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FolderSnapshot {
+    pub id: String,
+    pub name: String,
+    pub open_count: u32,
+    pub note_count: u32,
+    pub revision: i64,
+}
+
+impl FolderSnapshot {
+    pub(crate) fn new(folder: Folder, open_count: u64, note_count: u64) -> Self {
+        Self {
+            id: folder.id.to_string(),
+            name: folder.name,
+            open_count: count(open_count),
+            note_count: count(note_count),
+            revision: folder.revision,
+        }
+    }
+}
+
+/// One page of `list_items` / `search_items`: the core's opaque cursors (0003 §10).
+/// `total_count` is every match, independent of `limit` and `cursor`.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ItemPage {
+    pub items: Vec<ItemSnapshot>,
+    pub next_cursor: Option<String>,
+    pub total_count: u32,
+}
+
+/// Everything the notes window's sidebar shows, in one read (0019 §9).
+/// `due`, `done` and `deleted` count what those views list; the rest count
+/// open, nondeleted notes.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FolderOverview {
+    pub all_open: u32,
+    pub unfiled_open: u32,
+    pub due: u32,
+    pub done: u32,
+    pub deleted: u32,
+    /// Alphabetical; Notes is `unfiled_open`, not a row.
+    pub folders: Vec<FolderSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TagSnapshot {
+    pub name: String,
+    pub open_count: u32,
+}
+
+/// A tag in a note's text, in UTF-16 units for `NSTextView` (0019 §7): the
+/// range covers the `#`; `name` is the tag's key.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TagRange {
+    pub utf16_start: u32,
+    pub utf16_len: u32,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum FolderScope {
+    All,
+    /// Notes with no folder: the built-in "Notes".
+    Unfiled,
+    Folder {
+        id: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ItemListKind {
+    Open,
+    Done,
+    Due,
+    Deleted,
+}
+
+/// Counts of nondeleted notes: sent to Notes, and soft-deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct FolderDeleteResult {
+    pub moved: u32,
+    pub deleted: u32,
+}
+
+/// Saturating: a count never wraps on its way to Swift's `UInt32`.
+pub(crate) fn count(value: u64) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
 /// One image on a note (0018); `path` is absolute, inside Rallo's data
@@ -516,6 +616,8 @@ pub struct ImportSummary {
     pub total_records: u64,
     pub new: u64,
     pub identical: u64,
+    /// Folders the import creates (or would create, in a dry run).
+    pub new_folders: u64,
     pub conflicts: Vec<ImportConflict>,
     pub conflict_total: u64,
     pub warnings: Vec<String>,
@@ -530,6 +632,7 @@ impl From<ImportReport> for ImportSummary {
             total_records: report.total_records,
             new: report.new,
             identical: report.identical,
+            new_folders: report.new_folders,
             conflicts: report.conflicts.into_iter().map(Into::into).collect(),
             conflict_total: report.conflict_total,
             warnings: report.warnings,

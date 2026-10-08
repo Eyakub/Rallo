@@ -149,7 +149,7 @@ final class CoreBridgeTests: XCTestCase {
 
     func testANoteWithImagesRoundTrips() throws {
         let store = try RalloStore.open(dataDir: dataDir.path)
-        let item = try store.createNoteWithImages(text: "", images: [Self.png, Self.png])
+        let item = try store.createNoteWithImages(text: "", images: [Self.png, Self.png], folderId: nil)
         XCTAssertEqual(item.text, "")
         XCTAssertEqual(item.images.count, 2)
         let first = try XCTUnwrap(item.images.first)
@@ -174,7 +174,7 @@ final class CoreBridgeTests: XCTestCase {
 
     func testAnUnsupportedImageIsRefusedAndNothingIsSaved() throws {
         let store = try RalloStore.open(dataDir: dataDir.path)
-        XCTAssertThrowsError(try store.createNoteWithImages(text: "x", images: [Data("not an image".utf8)])) { error in
+        XCTAssertThrowsError(try store.createNoteWithImages(text: "x", images: [Data("not an image".utf8)], folderId: nil)) { error in
             guard case let RalloError.InvalidInput(code, _) = error else { return XCTFail("unexpected \(error)") }
             XCTAssertEqual(code, "IMAGE_UNSUPPORTED")
         }
@@ -183,7 +183,7 @@ final class CoreBridgeTests: XCTestCase {
 
     func testAZipExportImportsIntoAnotherStore() throws {
         let store = try RalloStore.open(dataDir: dataDir.path)
-        _ = try store.createNoteWithImages(text: "with image", images: [Self.png])
+        _ = try store.createNoteWithImages(text: "with image", images: [Self.png], folderId: nil)
         let archive = dataDir.appendingPathComponent("export.zip")
         let result = try store.exportToFile(path: archive.path, format: .zip, overwrite: false)
         XCTAssertEqual(result.items, 1)
@@ -202,9 +202,69 @@ final class CoreBridgeTests: XCTestCase {
 
     func testAJsonExportWarnsThatImagesAreLeftOut() throws {
         let store = try RalloStore.open(dataDir: dataDir.path)
-        _ = try store.createNoteWithImages(text: "with image", images: [Self.png])
+        _ = try store.createNoteWithImages(text: "with image", images: [Self.png], folderId: nil)
         let result = try store.exportToFile(path: dataDir.appendingPathComponent("x.json").path, format: .json, overwrite: false)
         XCTAssertEqual(result.warnings, ["1 image isn't included; use --format zip"])
+    }
+
+    func testFoldersAndTagsRoundTrip() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        let work = try store.createFolder(name: "Work")
+        XCTAssertEqual(work.name, "Work")
+        XCTAssertEqual(work.openCount, 0)
+
+        let filed = try store.createNoteWithImages(text: "ship it #release", images: [], folderId: work.id)
+        XCTAssertEqual(filed.folderId, work.id)
+        XCTAssertEqual(filed.folderName, "Work")
+        XCTAssertEqual(filed.tags, ["release"])
+        let loose = try store.createNote(text: "loose")
+        XCTAssertNil(loose.folderId)
+
+        let overview = try store.folderOverview()
+        XCTAssertEqual(overview.allOpen, 2)
+        XCTAssertEqual(overview.unfiledOpen, 1)
+        XCTAssertEqual(overview.folders.map(\.name), ["Work"])
+        XCTAssertEqual(overview.folders.first?.openCount, 1)
+        XCTAssertEqual(overview.folders.first?.noteCount, 1)
+        XCTAssertEqual(try store.listItems(kind: .open, scope: .folder(id: work.id), tag: nil, limit: 50, cursor: nil).items.map(\.id), [filed.id])
+        XCTAssertEqual(try store.listItems(kind: .open, scope: .unfiled, tag: "#release", limit: 50, cursor: nil).items.count, 0)
+        XCTAssertEqual(try store.listTags().map(\.name), ["release"])
+
+        let moved = try store.moveItem(id: loose.id, folderId: work.id, ifRevision: loose.revision)
+        XCTAssertEqual(moved.folderName, "Work")
+        let result = try store.deleteFolder(id: work.id, keepNotes: true)
+        XCTAssertEqual(result.moved, 2)
+        XCTAssertEqual(try store.listItems(kind: .open, scope: .unfiled, tag: nil, limit: 50, cursor: nil).items.count, 2)
+
+        XCTAssertThrowsError(try store.createNoteWithImages(text: "x", images: [], folderId: work.id)) { error in
+            guard case let RalloError.NotFound(code, _) = error else { return XCTFail("unexpected \(error)") }
+            XCTAssertEqual(code, "FOLDER_NOT_FOUND")
+        }
+    }
+
+    func testListsPageWithCursorsAndRemindersCanBeCancelled() throws {
+        let store = try RalloStore.open(dataDir: dataDir.path)
+        for number in 0..<3 { _ = try store.createNote(text: "note \(number)") }
+        let first = try store.listItems(kind: .open, scope: .all, tag: nil, limit: 2, cursor: nil)
+        XCTAssertEqual(first.items.count, 2)
+        XCTAssertEqual(first.totalCount, 3)
+        let rest = try store.listItems(kind: .open, scope: .all, tag: nil, limit: 2, cursor: first.nextCursor)
+        XCTAssertEqual(rest.items.count, 1)
+        XCTAssertNil(rest.nextCursor)
+        XCTAssertEqual(try store.searchItems(query: "note", limit: 10, cursor: nil).totalCount, 3)
+
+        let reminded = try store.createReminder(text: "Stretch", when: "in 2 hours")
+        let cancelled = try store.cancelReminder(id: reminded.id, ifRevision: reminded.revision)
+        XCTAssertEqual(cancelled.reminder?.state, .cancelled)
+        XCTAssertEqual(cancelled.status, .open)
+    }
+
+    func testTagRangesAreUtf16RangesForTheTextView() {
+        let text = "😀 #Bug and #কাজ"
+        let ranges = tagRanges(text: text)
+        XCTAssertEqual(ranges.map(\.name), ["bug", "কাজ"])
+        let nsText = text as NSString
+        XCTAssertEqual(ranges.map { nsText.substring(with: NSRange(location: Int($0.utf16Start), length: Int($0.utf16Len))) }, ["#Bug", "#কাজ"])
     }
 
     func testTheSweepRunsOnAnEmptyStore() throws {

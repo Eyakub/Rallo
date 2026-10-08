@@ -611,6 +611,7 @@ version = "0.12.1"
 dependencies = [
  "rallo-core",
  "rallo-platform-macos",
+ "tempfile",
  "thiserror",
  "uniffi",
  "uuid",

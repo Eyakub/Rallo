@@ -24,3 +24,6 @@ rallo-platform-macos.workspace = true
 thiserror.workspace = true
 uniffi.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

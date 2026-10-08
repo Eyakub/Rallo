@@ -30,11 +30,11 @@ final class CoreClient {
 
     /// A note with images (0018); `text` may be empty when there are images.
     func createNote(_ text: String, images: [Data]) async throws -> ItemSnapshot {
-        try await worker.perform { try $0.createNoteWithImages(text: text, images: images) }
+        try await worker.perform { try $0.createNoteWithImages(text: text, images: images, folderId: nil) }
     }
 
     func createReminder(_ text: String, when: String, images: [Data]) async throws -> ItemSnapshot {
-        try await worker.perform { try $0.createReminderWithImages(text: text, when: when, images: images) }
+        try await worker.perform { try $0.createReminderWithImages(text: text, when: when, images: images, folderId: nil) }
     }
 
     func attachImages(_ item: ItemSnapshot, images: [Data]) async throws -> ItemSnapshot {
