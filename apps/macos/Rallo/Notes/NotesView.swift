@@ -76,6 +76,11 @@ final class NotesViewModel: ObservableObject {
     /// The note whose "Custom…" reminder popover is open (0016).
     @Published var customRemindID: String?
     @Published var focusToken = 0
+    /// The folder the panel shows and files new notes into (0019 §10). It is
+    /// All Notes again if that folder is gone (see `reload`).
+    @Published private(set) var scope: NotesScope
+    /// Folders and counts from the core, refreshed with every reload.
+    @Published private(set) var overview: FolderOverview?
     /// Swipe state: at most one row shows a tray; `liveSwipe` follows the
     /// pointer or fingers while a swipe is in progress.
     @Published var openSwipe: OpenSwipe?
@@ -95,12 +100,25 @@ final class NotesViewModel: ObservableObject {
     }
 
     private let core: CoreClient
+    private let defaults: UserDefaults
     private var highlightTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
 
-    init(core: CoreClient) {
+    init(core: CoreClient, defaults: UserDefaults = .standard) {
         self.core = core
+        self.defaults = defaults
+        scope = NotesScope.load(from: defaults)
     }
+
+    var folders: [FolderSnapshot] { overview?.folders ?? [] }
+    var scopeTitle: String { scope.title(in: folders) }
+
+    /// "5 open notes": the core's count, so it also holds past the list's 50-note limit.
+    var scopeCountLine: String {
+        NotesScope.countLine(open: overview.map { scope.openCount(in: $0) } ?? items.count)
+    }
+
+    var composerPlaceholder: String { scope.placeholder(in: folders, hasNotes: !items.isEmpty) }
 
     func requestFocus() {
         focusToken += 1
@@ -216,14 +234,52 @@ final class NotesViewModel: ObservableObject {
     }
 
     func reload() async {
+        let requested = scope
         do {
-            items = try await core.openItems()
+            let overview = try await core.folderOverview()
+            let shown = requested.resolved(in: overview.folders)
+            let listed = try await core.openItems(scope: shown.folderScope)
             agentSessions = try await core.agentSessions()
             authorization = try await core.notificationAuthorization()
+            self.overview = overview
+            // If setScope ran meanwhile, its own reload owns the list.
+            if scope == requested {
+                if shown != requested {
+                    // The folder was deleted (maybe by the CLI): back to All Notes.
+                    scope = shown
+                    shown.save(to: defaults)
+                }
+                items = listed
+            }
             errorMessage = nil
         } catch {
             errorMessage = "Couldn’t load notes: \(error.localizedDescription)"
         }
+    }
+
+    func setScope(_ new: NotesScope) async {
+        guard new != scope else { return }
+        scope = new
+        new.save(to: defaults)
+        expandedID = nil
+        editingID = nil
+        openSwipe = nil
+        await reload()
+    }
+
+    /// New Folder… (0019 §10): asks for a name, creates the folder, then hands
+    /// it to `use`. The core validates the name, so its own error stays in the alert.
+    private func askForFolder(then use: (FolderSnapshot) async -> Void) async {
+        var created: FolderSnapshot?
+        _ = await FolderNamePrompt.ask(title: "New Folder", initial: "") { [core] name in
+            created = try await core.createFolder(name)
+        }
+        if let created { await use(created) }
+    }
+
+    /// The chip's New Folder…: create it and switch to it.
+    func newFolderAndSwitch() async {
+        await askForFolder { await setScope(.folder($0.id)) }
     }
 
     /// Brings the session's terminal app forward; a no-op if Rallo couldn't
@@ -279,7 +335,7 @@ final class NotesViewModel: ObservableObject {
         let images = stagedImages.map(\.data)
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty else { return }
         do {
-            let item = try await core.createNote(text, images: images)
+            let item = try await core.createNote(text, images: images, folderID: scope.newNoteFolderID)
             draft = ""
             stagedImages = []
             await reload()
@@ -511,9 +567,14 @@ struct NotesView: View {
         HStack(alignment: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Notes").font(Theme.rounded(22, .semibold))
-                Text(countLine)
-                    .font(Theme.rounded(13))
-                    .foregroundStyle(Theme.bark)
+                HStack(spacing: 8) {
+                    FolderChip(model: model)
+                    Text(model.scopeCountLine)
+                        .font(Theme.rounded(13))
+                        .foregroundStyle(Theme.bark)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
             .padding(.bottom, 12)
             Spacer(minLength: 0)
@@ -530,20 +591,6 @@ struct NotesView: View {
         .padding(.trailing, 26)
         .padding(.top, 6)
         .zIndex(1)
-    }
-
-    private var countLine: String {
-        switch model.items.count {
-        case 0: "Nothing held right now"
-        case 1: "1 open note"
-        case let count: "\(count) open notes"
-        }
-    }
-
-    /// A question prompts offloading what's on someone's mind better than a
-    /// label does; it changes only with whether notes already exist.
-    private var prompt: String {
-        model.items.isEmpty ? "What’s on your mind?" : "Something else on your mind?"
     }
 
     private var hasDraft: Bool {
@@ -566,7 +613,7 @@ struct NotesView: View {
                 }
             }
             HStack(alignment: .bottom, spacing: 8) {
-                TextField(text: $model.draft, prompt: Text(model.stagedImages.isEmpty ? prompt : "Add a note, or press Return").foregroundStyle(Theme.bark), axis: .vertical) {
+                TextField(text: $model.draft, prompt: Text(model.stagedImages.isEmpty ? model.composerPlaceholder : "Add a note, or press Return").foregroundStyle(Theme.bark), axis: .vertical) {
                     Text("New note")
                 }
                 .textFieldStyle(.plain)

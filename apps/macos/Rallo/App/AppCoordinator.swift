@@ -80,7 +80,9 @@ final class AppCoordinator {
         // The wait-threshold testing override (0008) only ever applies to a
         // scratch instance started with an explicit --data-dir.
         agentWaitNotifier = AgentWaitNotifier(adapter: notifications.adapter, log: log, allowThresholdOverride: isScratch)
-        notesModel = NotesViewModel(core: core)
+        // The panel's folder choice (0019) lives in UserDefaults, which is per
+        // bundle id: a scratch instance must not overwrite the real app's.
+        notesModel = NotesViewModel(core: core, defaults: isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard)
         notes = NotesPanelController(model: notesModel)
         observer = ChangeObserver(dataDir: dataDir)
     }
