@@ -75,6 +75,7 @@ targets:
       - path: Rallo/Notes/Thumbnails.swift
       - path: Rallo/Notes/RalloError+Display.swift
       - path: Rallo/Notes/NotesScope.swift
+      - path: Rallo/Notes/PanelDefaults.swift
       - path: Rallo/Notes/FolderMenuItems.swift
       - path: Rallo/Notes/FolderNamePrompt.swift
       - path: Rallo/Notes/NotesViewModel.swift

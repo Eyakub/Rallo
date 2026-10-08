@@ -81,8 +81,8 @@ final class AppCoordinator {
         // scratch instance started with an explicit --data-dir.
         agentWaitNotifier = AgentWaitNotifier(adapter: notifications.adapter, log: log, allowThresholdOverride: isScratch)
         // The panel's folder choice (0019) lives in UserDefaults, which is per
-        // bundle id: a scratch instance must not overwrite the real app's.
-        notesModel = NotesViewModel(core: core, defaults: isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard)
+        // bundle id: any data dir but the real one must not overwrite the real app's.
+        notesModel = NotesViewModel(core: core, defaults: PanelDefaults.defaults(forDataDir: dataDir))
         notes = NotesPanelController(model: notesModel)
         observer = ChangeObserver(dataDir: dataDir)
     }
