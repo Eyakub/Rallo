@@ -69,7 +69,10 @@ CREATE INDEX items_open_by_folder ON items (folder_id, created_at_ms, id)
   (exit 4). A key equal to `notes` is reserved → `FOLDER_NAME_INVALID`.
 - Renaming to a name with the same key as the folder's own (`work` →
   `Work`) is allowed: it only changes `name`.
-- Folders are listed alphabetically by `name_key`, with Notes always first.
+- Folders are listed alphabetically by `name_key` (byte order of the
+  normalized key, so `école` sorts after `work`; `ponytail:` locale-aware
+  order if anyone asks), with Notes always first.
+- `folder rename Notes …` and `folder delete Notes` → `FOLDER_NAME_INVALID`.
 - The CLI names a folder by **name** (matched on `name_key`, so case doesn't
   matter); `Notes` means "no folder". The FFI uses folder **IDs**.
   Unknown name → `FOLDER_NOT_FOUND` (exit 3); its message lists the
@@ -78,12 +81,12 @@ CREATE INDEX items_open_by_folder ON items (folder_id, created_at_ms, id)
 
 ### 4. New error codes
 
-| Code | Exit | When |
-|---|---|---|
-| `FOLDER_NAME_INVALID` | 2 | empty, too long, control characters, or "Notes" |
-| `FOLDER_NOT_FOUND` | 3 | no folder with that name (CLI) or ID (FFI) |
-| `FOLDER_EXISTS` | 4 | another folder already has that name |
-| `FOLDER_NOT_EMPTY` | 2 | `folder delete` on a folder holding notes without `--keep-notes` or `--delete-notes` |
+| Code | Exit | FFI `RalloError` | When |
+|---|---|---|---|
+| `FOLDER_NAME_INVALID` | 2 | `InvalidInput` | empty, too long, control characters, or "Notes" |
+| `FOLDER_NOT_FOUND` | 3 | `NotFound` | no folder with that name (CLI) or ID (FFI) |
+| `FOLDER_EXISTS` | 4 | `Conflict` | another folder already has that name |
+| `FOLDER_NOT_EMPTY` | 2 | `Conflict` | `folder delete` on a folder holding notes without `--keep-notes` or `--delete-notes` (CLI only: the FFI always passes a choice) |
 
 ### 5. Operations
 
@@ -117,8 +120,12 @@ succeed with `changed: false`.
     Notes.
   - Then the folder row is deleted. All of it is one transaction with one
     `change_revision` bump.
-  - Result: `{folder, notes: "kept" | "deleted" | "none", moved, deleted}`
-    (counts of notes).
+  - Result: `{folder, notes: "kept" | "deleted" | "none", moved, deleted}`.
+    The counts are of notes that were **nondeleted**; `notes` is `"none"`
+    when the folder held none. Under `--delete-notes` a note's revision goes
+    up by 2 (the delete, then the folder clear).
+  - `FOLDER_NOT_EMPTY` is a `Conflict` in the core; the CLI maps that one
+    code to exit 2.
 - **Restore** is unchanged: a note keeps its `folder_id` while deleted, so
   restoring returns it to its folder (or to Notes if that folder was
   deleted in the meantime).
@@ -157,7 +164,10 @@ succeed with `changed: false`.
   `INVALID_INPUT`.
 - **Code.** One parser in `rallo-core` (`items/tags.rs`): `tags(text) ->
   Vec<String>` (keys) and `tag_ranges(text) -> Vec<(utf16_start,
-  utf16_len, key)>` for highlighting. It is registered on every connection
+  utf16_len, key)>` for highlighting. A range covers the `#` and the tag
+  as written (without a dropped trailing `-`/`_`), in UTF-16 offsets of the
+  string passed in; callers pass exactly the string they display. The
+  parser is registered on every connection
   as a deterministic SQLite scalar function `rallo_has_tag(text, key)` so
   `--tag` is a `WHERE` clause. The app gets the ranges through the FFI, so
   Swift never re-implements the grammar.
@@ -185,7 +195,12 @@ succeed with `changed: false`.
   Then each item's `folder_id` is mapped and compared like its text: an
   existing item that differs only by folder is a **conflict** (0004's
   rules: any conflict aborts the whole import).
-- **CSV** gains a trailing `folder` column (the name; empty for Notes). CSV
+- The importer reads `folders`/`folder_id` only when `version >= 3`. For
+  v1/v2 files (and CSVs without a `folder` column) a new note goes to
+  Notes and an existing note's folder is **not** compared, so old files
+  never conflict. 0004 gets a pointer to this section.
+- **CSV** gains a trailing `folder` column (the name; empty for Notes),
+  with 0004's formula-injection guard applied like `text`. CSV
   import creates a missing folder by name (CSV has no folder ids). The
   header stays case-insensitive, so older CSVs without the column import to
   Notes.
@@ -196,7 +211,8 @@ succeed with `changed: false`.
 New records and enums:
 
 ```rust
-pub struct FolderSnapshot { pub id: String, pub name: String, pub open_count: u32, pub revision: i64 }
+pub struct FolderSnapshot { pub id: String, pub name: String, pub open_count: u32, pub note_count: u32, pub revision: i64 }
+// note_count: open + done, nondeleted (the delete sheet's "It holds N notes")
 pub struct FolderOverview {
     pub all_open: u32, pub unfiled_open: u32, pub due: u32, pub done: u32, pub deleted: u32,
     pub folders: Vec<FolderSnapshot>,          // alphabetical
@@ -206,12 +222,13 @@ pub struct TagRange { pub utf16_start: u32, pub utf16_len: u32, pub name: String
 pub enum FolderScope { All, Unfiled, Folder { id: String } }
 pub enum ItemListKind { Open, Done, Due, Deleted }
 pub struct FolderDeleteResult { pub moved: u32, pub deleted: u32 }
+pub struct ItemPage { pub items: Vec<ItemSnapshot>, pub next_cursor: Option<String>, pub total_count: u32 }
 ```
 
 `ItemSnapshot` gains `folder_id: Option<String>`, `folder_name:
 Option<String>`, `tags: Vec<String>`.
 
-New `RalloCore` methods:
+New `RalloStore` methods (the uniffi object; Swift sees `RalloStore`):
 
 ```rust
 fn folder_overview(&self) -> Result<FolderOverview, RalloError>;
@@ -220,11 +237,17 @@ fn create_folder(&self, name: String) -> Result<FolderSnapshot, RalloError>;
 fn rename_folder(&self, id: String, name: String) -> Result<FolderSnapshot, RalloError>;
 fn delete_folder(&self, id: String, keep_notes: bool) -> Result<FolderDeleteResult, RalloError>;
 fn move_item(&self, id: String, folder_id: Option<String>, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError>;
-fn list_items(&self, kind: ItemListKind, scope: FolderScope, tag: Option<String>, limit: u32) -> Result<Vec<ItemSnapshot>, RalloError>;
-fn search_items(&self, query: String, limit: u32) -> Result<Vec<ItemSnapshot>, RalloError>;
+fn list_items(&self, kind: ItemListKind, scope: FolderScope, tag: Option<String>, limit: u32, cursor: Option<String>) -> Result<ItemPage, RalloError>;
+fn search_items(&self, query: String, limit: u32, cursor: Option<String>) -> Result<ItemPage, RalloError>;
+fn cancel_reminder(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError>;
 ```
 
 and a free function `fn tag_ranges(text: String) -> Vec<TagRange>`.
+`list_items`/`search_items` page with the core's existing opaque cursors
+(0003 §10; `limit` 1–200); the panel reads the first page only, the window
+loads the next page when its last row appears. `cancel_reminder` is the
+CLI's `cancel-reminder` (state `cancelled`), for the editor's Cancel
+Reminder.
 `create_note_with_images` and `create_reminder_with_images` gain a last
 parameter `folder_id: Option<String>`; `create_note`/`create_reminder` (used
 by Services and Shortcuts) are unchanged and file into Notes.
@@ -247,9 +270,13 @@ Mockup section 1, options B and C.
   scope, nil, …)`), the subtitle counts them, and the note field's
   placeholder is `Add to Work…` (`Add to Notes…` for Notes). On All Notes the
   list, count and placeholder are exactly today's, and new notes go to Notes.
+- Panel subtitle and chip counts come from `folder_overview` (not the
+  length of the listed page, which is capped).
 - The choice is a Swift `enum NotesScope: Hashable { case all, unfiled,
   folder(String) }` (`Notes/NotesScope.swift`), remembered in UserDefaults
-  `notesPanelScope` as `"all"`, `"unfiled"`, or the folder id. An id that no longer exists (deleted, maybe
+  `notesPanelScope` as `"all"`, `"unfiled"`, or the folder id (scratch builds
+  use their own defaults suite so they never overwrite the installed app's
+  choice). An id that no longer exists (deleted, maybe
   by the CLI) falls back to All Notes on the next reload.
 - **Row folder label**: on All Notes each row's meta line ends with
   `· [folder icon] Name` (Notes included). Not shown inside a folder.
@@ -267,9 +294,12 @@ Mockup section 1, options B and C.
   }
   ```
 
-  New Folder… everywhere uses one helper, `FolderNamePrompt.ask(title:
-  initial:validate:) -> String?` (an `NSAlert` with a text field that stays
-  up and shows the error while `validate` throws). After a move the toast
+  New Folder… everywhere uses one helper, `@MainActor
+  FolderNamePrompt.ask(title: String, initial: String, validate: (String)
+  async throws -> Void) async -> String?`: an `NSAlert` with a text field;
+  `validate` is the real create/rename call, so the core's own error message
+  shows in the alert, which stays up until it succeeds or is cancelled.
+  Swift never re-implements the name rules (§3). After a move the toast
   says `Moved to Work` with **Undo** (moves it back); inside a folder scope
   the row leaves the list.
 - **Tags** in row text are tinted `Theme.rust` and semibold, using
@@ -301,6 +331,12 @@ deleted, tag(String) }`.
   close: back to `.accessory`. The main menu (Rallo, Edit) already exists.
   The shortcut and pet click keep toggling the panel; panel and window may
   be open together and both reload on every change.
+- **Menus**: the main menu gains File (New Note ⌘N, New Folder ⇧⌘N,
+  Close ⌘W; New items enabled only while the window is key) and Window
+  (Minimize ⌘M, Notes Window), and the Rallo menu gets Quit ⌘Q if it lacks
+  it. ⌘Z stays with the text view; the Undo toast is click-only.
+- **Quit**: `applicationShouldTerminate` flushes the editor's pending save
+  first.
 - **Sidebar**:
   - **Folders** (header with a + button): Notes, then folders
     alphabetically, each with its open count. A folder's context menu:
@@ -371,7 +407,7 @@ deleted, tag(String) }`.
 
 From the sidebar (window only). A sheet:
 
-- Folder with notes: **Delete “Work”?** — "It holds 5 notes. Keep them in
+- Folder with notes (`note_count > 0`): **Delete “Work”?** — "It holds 5 notes. Keep them in
   Notes, or delete them too? Deleted notes stay in Deleted, where you can
   restore them." Buttons: **Keep Notes** (default), **Delete Notes**
   (destructive), **Cancel**.
