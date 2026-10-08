@@ -74,6 +74,8 @@ pub enum ListFilter {
     Deleted,
     /// Open items with an active reminder whose deadline has passed.
     Due,
+    /// Done, nondeleted items, newest completion first (0019 §6).
+    Done,
 }
 
 /// One line of `rallo tags` (0019 §6): `open_count` is open, nondeleted notes.

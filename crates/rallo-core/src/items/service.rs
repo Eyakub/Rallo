@@ -5,8 +5,8 @@ use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
 
-use super::model::{Item, ItemStatus, ItemView, MutationOptions, MutationOutcome};
-use super::query::{ListQuery, Page, SearchQuery};
+use super::model::{Item, ItemStatus, ItemView, MutationOptions, MutationOutcome, TagCount};
+use super::query::{ItemScope, ListQuery, Page, SearchQuery};
 use super::repository;
 use crate::folders::{self, FolderSelector};
 use crate::reminders;
@@ -341,11 +341,29 @@ impl Store {
     }
 
     pub fn list(&self, query: ListQuery) -> CoreResult<Page<ItemView>> {
-        repository::list(self.conn(), &query, self.now_ms())
+        self.list_scoped(query, &ItemScope::default())
+    }
+
+    /// `list` restricted to a folder and/or a tag (0019 §6). An unknown folder
+    /// is `FOLDER_NOT_FOUND`; a malformed tag is `INVALID_INPUT`.
+    pub fn list_scoped(&self, query: ListQuery, scope: &ItemScope) -> CoreResult<Page<ItemView>> {
+        let scope = repository::Scope::resolve(self.conn(), scope)?;
+        repository::list(self.conn(), &query, &scope, self.now_ms())
     }
 
     pub fn search(&self, query: SearchQuery) -> CoreResult<Page<ItemView>> {
-        repository::search(self.conn(), &query)
+        self.search_scoped(query, &ItemScope::default())
+    }
+
+    /// `search` restricted to a folder and/or a tag.
+    pub fn search_scoped(&self, query: SearchQuery, scope: &ItemScope) -> CoreResult<Page<ItemView>> {
+        let scope = repository::Scope::resolve(self.conn(), scope)?;
+        repository::search(self.conn(), &query, &scope)
+    }
+
+    /// `rallo tags`: tags of open, nondeleted notes with their note counts.
+    pub fn tag_counts(&self) -> CoreResult<Vec<TagCount>> {
+        repository::tag_counts(self.conn())
     }
 
     /// `edit ID --text` (0003 §3): identical text is a no-op; otherwise

@@ -1,8 +1,13 @@
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
+use std::collections::HashMap;
+
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
 use uuid::Uuid;
 
-use super::model::{Item, ItemStatus, ItemView, ListFilter};
-use super::query::{ListQuery, Page, SearchQuery};
+use super::model::{Item, ItemStatus, ItemView, ListFilter, TagCount};
+use super::query::{ItemScope, ListQuery, Page, SearchQuery};
+use super::tags;
+use crate::folders;
 use crate::reminders;
 use crate::shared::errors::{ConflictDetail, CoreError, CoreResult, ErrorCode};
 use crate::shared::{ids, text};
@@ -217,94 +222,149 @@ fn decode_cursor(cursor: &str) -> CoreResult<(i64, Uuid)> {
     .ok_or_else(|| CoreError::invalid(ErrorCode::InvalidInput, "cursor is malformed"))
 }
 
-pub(crate) fn list(conn: &Connection, query: &ListQuery, now_ms: i64) -> CoreResult<Page<ItemView>> {
-    let limit = validate_limit(query.limit)?;
-    match query.filter {
-        ListFilter::Open => simple_page(
-            conn,
-            "deleted_at_ms IS NULL AND status = 'open'",
-            "created_at_ms",
-            query.cursor.as_deref(),
-            limit,
-        ),
-        ListFilter::All => simple_page(conn, "deleted_at_ms IS NULL", "created_at_ms", query.cursor.as_deref(), limit),
-        ListFilter::Deleted => {
-            simple_page(conn, "deleted_at_ms IS NOT NULL", "deleted_at_ms", query.cursor.as_deref(), limit)
-        }
-        ListFilter::Due => due_page(conn, query.cursor.as_deref(), limit, now_ms),
+/// A scope with its folder and tag resolved, ready for SQL.
+pub(crate) struct Scope {
+    /// `Some(None)` is Notes.
+    folder: Option<Option<Uuid>>,
+    tag: Option<String>,
+}
+
+impl Scope {
+    pub(crate) fn resolve(conn: &Connection, scope: &ItemScope) -> CoreResult<Self> {
+        let folder = scope
+            .folder
+            .as_ref()
+            .map(|selector| folders::repository::resolve(conn, selector).map(|folder| folder.map(|folder| folder.id)))
+            .transpose()?;
+        let tag = scope.tag.as_deref().map(tags::parse_tag_argument).transpose()?;
+        Ok(Self { folder, tag })
     }
 }
 
-/// Shared shape for the `open`/`all`/`deleted` filters: a single-column,
-/// newest-first sort over `items` alone, ties broken by `id`.
+/// A `WHERE` body under construction: anonymous `?` placeholders and their
+/// values, kept in the order they appear.
+struct Filter {
+    sql: String,
+    args: Vec<Value>,
+}
+
+impl Filter {
+    fn new(base: &str, args: Vec<Value>) -> Self {
+        Self { sql: base.to_owned(), args }
+    }
+
+    fn and(mut self, clause: &str, args: Vec<Value>) -> Self {
+        self.sql.push_str(" AND ");
+        self.sql.push_str(clause);
+        self.args.extend(args);
+        self
+    }
+
+    /// Adds the folder and tag restrictions; `column` prefixes the item's
+    /// columns (`"i."` in a join, `""` otherwise).
+    fn scoped(mut self, scope: &Scope, column: &str) -> Self {
+        match scope.folder {
+            None => {}
+            Some(None) => self = self.and(&format!("{column}folder_id IS NULL"), vec![]),
+            Some(Some(id)) => self = self.and(&format!("{column}folder_id = ?"), vec![Value::Text(id.to_string())]),
+        }
+        if let Some(tag) = &scope.tag {
+            self = self.and(&format!("rallo_has_tag({column}text, ?)"), vec![Value::Text(tag.clone())]);
+        }
+        self
+    }
+
+    fn count(&self, conn: &Connection, from: &str) -> CoreResult<u64> {
+        let total: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM {from} WHERE {}", self.sql),
+            params_from_iter(&self.args),
+            |row| row.get(0),
+        )?;
+        Ok(total as u64)
+    }
+}
+
+pub(crate) fn list(conn: &Connection, query: &ListQuery, scope: &Scope, now_ms: i64) -> CoreResult<Page<ItemView>> {
+    let limit = validate_limit(query.limit)?;
+    let cursor = query.cursor.as_deref();
+    let page = |base: &str, sort_column: &str| {
+        simple_page(conn, Filter::new(base, vec![]).scoped(scope, ""), sort_column, cursor, limit)
+    };
+    match query.filter {
+        ListFilter::Open => page("deleted_at_ms IS NULL AND status = 'open'", "created_at_ms"),
+        ListFilter::All => page("deleted_at_ms IS NULL", "created_at_ms"),
+        ListFilter::Deleted => page("deleted_at_ms IS NOT NULL", "deleted_at_ms"),
+        ListFilter::Done => page("deleted_at_ms IS NULL AND status = 'done'", "completed_at_ms"),
+        ListFilter::Due => due_page(conn, scope, cursor, limit, now_ms),
+    }
+}
+
+/// Shared shape for the `open`/`all`/`deleted`/`done` filters: a
+/// single-column, newest-first sort over `items` alone, ties broken by `id`.
 fn simple_page(
     conn: &Connection,
-    where_clause: &str,
+    filter: Filter,
     sort_column: &str,
     cursor: Option<&str>,
     limit: u32,
 ) -> CoreResult<Page<ItemView>> {
-    let total_count: i64 =
-        conn.query_row(&format!("SELECT COUNT(*) FROM items WHERE {where_clause}"), [], |row| row.get(0))?;
-    let total_count = total_count as u64;
-
-    let cursor = cursor.map(decode_cursor).transpose()?;
-    let sql = format!(
-        "SELECT {ITEM_COLUMNS} FROM items WHERE {where_clause}{cursor_clause}
-         ORDER BY {sort_column} DESC, id DESC LIMIT ?{limit_param}",
-        cursor_clause = if cursor.is_some() { format!(" AND ({sort_column}, id) < (?1, ?2)") } else { String::new() },
-        limit_param = if cursor.is_some() { 3 } else { 1 },
-    );
-    let mut statement = conn.prepare(&sql)?;
-    let rows: Vec<Item> = if let Some((sort_value, id)) = cursor {
-        statement
-            .query_map(params![sort_value, id.to_string(), i64::from(limit) + 1], item_from_row)?
-            .collect::<Result<_, _>>()?
-    } else {
-        statement.query_map(params![i64::from(limit) + 1], item_from_row)?.collect::<Result<_, _>>()?
+    let total_count = filter.count(conn, "items")?;
+    let filter = match cursor.map(decode_cursor).transpose()? {
+        Some((sort_value, id)) => filter.and(
+            &format!("({sort_column}, id) < (?, ?)"),
+            vec![Value::Integer(sort_value), Value::Text(id.to_string())],
+        ),
+        None => filter,
     };
+    let sql =
+        format!("SELECT {ITEM_COLUMNS} FROM items WHERE {} ORDER BY {sort_column} DESC, id DESC LIMIT ?", filter.sql);
+    let mut args = filter.args;
+    args.push(Value::Integer(i64::from(limit) + 1));
+    let mut statement = conn.prepare(&sql)?;
+    let rows: Vec<Item> = statement.query_map(params_from_iter(&args), item_from_row)?.collect::<Result<_, _>>()?;
 
     paginate(conn, rows, limit, total_count, |item| match sort_column {
         "created_at_ms" => item.created_at_ms,
         "deleted_at_ms" => item.deleted_at_ms.expect("the deleted filter only selects rows with deleted_at_ms set"),
+        "completed_at_ms" => item.completed_at_ms.expect("the done filter only selects rows with completed_at_ms set"),
         other => unreachable!("unexpected sort column {other}"),
     })
 }
 
 /// `due`: open items with an active reminder whose deadline has passed,
 /// earliest deadline first.
-fn due_page(conn: &Connection, cursor: Option<&str>, limit: u32, now_ms: i64) -> CoreResult<Page<ItemView>> {
+fn due_page(
+    conn: &Connection,
+    scope: &Scope,
+    cursor: Option<&str>,
+    limit: u32,
+    now_ms: i64,
+) -> CoreResult<Page<ItemView>> {
     const JOIN_COLUMNS: &str = "i.id, i.short_key, i.text, i.status, i.created_at_ms, i.updated_at_ms, \
                                  i.completed_at_ms, i.deleted_at_ms, i.revision, i.folder_id, r.deadline_ms";
-    const BASE_WHERE: &str = "i.deleted_at_ms IS NULL AND i.status = 'open' AND r.enabled = 1 AND r.deadline_ms <= ?1";
+    const FROM: &str = "items i JOIN reminders r ON r.item_id = i.id";
 
-    let total_count: i64 = conn.query_row(
-        &format!("SELECT COUNT(*) FROM items i JOIN reminders r ON r.item_id = i.id WHERE {BASE_WHERE}"),
-        [now_ms],
-        |row| row.get(0),
-    )?;
-    let total_count = total_count as u64;
-
-    let cursor = cursor.map(decode_cursor).transpose()?;
-    let sql = format!(
-        "SELECT {JOIN_COLUMNS} FROM items i JOIN reminders r ON r.item_id = i.id WHERE {BASE_WHERE}{cursor_clause}
-         ORDER BY r.deadline_ms ASC, i.id ASC LIMIT ?{limit_param}",
-        cursor_clause = if cursor.is_some() { " AND (r.deadline_ms, i.id) > (?2, ?3)" } else { "" },
-        limit_param = if cursor.is_some() { 4 } else { 2 },
-    );
-    let mut statement = conn.prepare(&sql)?;
-    let rows: Vec<(Item, i64)> = if let Some((sort_value, id)) = cursor {
-        statement
-            .query_map(params![now_ms, sort_value, id.to_string(), i64::from(limit) + 1], item_with_extra_from_row)?
-            .collect::<Result<_, _>>()?
-    } else {
-        statement
-            .query_map(params![now_ms, i64::from(limit) + 1], item_with_extra_from_row)?
-            .collect::<Result<_, _>>()?
+    let filter = Filter::new(
+        "i.deleted_at_ms IS NULL AND i.status = 'open' AND r.enabled = 1 AND r.deadline_ms <= ?",
+        vec![Value::Integer(now_ms)],
+    )
+    .scoped(scope, "i.");
+    let total_count = filter.count(conn, FROM)?;
+    let filter = match cursor.map(decode_cursor).transpose()? {
+        Some((sort_value, id)) => {
+            filter.and("(r.deadline_ms, i.id) > (?, ?)", vec![Value::Integer(sort_value), Value::Text(id.to_string())])
+        }
+        None => filter,
     };
+    let sql =
+        format!("SELECT {JOIN_COLUMNS} FROM {FROM} WHERE {} ORDER BY r.deadline_ms ASC, i.id ASC LIMIT ?", filter.sql);
+    let mut args = filter.args;
+    args.push(Value::Integer(i64::from(limit) + 1));
+    let mut statement = conn.prepare(&sql)?;
+    let mut rows: Vec<(Item, i64)> =
+        statement.query_map(params_from_iter(&args), item_with_extra_from_row)?.collect::<Result<_, _>>()?;
 
     let has_more = rows.len() as u32 > limit;
-    let mut rows = rows;
     rows.truncate(limit as usize);
     let next_cursor = has_more.then(|| {
         let (item, deadline_ms) = rows.last().expect("has_more implies at least one row");
@@ -333,37 +393,37 @@ fn paginate(
 
 /// Literal substring (or, with `exact`, equality) search over `match_key`
 /// (0003 §10). No LIKE/regex; may full-scan.
-pub(crate) fn search(conn: &Connection, query: &SearchQuery) -> CoreResult<Page<ItemView>> {
+pub(crate) fn search(conn: &Connection, query: &SearchQuery, scope: &Scope) -> CoreResult<Page<ItemView>> {
     if query.text.trim().is_empty() {
         return Err(CoreError::invalid(ErrorCode::TextEmpty, "search text is empty"));
     }
     text::validate_note_text(&query.text)?;
     let limit = validate_limit(query.limit)?;
     let key = text::match_key(&query.text);
-    let deleted_clause = if query.include_deleted { "" } else { " AND deleted_at_ms IS NULL" };
-    let match_clause = if query.exact { "match_key = ?1" } else { "instr(match_key, ?1) > 0" };
-    let where_clause = format!("{match_clause}{deleted_clause}");
+    let match_clause = if query.exact { "match_key = ?" } else { "instr(match_key, ?) > 0" };
+    let mut filter = Filter::new(match_clause, vec![Value::Text(key)]);
+    if !query.include_deleted {
+        filter = filter.and("deleted_at_ms IS NULL", vec![]);
+    }
+    simple_page(conn, filter.scoped(scope, ""), "created_at_ms", query.cursor.as_deref(), limit)
+}
 
-    let total_count: i64 =
-        conn.query_row(&format!("SELECT COUNT(*) FROM items WHERE {where_clause}"), [&key], |row| row.get(0))?;
-    let total_count = total_count as u64;
-
-    let cursor = query.cursor.as_deref().map(decode_cursor).transpose()?;
-    let sql = format!(
-        "SELECT {ITEM_COLUMNS} FROM items WHERE {where_clause}{cursor_clause}
-         ORDER BY created_at_ms DESC, id DESC LIMIT ?{limit_param}",
-        cursor_clause = if cursor.is_some() { " AND (created_at_ms, id) < (?2, ?3)" } else { "" },
-        limit_param = if cursor.is_some() { 4 } else { 2 },
-    );
-    let mut statement = conn.prepare(&sql)?;
-    let rows: Vec<Item> = if let Some((sort_value, id)) = cursor {
-        statement
-            .query_map(params![key, sort_value, id.to_string(), i64::from(limit) + 1], item_from_row)?
-            .collect::<Result<_, _>>()?
-    } else {
-        statement.query_map(params![key, i64::from(limit) + 1], item_from_row)?.collect::<Result<_, _>>()?
-    };
-    paginate(conn, rows, limit, total_count, |item| item.created_at_ms)
+/// Open, nondeleted notes per tag (0019 §6): most used first, then
+/// alphabetical. Tags found only in done or deleted notes are left out.
+// ponytail: scans every open note's text; fine to tens of thousands (0019 §7).
+pub(crate) fn tag_counts(conn: &Connection) -> CoreResult<Vec<TagCount>> {
+    let mut statement = conn
+        .prepare("SELECT text FROM items WHERE deleted_at_ms IS NULL AND status = 'open' AND instr(text, '#') > 0")?;
+    let mut counts: HashMap<String, u64> = HashMap::new();
+    for text in statement.query_map([], |row| row.get::<_, String>(0))? {
+        for key in tags::tags(&text?) {
+            *counts.entry(key).or_default() += 1;
+        }
+    }
+    let mut counts: Vec<TagCount> =
+        counts.into_iter().map(|(name, open_count)| TagCount { name, open_count }).collect();
+    counts.sort_by(|a, b| b.open_count.cmp(&a.open_count).then_with(|| a.name.cmp(&b.name)));
+    Ok(counts)
 }
 
 /// Exact `match_key` candidates among nondeleted items (open and done), for
