@@ -54,4 +54,18 @@ final class FolderMenuTests: XCTestCase {
         XCTAssertEqual(items.map(\.title), ["Notes", "কাজ 🦊"])
         XCTAssertEqual(items.last?.checked, true)
     }
+
+    func testMoveMenuCutsALongNameAtTheCap() {
+        let long = String(repeating: "x", count: 50)
+        let items = FolderMenus.moveItems(currentFolderID: nil, folders: [testFolder("l", long)])
+        XCTAssertEqual(items.last?.title, String(repeating: "x", count: 23) + "…")
+        XCTAssertEqual(items.last?.folderID, "l", "only the title is cut")
+    }
+
+    func testMoveMenuKeepsANameUnderTheCapIntact() {
+        let name = "কাজ 🦊👩‍💻 " + String(repeating: "y", count: 10)
+        let exact = String(repeating: "z", count: 24)
+        let items = FolderMenus.moveItems(currentFolderID: nil, folders: [testFolder("b", name), testFolder("e", exact)])
+        XCTAssertEqual(items.map(\.title), ["Notes", name, exact])
+    }
 }

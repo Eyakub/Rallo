@@ -33,10 +33,15 @@ enum FolderMenus {
     }
 
     /// Notes, then each folder; the note's current folder is `checked` (the
-    /// view also disables it).
+    /// view also disables it). A long name is cut like the placeholder's, so it
+    /// can't stretch the native submenu across the panel.
     static func moveItems(currentFolderID: String?, folders: [FolderSnapshot]) -> [MoveMenuItem] {
         [MoveMenuItem(folderID: nil, title: "Notes", checked: currentFolderID == nil)]
-            + folders.map { MoveMenuItem(folderID: $0.id, title: $0.name, checked: $0.id == currentFolderID) }
+            + folders.map { MoveMenuItem(folderID: $0.id, title: cut($0.name), checked: $0.id == currentFolderID) }
+    }
+
+    private static func cut(_ name: String) -> String {
+        name.count > 24 ? String(name.prefix(23)) + "…" : name
     }
 }
 
