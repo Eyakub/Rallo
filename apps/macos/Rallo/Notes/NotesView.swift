@@ -223,6 +223,11 @@ struct NotesView: View {
         .padding(.bottom, 10)
     }
 
+    private func scrollToHighlight(_ proxy: ScrollViewProxy) {
+        guard let id = model.highlightedItemID, model.items.contains(where: { $0.id == id }) else { return }
+        withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(id, anchor: .center) }
+    }
+
     private var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -250,6 +255,10 @@ struct NotesView: View {
             .onChange(of: model.highlightedItemID) { _, id in
                 if let id { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(id, anchor: .center) } }
             }
+            // A list built (or refilled by a scope switch) with the highlight already set
+            // gets no highlight change, so scroll to it here too.
+            .onAppear { scrollToHighlight(proxy) }
+            .onChange(of: model.items.map(\.id)) { _, _ in scrollToHighlight(proxy) }
         }
     }
 }

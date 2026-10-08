@@ -245,10 +245,12 @@ final class NotesViewModel: ObservableObject {
     /// Highlights a note a notification pointed at. If the panel's folder
     /// doesn't hold it, shows All Notes so it can be seen.
     func reveal(_ id: String?) async {
+        // Highlight last: the list scrolls to the highlighted row, which must be in it by then.
+        if let id, scope != .all {
+            await reload()
+            if !items.contains(where: { $0.id == id }) { await setScope(.all) }
+        }
         highlight(id, for: 4)
-        guard let id, scope != .all else { return }
-        await reload()
-        if !items.contains(where: { $0.id == id }) { await setScope(.all) }
     }
 
     /// The panel went away: nothing it was showing may stay half-open.
