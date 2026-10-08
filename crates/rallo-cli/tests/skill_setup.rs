@@ -165,6 +165,10 @@ fn both_detected_installs_both_with_rules_for_codex() {
     let rules = fs::read_to_string(home.codex_rules()).unwrap();
     assert!(rules.contains("--json"), "{rules}");
     assert!(!rules.contains("update"), "{rules}");
+    for command in ["\"folders\"", "\"tags\"", "\"move\""] {
+        assert!(rules.contains(command), "{command} is pre-approved: {rules}");
+    }
+    assert!(!rules.contains("\"folder\""), "folder create/rename/delete keeps Codex's approval prompt: {rules}");
 
     let (code, doc) = home.run(&[]);
     assert_eq!(code, 0, "{doc}");
