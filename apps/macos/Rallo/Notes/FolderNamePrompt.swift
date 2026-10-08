@@ -19,8 +19,13 @@ final class FolderNamePrompter: ObservableObject {
     @Published private(set) var request: Request?
     @Published private(set) var error: String?
     @Published private(set) var isSaving = false
+    /// Bumped on every failed save, so an identical repeated message still
+    /// shakes, is announced and refocuses the field.
+    @Published private(set) var errorCount = 0
 
     private var validate: ((String) async throws -> Void)?
+    /// Cancel arrived mid-save: dismiss once the save fails (a success returns the name).
+    private var cancelAfterSave = false
     private var continuation: CheckedContinuation<String?, Never>?
 
     /// Shows the dialog; returns the accepted name, or nil on Cancel/Esc/dismiss.
@@ -47,15 +52,28 @@ final class FolderNamePrompter: ObservableObject {
             finish(name)
         } catch {
             guard request?.id == id else { return }
+            if cancelAfterSave {
+                finish(nil)
+                return
+            }
             isSaving = false
-            self.error = (error as? RalloError)?.displayMessage ?? error.localizedDescription
+            errorCount += 1
+            self.error = Self.capitalized((error as? RalloError)?.displayMessage ?? error.localizedDescription)
         }
     }
 
-    /// Dismisses the dialog; ignored while a save is in flight.
+    /// Dismisses the dialog; during a save it waits for the result instead.
     func cancel() {
-        guard !isSaving else { return }
+        if isSaving {
+            cancelAfterSave = true
+            return
+        }
         finish(nil)
+    }
+
+    /// The core's messages start lowercase ("a folder name is…"); display only.
+    private static func capitalized(_ message: String) -> String {
+        message.prefix(1).uppercased() + message.dropFirst()
     }
 
     /// Editing the field takes the stale message away.
@@ -68,6 +86,7 @@ final class FolderNamePrompter: ObservableObject {
         let pending = continuation
         continuation = nil
         validate = nil
+        cancelAfterSave = false
         request = nil
         error = nil
         isSaving = false

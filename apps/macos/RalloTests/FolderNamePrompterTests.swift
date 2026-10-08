@@ -15,12 +15,22 @@ final class FolderNamePrompterTests: XCTestCase {
 
     func testAThrowingValidateShowsTheCoreMessageAndKeepsAsking() async {
         let prompter = FolderNamePrompter()
-        let asked = ask(prompter) { _ in throw RalloError.InvalidInput(code: "FOLDER_NAME", message: "That name is taken.") }
+        var finished = false
+        let asked = Task {
+            let name = await prompter.ask(title: "New Folder", initial: "", confirmTitle: "Create") { _ in
+                throw RalloError.InvalidInput(code: "FOLDER_NAME", message: "that name is taken.")
+            }
+            finished = true
+            return name
+        }
         await waitForRequest(prompter)
         await prompter.submit("Work")
-        XCTAssertEqual(prompter.error, "That name is taken.")
+        XCTAssertEqual(prompter.error, "That name is taken.", "capitalised for display")
+        XCTAssertEqual(prompter.errorCount, 1)
         XCTAssertNotNil(prompter.request)
         XCTAssertFalse(prompter.isSaving)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertFalse(finished, "the ask must still be pending after an error")
         prompter.cancel()
         let result = await asked.value
         XCTAssertNil(result)
@@ -59,6 +69,53 @@ final class FolderNamePrompterTests: XCTestCase {
         await prompter.submit("Second")
         let secondResult = await second.value
         XCTAssertEqual(secondResult, "Second")
+    }
+
+    func testALateFirstValidateLeavesTheSecondRequestAlone() async {
+        let prompter = FolderNamePrompter()
+        var release: CheckedContinuation<Void, Never>?
+        let first = ask(prompter) { _ in
+            await withCheckedContinuation { release = $0 }
+            throw RalloError.InvalidInput(code: "X", message: "late failure")
+        }
+        await waitForRequest(prompter)
+        let firstID = prompter.request?.id
+        let submitting = Task { await prompter.submit("One") }
+        while release == nil { await Task.yield() }
+        let second = ask(prompter)
+        let firstResult = await first.value
+        XCTAssertNil(firstResult)
+        while prompter.request == nil || prompter.request?.id == firstID { await Task.yield() }
+        let secondID = prompter.request?.id
+
+        release?.resume()
+        await submitting.value
+
+        XCTAssertEqual(prompter.request?.id, secondID)
+        XCTAssertFalse(prompter.isSaving)
+        XCTAssertNil(prompter.error)
+        XCTAssertEqual(prompter.errorCount, 0)
+        prompter.cancel()
+        let secondResult = await second.value
+        XCTAssertNil(secondResult)
+    }
+
+    func testCancelDuringASaveThatFailsStillResumesTheAsk() async {
+        let prompter = FolderNamePrompter()
+        var release: CheckedContinuation<Void, Never>?
+        let asked = ask(prompter) { _ in
+            await withCheckedContinuation { release = $0 }
+            throw RalloError.InvalidInput(code: "X", message: "nope")
+        }
+        await waitForRequest(prompter)
+        let submitting = Task { await prompter.submit("Slow") }
+        while release == nil { await Task.yield() }
+        prompter.cancel()
+        release?.resume()
+        await submitting.value
+        let result = await asked.value
+        XCTAssertNil(result)
+        XCTAssertNil(prompter.request)
     }
 
     func testCancelIsIgnoredWhileSaving() async {
