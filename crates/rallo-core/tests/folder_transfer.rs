@@ -260,6 +260,7 @@ fn bad_folder_data_is_invalid_import_and_writes_nothing() {
     case(&|doc| doc["items"][0]["folder_id"] = json!("not-a-uuid"));
     case(&|doc| doc["folders"][0]["id"] = json!("not-a-uuid"));
     case(&|doc| doc["folders"][0]["name"] = json!("Notes"));
+    case(&|doc| doc["folders"][0]["id"] = json!(Uuid::nil().to_string())); // the importer's own placeholder
     case(&|doc| doc["folders"][0]["name"] = json!(""));
     case(&|doc| doc["folders"][0]["name"] = json!("a".repeat(51)));
     case(&|doc| doc["folders"][0]["name"] = json!("two\nlines"));

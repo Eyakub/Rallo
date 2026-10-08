@@ -413,6 +413,9 @@ fn normalize_json_folders(raw: Vec<RawFolder>) -> CoreResult<Vec<ImportFolder>> 
         .enumerate()
         .map(|(index, folder)| {
             let id = Uuid::parse_str(&folder.id).map_err(|_| invalid(index, "id", "is not a valid UUID"))?;
+            if id.is_nil() {
+                return Err(invalid(index, "id", "must not be the nil UUID"));
+            }
             if !seen.insert(id) {
                 return Err(invalid(index, "id", "is a duplicate within this document"));
             }
