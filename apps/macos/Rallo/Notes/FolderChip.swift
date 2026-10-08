@@ -1,21 +1,15 @@
 import SwiftUI
 
-/// `[folder] Work ⌄` under the "Notes" title (0019 §10, mockup B). Its menu
-/// picks the scope or makes a new folder.
+/// `[folder] Work ⌄` under the "Notes" title (0019 §10, mockup B). It opens
+/// the in-panel folder dropdown (`FolderScopeMenu`, drawn by `NotesView`).
 struct FolderChip: View {
     @ObservedObject var model: NotesViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Menu {
-            if let overview = model.overview {
-                let items = FolderMenus.scopeItems(current: model.scope, overview: overview)
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    MenuChoice(title: item.title, checked: item.checked) { Task { await model.setScope(item.scope) } }
-                    if index == 0 { Divider() }
-                }
-                Divider()
-            }
-            Button("New Folder…") { Task { await model.newFolderAndSwitch() } }
+        let open = model.scopeMenuOpen
+        Button {
+            if open { model.closeScopeMenu() } else { model.scopeMenuOpen = true }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: model.scope.symbol)
@@ -27,6 +21,8 @@ struct FolderChip: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(Theme.bark)
+                    .rotationEffect(.degrees(open && !reduceMotion ? 180 : 0))
+                    .animation(.easeOut(duration: 0.16), value: open)
             }
             .font(Theme.rounded(12.5, .semibold))
             .foregroundStyle(Theme.ink)
@@ -37,12 +33,20 @@ struct FolderChip: View {
             .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Theme.fieldStroke))
             // A long folder name must not push the count line or the pet.
             .frame(maxWidth: 110, alignment: .leading)
+            // Mockup `.chip.open`: a 2 pt rust outline, 1 pt off the chip.
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.rust, lineWidth: 2)
+                    .padding(-3)
+                    .opacity(open ? 1 : 0)
+                    .animation(.easeOut(duration: 0.12), value: open)
+            )
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
         .fixedSize()
+        .anchorPreference(key: FolderChipAnchorKey.self, value: .bounds) { $0 }
         .help("Choose a folder")
         .accessibilityLabel("Folder: \(model.scopeTitle)")
+        .accessibilityHint("Shows folders")
     }
 }

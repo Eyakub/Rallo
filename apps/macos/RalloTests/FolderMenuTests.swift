@@ -9,18 +9,29 @@ final class FolderMenuTests: XCTestCase {
 
     func testChipMenuOrderAndCounts() {
         let items = FolderMenus.scopeItems(current: .all, overview: overview)
-        XCTAssertEqual(items.map(\.title), ["All Notes (24)", "Notes (12)", "Ideas (4)", "Personal (3)", "Work (5)"])
+        XCTAssertEqual(items.map(\.title), ["All Notes", "Notes", "Ideas", "Personal", "Work"])
         XCTAssertEqual(items.map(\.scope), [.all, .unfiled, .folder("i"), .folder("p"), .folder("w")])
+        XCTAssertEqual(items.map(\.count), [24, 12, 4, 3, 5])
+        XCTAssertEqual(items.map(\.symbol), ["tray", "folder", "folder", "folder", "folder"])
     }
 
     func testChipMenuChecksExactlyTheCurrentScope() {
         func checked(_ scope: NotesScope) -> [String] {
             FolderMenus.scopeItems(current: scope, overview: overview).filter(\.checked).map(\.title)
         }
-        XCTAssertEqual(checked(.all), ["All Notes (24)"])
-        XCTAssertEqual(checked(.unfiled), ["Notes (12)"])
-        XCTAssertEqual(checked(.folder("p")), ["Personal (3)"])
-        XCTAssertEqual(checked(.folder("gone")), ["All Notes (24)"], "a vanished folder checks its fallback")
+        XCTAssertEqual(checked(.all), ["All Notes"])
+        XCTAssertEqual(checked(.unfiled), ["Notes"])
+        XCTAssertEqual(checked(.folder("p")), ["Personal"])
+        XCTAssertEqual(checked(.folder("gone")), ["All Notes"], "a vanished folder checks its fallback")
+    }
+
+    func testHighlightWrapsAndStartsAtTheEnds() {
+        XCTAssertEqual(MenuHighlight.next(from: nil, count: 4, forward: true), 0)
+        XCTAssertEqual(MenuHighlight.next(from: nil, count: 4, forward: false), 3)
+        XCTAssertEqual(MenuHighlight.next(from: 3, count: 4, forward: true), 0)
+        XCTAssertEqual(MenuHighlight.next(from: 0, count: 4, forward: false), 3)
+        XCTAssertEqual(MenuHighlight.next(from: 1, count: 4, forward: true), 2)
+        XCTAssertNil(MenuHighlight.next(from: nil, count: 0, forward: true))
     }
 
     func testMoveMenuListsNotesThenFoldersInGivenOrder() {

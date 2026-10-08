@@ -81,6 +81,8 @@ final class NotesViewModel: ObservableObject {
     @Published private(set) var scope: NotesScope
     /// Folders and counts from the core, refreshed with every reload.
     @Published private(set) var overview: FolderOverview?
+    /// The folder dropdown under the chip is showing.
+    @Published var scopeMenuOpen = false
     /// Swipe state: at most one row shows a tray; `liveSwipe` follows the
     /// pointer or fingers while a swipe is in progress.
     @Published var openSwipe: OpenSwipe?
@@ -214,6 +216,10 @@ final class NotesViewModel: ObservableObject {
     /// Esc steps back one level: close a swipe tray, stop editing, then
     /// collapse, then close. Returns whether it handled the key.
     func handleEscape() -> Bool {
+        if scopeMenuOpen {
+            closeScopeMenu()
+            return true
+        }
         if !stagedImages.isEmpty {
             stagedImages = []
             return true
@@ -255,6 +261,17 @@ final class NotesViewModel: ObservableObject {
         } catch {
             errorMessage = "Couldn’t load notes: \(error.localizedDescription)"
         }
+    }
+
+    /// The panel went away: nothing it was showing may stay half-open.
+    func panelDidHide() {
+        scopeMenuOpen = false
+    }
+
+    /// Closes the dropdown and hands the keyboard back to the note field.
+    func closeScopeMenu() {
+        scopeMenuOpen = false
+        requestFocus()
     }
 
     func setScope(_ new: NotesScope) async {
@@ -549,6 +566,34 @@ struct NotesView: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.toast?.id)
         .foregroundStyle(Theme.ink)
         .frame(width: 360, height: 460)
+        .overlayPreferenceValue(FolderChipAnchorKey.self) { anchor in
+            GeometryReader { proxy in
+                ZStack(alignment: .topLeading) {
+                    if model.scopeMenuOpen, let anchor {
+                        let chip = proxy[anchor]
+                        // Any click outside the menu closes it, the chip's own included.
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .ignoresSafeArea()
+                            .onTapGesture { model.closeScopeMenu() }
+                        FolderScopeMenu(model: model, chip: chip, panelSize: proxy.size)
+                            .offset(
+                                x: min(max(chip.minX, 8), 360 - FolderScopeMenu.width - 8),
+                                y: chip.maxY + 6
+                            )
+                            .transition(.asymmetric(
+                                insertion: reduceMotion ? .opacity : .scale(scale: 0.96, anchor: .topLeading).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .animation(
+                    model.scopeMenuOpen ? .easeOut(duration: 0.16) : .easeIn(duration: 0.10),
+                    value: model.scopeMenuOpen
+                )
+            }
+        }
         .background(Theme.surface)
         .onChange(of: model.focusToken) { _, _ in composerFocused = true }
         .onAppear {

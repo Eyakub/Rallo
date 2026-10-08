@@ -25,6 +25,12 @@ enum Theme {
     // The toast inverts the surface, so its accent inverts too.
     static let toastAccent = Color(light: 0xF08A4B, dark: 0xB4501F)
     static let highlight = Color(light: 0xB4501F, lightAlpha: 0.10, dark: 0xF08A4B, darkAlpha: 0.14)
+    // The folder dropdown (0019 §10) and the dialog's backdrop.
+    static let menu = Color(light: 0xFAF6F3, lightAlpha: 0.98, dark: 0x2E2622, darkAlpha: 0.98)
+    static let menuStroke = Color(light: 0x2B1A13, lightAlpha: 0.14, dark: 0xFFFFFF, darkAlpha: 0.14)
+    static let scrim = Color(light: 0x2B1A13, lightAlpha: 0.18, dark: 0x000000, darkAlpha: 0.40)
+    // Text on rust fills: white fails contrast on the lighter dark-mode rust.
+    static let onRust = Color(light: 0xFFFFFF, dark: 0x1A1411)
     static let error = Color(light: 0xB3261E, dark: 0xFF8A80)
     // Swipe-action fills carry white labels, so they stay deep in both modes.
     static let swipeDelete = Color(nsColor: NSColor(hex: 0xB3261E))

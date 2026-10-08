@@ -50,6 +50,7 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.delegate = self
         panel.onEscape = { [weak model] in model?.handleEscape() ?? false }
+        panel.onHide = { [weak model] in model?.panelDidHide() }
         let hosting = NSHostingView(rootView: NotesView(model: model))
         panel.contentView = hosting
         // The hosting view adds the title bar's height only when it first
@@ -80,6 +81,18 @@ final class NotesPanelController: NSObject, NSWindowDelegate {
 /// panel, as the escape route from any panel should.
 final class NotesWindow: NSPanel {
     var onEscape: () -> Bool = { false }
+    /// Called whenever the panel goes away (Esc, the shortcut, the close button).
+    var onHide: () -> Void = {}
+
+    override func orderOut(_ sender: Any?) {
+        super.orderOut(sender)
+        onHide()
+    }
+
+    override func close() {
+        super.close()
+        onHide()
+    }
 
     override func cancelOperation(_ sender: Any?) {
         if !onEscape() {
