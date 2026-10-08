@@ -52,6 +52,33 @@ the only choice.
   is in the app's Resources as `ThirdPartyNotices.txt`, together with a note
   that the weights are OpenAI Whisper (MIT).
 
+## Amendment: Small (English) model and a phantom-text guard
+
+- **Three model files**, all from the same Hugging Face repo and pinned
+  commit (sizes and hashes from the Hugging Face tree API), each pinned by
+  size and SHA-256: `ggml-large-v3-turbo.bin` (16-bit, 1.6 GB, unchanged),
+  `ggml-large-v3-turbo-q8_0.bin` (8-bit, 874,188,075 bytes, SHA-256
+  `317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1`) and
+  `ggml-small.en-q5_1.bin` (English only, 190,098,681 bytes, SHA-256
+  `bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30`).
+  Settings → Voice has a Model picker with the size in each label, stored as
+  `whisperModel` (`turbo16`, `turbo8`, `smallEnglish`). With nothing saved, the
+  16-bit file is chosen if it is already downloaded and verified (existing
+  users keep working, no re-download), otherwise the 8-bit one; that choice is
+  then saved. Same cache layout and the same download, verify and delete row,
+  acting on the selected model; several can be on disk, and turbo16's paths
+  are untouched.
+- **English only.** An `.en` model can't do Bangla, so with Small selected the
+  Language picker is hidden and Rallo transcribes with language `en`.
+- **Phantom text.** Whisper invents "Thank you." and similar from noise.
+  Before a segment goes to Whisper or the cloud engine, a speech check (100 ms
+  frames, at least 3; speech when the 95th-percentile frame RMS is above 0.008
+  and 2.5 times the 20th-percentile one; idea from hoole's `containsSpeech`)
+  must pass, otherwise it is dropped silently with no request. After
+  transcription, a result that is exactly a known stock phrase ("thank you",
+  "thanks for watching", "please subscribe", "you", "bye", ...) is dropped when
+  the audio was under 2 s; longer segments keep it.
+
 ## Consequences
 
 - Building from source needs CMake (`brew install cmake`); the first build
@@ -64,5 +91,5 @@ the only choice.
 
 ## Not done
 
-The compressed q5/q8 model variants, a CoreML encoder, Silero VAD, and AI
+A compressed turbo variant, a CoreML encoder, Silero VAD, and AI
 cleanup of the text.

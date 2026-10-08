@@ -120,7 +120,8 @@ final class SettingsModel: ObservableObject {
     func checkWhisperModel() {
         if case .downloading = whisperModel { return }
         Task {
-            guard let path = await WhisperModel().locate() else {
+            let kind = await WhisperModelKind.resolved()
+            guard let path = await WhisperModel(kind: kind).locate() else {
                 if case .downloading = whisperModel { return }
                 whisperModel = .missing
                 return
@@ -135,8 +136,9 @@ final class SettingsModel: ObservableObject {
         whisperModel = .downloading(0)
         whisperDownload = Task { [weak self] in
             guard let self else { return }
+            let kind = await WhisperModelKind.resolved()
             do {
-                try await WhisperModel().download { [weak self] fraction in
+                try await WhisperModel(kind: kind).download { [weak self] fraction in
                     Task { @MainActor in
                         if case .downloading = self?.whisperModel { self?.whisperModel = .downloading(fraction) }
                     }
@@ -155,7 +157,7 @@ final class SettingsModel: ObservableObject {
     func cancelWhisperDownload() { whisperDownload?.cancel() }
 
     func deleteWhisperModel() {
-        WhisperModel().delete()
+        WhisperModel(kind: .selected).delete()
         Task { await WhisperEngine.shared.unload() }
         whisperModel = .missing
     }

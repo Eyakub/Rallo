@@ -43,20 +43,24 @@ final class WhisperVoiceSession: VoiceEngineSession {
     /// Set by `stop`: the driver flushes and delivers what is left, then ends.
     /// Not task cancellation, which would cancel those last requests too.
     private var stopRequested = false
-    private let language = UserDefaults.standard.string(forKey: "voiceLanguage") ?? "auto"
+    private let language: String
     private let prompt = VoiceText.contextWords(userList: UserDefaults.standard.string(forKey: VoiceText.wordsKey) ?? "")
         .joined(separator: ", ")
 
-    init(previews: Bool, prepare: @escaping Prepare) {
+    /// `language` overrides the Settings choice (an English-only model).
+    init(previews: Bool, language: String? = nil, prepare: @escaping Prepare) {
         self.previews = previews
+        self.language = language ?? UserDefaults.standard.string(forKey: "voiceLanguage") ?? "auto"
         self.prepare = prepare
     }
 
     /// On-device whisper.cpp, with live previews.
     static func local() -> WhisperVoiceSession {
-        WhisperVoiceSession(previews: true) { status in
+        // The language is fixed now (the .en model needs "en"); the saved choice is read at prepare time.
+        WhisperVoiceSession(previews: true, language: WhisperModelKind.selected.languages?.first) { status in
             status("Loading Whisper…")
-            guard let path = await WhisperModel().locate() else {
+            let kind = await WhisperModelKind.resolved()
+            guard let path = await WhisperModel(kind: kind).locate() else {
                 throw VoiceMessage(text: "Download the Whisper model in Settings → Voice")
             }
             do {
@@ -152,9 +156,12 @@ final class WhisperVoiceSession: VoiceEngineSession {
         let upper = min(samples.count, range.upperBound - base)
         guard upper > lower, let transcriber else { return }
         try Task.checkCancellation()
-        let raw = try await transcriber.transcribe(samples: Array(samples[lower..<upper]), language: language, prompt: prompt)
+        let segment = Array(samples[lower..<upper])
+        // Noise makes Whisper invent text; nothing is sent or typed for it.
+        guard WhisperText.containsSpeech(segment) else { return }
+        let raw = try await transcriber.transcribe(samples: segment, language: language, prompt: prompt)
         let text = WhisperText.clean(raw)
-        if !text.isEmpty { onResult(text, isFinal) }
+        if !text.isEmpty, !WhisperText.isPhantom(text, seconds: Double(segment.count) / 16000) { onResult(text, isFinal) }
     }
 
     // Nonisolated so the audio-thread closure captures no main-actor state.

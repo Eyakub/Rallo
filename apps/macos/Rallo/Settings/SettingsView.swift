@@ -219,12 +219,19 @@ private struct VoiceTab: View {
     @AppStorage(VoiceText.wordsKey) private var voiceWords = ""
     @AppStorage("voiceEngine") private var storedEngine = "apple"
     @AppStorage("voiceLanguage") private var language = "auto"
+    @AppStorage(WhisperModelKind.defaultsKey) private var whisperKind = ""
     @AppStorage(VoiceText.tidyKey) private var tidy = true
     @State private var confirmDelete = false
 
     /// Apple's engine needs macOS 26; before that only Whisper exists.
     private var engine: String {
         if #available(macOS 26, *) { storedEngine } else { storedEngine == "apple" ? "whisper" : storedEngine }
+    }
+
+    private var selectedKind: WhisperModelKind { WhisperModelKind(rawValue: whisperKind) ?? .turbo8 }
+
+    private var isDownloading: Bool {
+        if case .downloading = model.whisperModel { true } else { false }
     }
 
     private var appleAvailable: Bool {
@@ -261,9 +268,18 @@ private struct VoiceTab: View {
                     Text("Whisper, on this Mac").tag("whisper")
                     Text("Cloud, with your API key").tag("cloud")
                 }
-                if engine == "whisper" { modelRow }
+                if engine == "whisper" {
+                    Picker("Model", selection: Binding(get: { selectedKind.rawValue }, set: {
+                        whisperKind = $0
+                        model.checkWhisperModel()
+                    })) {
+                        ForEach(WhisperModelKind.allCases, id: \.rawValue) { Text($0.displayName).tag($0.rawValue) }
+                    }
+                    .disabled(isDownloading)
+                    modelRow
+                }
                 if engine == "cloud" { CloudVoiceRows() }
-                if engine != "apple" {
+                if engine != "apple", !(engine == "whisper" && selectedKind.languages != nil) {
                     Picker("Language", selection: $language) {
                         Text("Automatic").tag("auto")
                         Text("English").tag("en")
@@ -290,7 +306,12 @@ private struct VoiceTab: View {
     @ViewBuilder
     private var engineFooter: some View {
         switch engine {
-        case "whisper": footnote("Large-v3 turbo, kept in the shared Hugging Face cache so other Whisper tools can use it.")
+        case "whisper":
+            if selectedKind == .smallEnglish {
+                footnote("English only. Pick Large-v3 turbo for Bangla and other languages. Kept in the shared Hugging Face cache so other Whisper tools can use it.")
+            } else {
+                footnote("Large-v3 turbo (16-bit or 8-bit), kept in the shared Hugging Face cache so other Whisper tools can use it.")
+            }
         case "cloud": CloudVoiceFooter()
         default: footnote("Built into macOS. Nothing to download.")
         }
@@ -311,24 +332,24 @@ private struct VoiceTab: View {
     private var modelRow: some View {
         switch model.whisperModel {
         case .checking:
-            LabeledContent("Model") { ProgressView().controlSize(.small) }
+            LabeledContent("Status") { ProgressView().controlSize(.small) }
         case .missing:
-            LabeledContent("Model") {
-                Button("Download (1.6 GB)") { model.downloadWhisperModel() }
+            LabeledContent("Status") {
+                Button("Download (\(selectedKind.sizeLabel))") { model.downloadWhisperModel() }
             }
         case let .failed(message):
-            LabeledContent("Model") {
+            LabeledContent("Status") {
                 Text(message).foregroundStyle(Theme.error).lineLimit(2)
                 Button("Try Again") { model.downloadWhisperModel() }
             }
         case let .downloading(fraction):
-            LabeledContent("Model") {
+            LabeledContent("Status") {
                 ProgressView(value: fraction).frame(width: 120)
                 Text("\(Int(fraction * 100))%").monospacedDigit().foregroundStyle(Theme.bark)
                 Button("Cancel") { model.cancelWhisperDownload() }
             }
         case let .ready(path):
-            LabeledContent("Model") {
+            LabeledContent("Status") {
                 Text("Downloaded").foregroundStyle(Theme.bark)
                     .help((path as NSString).abbreviatingWithTildeInPath)
                 Button("Show in Finder") { model.showWhisperModel() }
