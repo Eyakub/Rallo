@@ -120,6 +120,22 @@ final class WhisperVoiceTests: XCTestCase {
         XCTAssertTrue(WhisperText.containsSpeech(samples))
     }
 
+    /// A segment as `SpeechSegmenter` cuts it: only 90 ms of quiet on each side.
+    func testShortWordSegmentIsTranscribed() {
+        let word = noise(0.09, level: 0.003) + tone(0.4).map { $0 * 0.5 } + noise(0.09, level: 0.003)
+        XCTAssertTrue(WhisperText.worthTranscribing(word))
+        XCTAssertFalse(WhisperText.containsSpeech(word), "the whole-clip check alone would drop this word")
+    }
+
+    func testLongSteadyNoiseSegmentIsNotTranscribed() {
+        XCTAssertFalse(WhisperText.worthTranscribing(noise(3, level: 0.02)))
+    }
+
+    func testLongSpeechSegmentIsTranscribed() {
+        let syllable = tone(0.25).map { $0 * 0.5 } + noise(0.15, level: 0.003)
+        XCTAssertTrue(WhisperText.worthTranscribing(Array(repeating: syllable, count: 8).flatMap { $0 }))
+    }
+
     func testFewerThanThreeFramesIsNotSpeech() {
         XCTAssertFalse(WhisperText.containsSpeech(tone(0.25)))
     }

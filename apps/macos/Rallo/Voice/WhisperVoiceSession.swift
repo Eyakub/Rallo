@@ -158,7 +158,7 @@ final class WhisperVoiceSession: VoiceEngineSession {
         try Task.checkCancellation()
         let segment = Array(samples[lower..<upper])
         // Noise makes Whisper invent text; nothing is sent or typed for it.
-        guard WhisperText.containsSpeech(segment) else { return }
+        guard WhisperText.worthTranscribing(segment) else { return }
         let raw = try await transcriber.transcribe(samples: segment, language: language, prompt: prompt)
         let text = WhisperText.clean(raw)
         if !text.isEmpty, !WhisperText.isPhantom(text, seconds: Double(segment.count) / 16000) { onResult(text, isFinal) }

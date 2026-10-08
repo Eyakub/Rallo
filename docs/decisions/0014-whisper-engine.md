@@ -71,10 +71,14 @@ the only choice.
 - **English only.** An `.en` model can't do Bangla, so with Small selected the
   Language picker is hidden and Rallo transcribes with language `en`.
 - **Phantom text.** Whisper invents "Thank you." and similar from noise.
-  Before a segment goes to Whisper or the cloud engine, a speech check (100 ms
-  frames, at least 3; speech when the 95th-percentile frame RMS is above 0.008
-  and 2.5 times the 20th-percentile one; idea from hoole's `containsSpeech`)
-  must pass, otherwise it is dropped silently with no request. After
+  The segmenter already gates on energy over the session's noise floor. On
+  top of that, a segment of 2 s or more goes to Whisper or the cloud engine
+  only if a speech check passes (100 ms frames; speech when the
+  95th-percentile frame RMS is above 0.008 and 2.5 times the 20th-percentile
+  one; idea from hoole's `containsSpeech`), otherwise it is dropped silently
+  with no request; that catches steady noise, such as a fan coming on, that
+  the segmenter took for speech. Shorter segments skip the check: they carry
+  only 90 ms of quiet around the speech, so a short word would fail it. After
   transcription, a result that is exactly a known stock phrase ("thank you",
   "thanks for watching", "please subscribe", "you", "bye", ...) is dropped when
   the audio was under 2 s; longer segments keep it.

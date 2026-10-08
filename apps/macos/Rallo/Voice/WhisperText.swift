@@ -42,6 +42,16 @@ enum WhisperText {
         return stockPhrases.contains(key)
     }
 
+    /// Whether a segment goes to Whisper or the cloud. `SpeechSegmenter`
+    /// already gates on energy over the session's noise floor and keeps only
+    /// 90 ms of quiet around speech, so a short word has no background of its
+    /// own to compare with: `containsSpeech` runs on segments of 2 s or more,
+    /// where steady noise (a fan coming on) could pass the segmenter. Shorter
+    /// ones rely on `isPhantom`.
+    static func worthTranscribing(_ samples: [Float]) -> Bool {
+        samples.count < 2 * 16000 || containsSpeech(samples)
+    }
+
     /// Whether 16 kHz audio holds speech: 100 ms frames (at least 3), speech
     /// when the loud frames (95th percentile RMS) are above 0.008 and 2.5x the
     /// background (20th percentile). Whisper invents "Thank you." from noise,
