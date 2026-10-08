@@ -174,6 +174,8 @@ final class SwipeScrollMonitor {
     /// Returns whether the event was used for a swipe (and must not scroll).
     private func handle(_ event: ScrollSample) -> Bool {
         guard let model else { return false }
+        // Nothing behind the dialog or dropdown reacts.
+        if model.namePromptShown || model.scopeMenuOpen { return false }
         if event.isMomentum {
             return swallowMomentum
         }

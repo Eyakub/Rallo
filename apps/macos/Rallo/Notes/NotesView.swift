@@ -45,6 +45,9 @@ struct NotesView: View {
             if let toast = model.toast {
                 ToastBar(toast: toast) { Task { await model.undo() } }
                     .id(toast.id)
+                    // Its Undo (and ⌘Z) must not fire behind the dialog or dropdown.
+                    .disabled(model.namePromptShown || model.scopeMenuOpen)
+                    .accessibilityHidden(model.namePromptShown || model.scopeMenuOpen)
                     .padding(12)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
@@ -160,6 +163,8 @@ struct NotesView: View {
                         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                         // Local monitors see every window (popovers, Settings): act on the notes panel only.
                         guard event.window is NotesWindow else { return event }
+                        // Nothing behind the dialog or dropdown reacts.
+                        guard !model.namePromptShown, !model.scopeMenuOpen else { return event }
                         if composerFocused, flags == .command, event.charactersIgnoringModifiers == "v",
                            model.pasteImages(from: .general) {
                             return nil
