@@ -74,6 +74,8 @@ targets:
       - path: Rallo/Notes/ImageClipboard.swift
       - path: Rallo/Notes/Thumbnails.swift
       - path: Rallo/Notes/RalloError+Display.swift
+      - path: Rallo/Notes/NotesScope.swift
+      - path: Rallo/Notes/FolderMenuItems.swift
       - path: Rallo/ClickUp/ClickUpWaiting.swift
       - path: Rallo/Notifications/NotificationAdapter.swift
       - path: Rallo/Notifications/AgentNotificationIdentifier.swift
