@@ -29,12 +29,15 @@ final class CoreClient {
     }
 
     /// A note with images (0018); `text` may be empty when there are images.
-    func createNote(_ text: String, images: [Data]) async throws -> ItemSnapshot {
-        try await worker.perform { try $0.createNoteWithImages(text: text, images: images, folderId: nil) }
+    /// `folderID` files it in a folder (0019); nil is the built-in Notes.
+    func createNote(_ text: String, images: [Data], folderID: String? = nil) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.createNoteWithImages(text: text, images: images, folderId: folderID) }
     }
 
-    func createReminder(_ text: String, when: String, images: [Data]) async throws -> ItemSnapshot {
-        try await worker.perform { try $0.createReminderWithImages(text: text, when: when, images: images, folderId: nil) }
+    func createReminder(_ text: String, when: String, images: [Data], folderID: String? = nil) async throws -> ItemSnapshot {
+        try await worker.perform {
+            try $0.createReminderWithImages(text: text, when: when, images: images, folderId: folderID)
+        }
     }
 
     func attachImages(_ item: ItemSnapshot, images: [Data]) async throws -> ItemSnapshot {
@@ -158,8 +161,24 @@ final class CoreClient {
         try await worker.perform { try $0.snoozeReminder(id: item.id, duration: duration, ifRevision: item.revision) }
     }
 
-    func openItems(limit: UInt32 = 50) async throws -> [ItemSnapshot] {
-        try await worker.perform { try $0.listOpenItems(limit: limit) }
+    /// First page of a scope's open notes (0019); the default is every folder, as before.
+    func openItems(scope: FolderScope = .all, limit: UInt32 = 50) async throws -> [ItemSnapshot] {
+        try await worker.perform { try $0.listItems(kind: .open, scope: scope, tag: nil, limit: limit, cursor: nil).items }
+    }
+
+    // MARK: Folders (0019)
+
+    func folderOverview() async throws -> FolderOverview {
+        try await worker.perform { try $0.folderOverview() }
+    }
+
+    func createFolder(_ name: String) async throws -> FolderSnapshot {
+        try await worker.perform { try $0.createFolder(name: name) }
+    }
+
+    /// `folderID` nil moves the note to the built-in Notes.
+    func moveItem(_ item: ItemSnapshot, folderID: String?) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.moveItem(id: item.id, folderId: folderID, ifRevision: item.revision) }
     }
 
     func petVisibility() async throws -> PetVisibility? {
