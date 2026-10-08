@@ -20,6 +20,16 @@ enum VoiceKey: String, CaseIterable {
     /// Device-dependent bit in `NSEvent.ModifierFlags.rawValue`:
     /// NX_DEVICERALTKEYMASK 0x40, NX_DEVICERCMDKEYMASK 0x10.
     var deviceMask: UInt { self == .rightOption ? 0x40 : 0x10 }
+    /// The left-hand twin: NX_DEVICELALTKEYMASK 0x20, NX_DEVICELCMDKEYMASK 0x08.
+    private var otherSideMask: UInt { self == .rightOption ? 0x20 : 0x08 }
+    private var family: NSEvent.ModifierFlags { self == .rightOption ? .option : .command }
+
+    /// Pressed with no other modifier held: ⌃⌘ then Right ⌥ (a way to type
+    /// ⌃⌥⌘V) must not start a hold.
+    func isAlone(_ flags: UInt) -> Bool {
+        let held = NSEvent.ModifierFlags(rawValue: flags).intersection([.shift, .control, .option, .command, .function])
+        return held == family && flags & otherSideMask == 0
+    }
     var symbol: String { self == .rightOption ? "Right ⌥" : "Right ⌘" }
 }
 
@@ -85,6 +95,12 @@ final class VoiceKeyMonitor {
             return
         }
         if flags & key.deviceMask != 0 {
+            guard key.isAlone(flags) else {
+                holdTimer?.invalidate()
+                holdTimer = nil
+                gesture = VoiceKeyGesture()
+                return
+            }
             let action = gesture.keyDown(at: now, listening: isListening(), hold: VoiceKey.holdToTalk, doubleTap: VoiceKey.doubleTap)
             holdTimer?.invalidate()
             holdTimer = Timer.scheduledTimer(withTimeInterval: VoiceKeyGesture.holdDelay, repeats: false) { [weak self] _ in
