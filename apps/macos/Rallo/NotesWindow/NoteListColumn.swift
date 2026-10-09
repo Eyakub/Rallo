@@ -125,7 +125,7 @@ struct NoteListColumn: View {
 
     private func row(_ item: ItemSnapshot, dimmed: Bool) -> some View {
         NoteListRow(
-            item: item, selected: !model.isDrafting && model.selectedNoteID == item.id, dimmed: dimmed, model: model
+            item: item, selected: !model.isDrafting && model.selectedNoteID == item.id, dimmed: dimmed, listFocused: listFocused, model: model
         )
         .id(item.id)
         .onTapGesture { open(item) }
@@ -262,13 +262,15 @@ private struct NoteListRow: View {
     let item: ItemSnapshot
     let selected: Bool
     let dimmed: Bool
+    let listFocused: Bool
     @ObservedObject var model: NotesWindowModel
     @State private var hovering = false
 
     private let text: RowText
 
-    init(item: ItemSnapshot, selected: Bool, dimmed: Bool, model: NotesWindowModel) {
+    init(item: ItemSnapshot, selected: Bool, dimmed: Bool, listFocused: Bool, model: NotesWindowModel) {
         self.item = item
+        self.listFocused = listFocused
         self.selected = selected
         self.dimmed = dimmed
         self.model = model
@@ -300,7 +302,7 @@ private struct NoteListRow: View {
         .padding(.horizontal, 10)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(selected ? Theme.highlight : (hovering ? Theme.hover : .clear))
+                .fill(selected ? (listFocused ? Theme.selection : Theme.selectionSoft) : (hovering ? Theme.hover : .clear))
         )
         .opacity(dimmed ? 0.55 : 1)
         .contentShape(Rectangle())

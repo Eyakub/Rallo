@@ -153,7 +153,7 @@ private struct MenuRow: View {
             if let symbol {
                 Image(systemName: symbol)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(highlighted ? Color.white : Theme.rust)
+                    .foregroundStyle(Theme.rust)
                     .frame(width: 14)
                     .padding(.trailing, 7)
             }
@@ -167,16 +167,16 @@ private struct MenuRow: View {
                 Text("\(count)")
                     .font(.system(size: 12))
                     .monospacedDigit()
-                    .foregroundStyle(highlighted ? Color.white.opacity(0.85) : Theme.bark)
+                    .foregroundStyle(Theme.bark)
             }
         }
-        .foregroundStyle(highlighted ? Color.white : Theme.ink)
+        .foregroundStyle(Theme.ink)
         .padding(.leading, 6)
         .padding(.trailing, 9)
         .frame(height: 24)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(highlighted ? Color(nsColor: .selectedContentBackgroundColor) : .clear)
+                .fill(highlighted ? Theme.selection : .clear)
         )
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
