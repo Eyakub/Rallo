@@ -81,6 +81,8 @@ targets:
       - path: Rallo/NotesWindow/EditorStyling.swift
       - path: Rallo/NotesWindow/NoteTextStyler.swift
       - path: Rallo/NotesWindow/NoteEditorSession.swift
+      - path: Rallo/NotesWindow/NotesWindowModel.swift
+      - path: Rallo/NotesWindow/NotesWindowModel+Notes.swift
       - path: Rallo/Notes/NotesScope.swift
       - path: Rallo/Notes/PanelDefaults.swift
       - path: Rallo/Notes/FolderMenuItems.swift
