@@ -92,7 +92,10 @@ final class NotesWindowModel: ObservableObject {
 
     func loadedItem(_ id: String) -> ItemSnapshot? { loaded.first { $0.id == id } }
 
-    var selectedItem: ItemSnapshot? { selectedNoteID.flatMap(loadedItem) }
+    /// The open note: its row, or (once the row has left the list, say a tag edited out of it) the editor's copy.
+    var selectedItem: ItemSnapshot? {
+        selectedNoteID.flatMap { loadedItem($0) ?? (editor.note?.id == $0 ? editor.note : nil) }
+    }
 
     var folders: [FolderSnapshot] { overview?.folders ?? [] }
 
@@ -174,6 +177,11 @@ final class NotesWindowModel: ObservableObject {
     /// an untouched "New Note" goes (one that got text was already created).
     func closed() async {
         namePrompter.cancel()
+        toastTask?.cancel()
+        toast = nil
+        pendingFolderDelete = nil
+        customRemindOpen = false
+        renamingFolderID = nil
         if let message = await editor.leave() { errorMessage = message }
         if isDrafting {
             isDrafting = false
@@ -251,6 +259,7 @@ final class NotesWindowModel: ObservableObject {
             found = foundList
             await syncSelectedNote()
         } catch {
+            guard mine == generation else { return }
             errorMessage = "Couldn’t load notes: \(error.localizedDescription)"
         }
     }
@@ -321,16 +330,29 @@ final class NotesWindowModel: ObservableObject {
         }
     }
 
-    /// After a reload: the open note takes its latest state, or, when it's
-    /// gone from the list (deleted or moved elsewhere), the selection clears.
+    /// After a reload: the open note takes its latest state. A row that left the
+    /// list (a tag edited out, a move, a search no longer matching) keeps the note
+    /// open, so typing is never lost; only a note that's gone (or deleted, outside
+    /// the Deleted view) clears the selection (0019 §11).
     private func syncSelectedNote() async {
         guard let id = selectedNoteID else { return }
-        let ids = Set(loaded.map(\.id))
-        if SelectionFallback.noteID(id, loaded: ids) != nil {
-            if let item = loadedItem(id) { editor.sync(item) }
-        } else {
-            await letGoOfNote(force: true)
-        }
+        if let item = loadedItem(id) { editor.sync(item); return }
+        do {
+            let latest = try await core.item(id)
+            if latest.deletedAtMs != nil, selection != .deleted {
+                await letGoOfNote(force: true)
+            } else {
+                editor.sync(latest)
+            }
+        } catch let error as RalloError {
+            if case .NotFound = error { await letGoOfNote(force: true) }
+        } catch {}
+    }
+
+    /// The note as the core has it, for the conflict bar's answers.
+    private func latestItem(_ id: String) async -> ItemSnapshot? {
+        if let item = loadedItem(id) { return item }
+        return try? await core.item(id)
     }
 
     /// A debounced search: the field's text changed.
@@ -399,7 +421,9 @@ final class NotesWindowModel: ObservableObject {
         let listed = loadedItem(item.id)
         // A save a moment ago may not have reached the list yet: the editor's copy is newer.
         if let saved = editor.note, saved.id == item.id, saved.revision > (listed?.revision ?? 0) { return saved }
-        return listed ?? item
+        if let listed { return listed }
+        // Off the list (moved out of the scope, deleted): the core still has it.
+        return (try? await core.item(item.id)) ?? item
     }
 
     // MARK: A new note
@@ -428,14 +452,14 @@ final class NotesWindowModel: ObservableObject {
     func showTheirs() async {
         guard let id = editor.note?.id else { return }
         await reload()
-        if let latest = loadedItem(id) { editor.showTheirs(latest) } else { await letGoOfNote() }
+        if let latest = await latestItem(id) { editor.showTheirs(latest) } else { await letGoOfNote() }
     }
 
     /// Keep Mine: the typed text saves again on the note's new revision.
     func keepMine() async {
         guard let id = editor.note?.id else { return }
         await reload()
-        if let latest = loadedItem(id) { editor.keepMine(latest) } else { await letGoOfNote() }
+        if let latest = await latestItem(id) { editor.keepMine(latest) } else { await letGoOfNote() }
     }
 
     // MARK: Folders
@@ -500,7 +524,9 @@ final class NotesWindowModel: ObservableObject {
             let moved = try await core.moveItem(item, folderID: folderID)
             let before = item.folderId
             announce("Moved to \(folderName(folderID))") { [weak self] in
-                await self?.run { _ = try await $0.moveItem(moved, folderID: before) }
+                guard let self else { return }
+                let latest = await self.fresh(moved)
+                await self.run { _ = try await $0.moveItem(latest, folderID: before) }
             }
             await reload()
         } catch {

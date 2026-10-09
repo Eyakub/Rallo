@@ -458,4 +458,100 @@ final class NotesWindowModelTests: XCTestCase {
         await model.selectNote(second.id)
         XCTAssertEqual(model.selectedNoteID, second.id)
     }
+
+    // MARK: A row leaving the list keeps the open note (fix round 1)
+
+    func testANoteWhoseTagIsEditedOutStaysOpenInTheTagScope() async throws {
+        let tagged = try note("a #bug")
+        try note("b #bug")  // keeps the tag, so the scope stays
+        await model.select(.tag("bug"))
+        await model.selectNote(tagged.id)
+        model.editor.textChanged("a #auth")
+        await model.editor.flush()
+        await eventually { model.items.count == 1 }
+        XCTAssertEqual(model.items.map(\.text), ["b #bug"], "the row left the #bug list")
+        XCTAssertEqual(model.selection, .tag("bug"))
+        XCTAssertEqual(model.selectedNoteID, tagged.id)
+        XCTAssertEqual(model.editor.note?.id, tagged.id)
+        XCTAssertEqual(model.selectedItem?.id, tagged.id)
+        model.editor.textChanged("a #auth more")
+        XCTAssertEqual(model.editor.text, "a #auth more")
+        await model.editor.flush()
+        XCTAssertNil(model.errorMessage)
+        XCTAssertTrue(try other.listOpenItems(limit: 50).contains { $0.text == "a #auth more" })
+    }
+
+    func testASearchResultEditedToNoLongerMatchStaysOpen() async throws {
+        let item = try note("budget plan")
+        model.query = "budget"
+        await model.reload()
+        await model.selectNote(item.id)
+        model.editor.textChanged("plan")
+        await model.editor.flush()
+        await eventually { model.results.isEmpty }
+        XCTAssertTrue(model.results.isEmpty)
+        XCTAssertEqual(model.selectedNoteID, item.id)
+        XCTAssertEqual(model.editor.note?.id, item.id)
+    }
+
+    func testANoteMovedAwayElsewhereKeepsTheTypingAndRaisesTheConflictBar() async throws {
+        let work = try folder("Work")
+        let item = try note("v1", in: work)
+        await model.select(.scope(.folder(work.id)))
+        await model.selectNote(item.id)
+        _ = try other.moveItem(id: item.id, folderId: nil, ifRevision: nil)
+        model.editor.textChanged("mine")
+        await model.reload()
+        XCTAssertEqual(model.selectedNoteID, item.id, "unsaved typing is never dropped by a reload")
+        XCTAssertEqual(model.editor.text, "mine")
+        await model.editor.flush()
+        XCTAssertTrue(model.editor.conflict)
+        XCTAssertEqual(model.editor.text, "mine")
+    }
+
+    // MARK: Undo on the latest revision (fix round 1)
+
+    func testUndoMarkAsDoneAfterTypingAndSavingReopensWithoutAnError() async throws {
+        let item = try note("Finish me")
+        await model.reload()
+        await model.selectNote(item.id)
+        await model.toggleDone(item)
+        model.editor.textChanged("Finish me, typed")
+        await model.editor.flush()
+        await model.undo()
+        XCTAssertNil(model.errorMessage)
+        let stored = try XCTUnwrap(other.listOpenItems(limit: 50).first)
+        XCTAssertEqual(stored.text, "Finish me, typed")
+    }
+
+    func testUndoMoveAfterTypingAndSavingMovesBackWithoutAnError() async throws {
+        let work = try folder("Work")
+        let item = try note("Move me")
+        await model.reload()
+        await model.selectNote(item.id)
+        await model.move(item, toFolder: work.id)
+        model.editor.textChanged("Move me, typed")
+        await model.editor.flush()
+        await model.undo()
+        XCTAssertNil(model.errorMessage)
+        let stored = try XCTUnwrap(other.listOpenItems(limit: 50).first)
+        XCTAssertEqual(stored.text, "Move me, typed")
+        XCTAssertNil(stored.folderId)
+    }
+
+    func testUndoMoveBeforeTheTypingSavesDoesNotConflictWithIt() async throws {
+        let work = try folder("Work")
+        let item = try note("v1")
+        await model.reload()
+        await model.selectNote(item.id)
+        await model.move(item, toFolder: work.id)
+        model.editor.textChanged("v2")
+        await model.undo()
+        await model.editor.flush()
+        XCTAssertNil(model.errorMessage)
+        XCTAssertFalse(model.editor.conflict)
+        let stored = try XCTUnwrap(other.listOpenItems(limit: 50).first)
+        XCTAssertEqual(stored.text, "v2")
+        XCTAssertNil(stored.folderId)
+    }
 }

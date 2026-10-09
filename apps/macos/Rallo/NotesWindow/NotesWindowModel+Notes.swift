@@ -14,7 +14,9 @@ extension NotesWindowModel {
             } else {
                 let done = try await core.completeItem(item)
                 announce("Marked “\(done.name)” as done") { [weak self] in
-                    await self?.run { _ = try await $0.reopenItem(done) }
+                    guard let self else { return }
+                    let latest = await self.fresh(done)
+                    await self.run { _ = try await $0.reopenItem(latest) }
                 }
             }
             await reload()
@@ -29,7 +31,9 @@ extension NotesWindowModel {
         do {
             let deleted = try await core.deleteItem(item)
             announce("Deleted “\(deleted.name)”") { [weak self] in
-                await self?.run { _ = try await $0.restoreItem(deleted) }
+                guard let self else { return }
+                let latest = await self.fresh(deleted)
+                await self.run { _ = try await $0.restoreItem(latest) }
             }
             await reload()
         } catch {
@@ -107,7 +111,11 @@ extension NotesWindowModel {
         do {
             let updated = try await core.detachImage(item, imageID: image.id)
             announce("Removed the image", undo: data.map { data in
-                { [weak self] in await self?.run { _ = try await $0.attachImages(updated, images: [data]) } }
+                { [weak self] in
+                    guard let self else { return }
+                    let latest = await self.fresh(updated)
+                    await self.run { _ = try await $0.attachImages(latest, images: [data]) }
+                }
             })
             await reload()
         } catch {
