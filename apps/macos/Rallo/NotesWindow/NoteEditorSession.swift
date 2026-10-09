@@ -30,6 +30,9 @@ final class NoteEditorSession: ObservableObject {
     private(set) var showCount = 0
     /// The text view has an input method's marked text: never save mid-composition.
     var isComposing = false
+    /// Set by the text view: turns marked text into ordinary text and pushes it
+    /// through `textChanged`, as AppKit does when focus leaves the view.
+    var commitComposition: () -> Void = {}
     /// A draft's first save created this note.
     var onCreated: (ItemSnapshot) -> Void = { _ in }
     /// A save reached the database; the window reloads.
@@ -120,6 +123,7 @@ final class NoteEditorSession: ObservableObject {
 
     /// Saves what's pending, now, and waits for it. Safe to call anytime.
     func flush() async {
+        if isComposing { commitComposition() }
         timer?.cancel()
         while true {
             if let running {
@@ -136,6 +140,7 @@ final class NoteEditorSession: ObservableObject {
     /// the text stays, so the caller keeps the note open. A bar or message the
     /// user had already seen doesn't hold them back; `leave()` then says what was lost.
     func readyToLeave() async -> Bool {
+        if isComposing { commitComposition() }
         let alreadyShown = conflict || error != nil
         await flush()
         return alreadyShown || (!conflict && error == nil)
@@ -145,6 +150,7 @@ final class NoteEditorSession: ObservableObject {
     /// its saved text back. Returns a sentence when typing couldn't be saved.
     @discardableResult
     func leave() async -> String? {
+        if isComposing { commitComposition() }
         await flush()
         defer {
             scheduler.reset()

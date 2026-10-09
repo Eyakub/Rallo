@@ -80,6 +80,7 @@ targets:
       - path: Rallo/NotesWindow/SaveScheduler.swift
       - path: Rallo/NotesWindow/EditorStyling.swift
       - path: Rallo/NotesWindow/NoteTextStyler.swift
+      - path: Rallo/NotesWindow/NoteTextEditor.swift
       - path: Rallo/NotesWindow/NoteEditorSession.swift
       - path: Rallo/NotesWindow/NotesWindowModel.swift
       - path: Rallo/NotesWindow/NotesWindowModel+Notes.swift

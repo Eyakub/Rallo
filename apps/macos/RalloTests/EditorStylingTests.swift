@@ -130,3 +130,39 @@ final class EditorStylingTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
 }
+
+@MainActor
+final class NoteTextEditorCommitTests: XCTestCase {
+    /// An input method's word is committed into the current note before a switch.
+    func testCommitCompositionPushesTheMarkedWordAndEndsComposing() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rallo-commit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = CoreClient(dataDir: dir.path)
+        try await core.open()
+        let session = NoteEditorSession(core: core, saveDelay: 0.05)
+        session.show(.draft(folderID: nil, seed: ""))
+        let coordinator = NoteTextEditor.Coordinator(session: session)
+        let view = PlainTextView.make()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        window.contentView = view
+        view.string = "abc "
+        coordinator.attach(view)
+        view.setMarkedText("にほ", selectedRange: NSRange(location: 2, length: 1), replacementRange: NSRange(location: 4, length: 0))
+        session.isComposing = true
+        XCTAssertTrue(view.hasMarkedText())
+
+        session.commitComposition()
+
+        XCTAssertFalse(view.hasMarkedText())
+        XCTAssertFalse(session.isComposing)
+        XCTAssertEqual(view.string, "abc にほ")
+        XCTAssertEqual(session.text, "abc にほ")
+        withExtendedLifetime(window) {}
+    }
+
+    func testTheCoordinatorStartsAtTheSessionsFocusToken() {
+        let core = CoreClient(dataDir: NSTemporaryDirectory() + "rallo-unused")
+        let session = NoteEditorSession(core: core)
+        XCTAssertEqual(NoteTextEditor.Coordinator(session: session).focusToken, session.focusToken)
+    }
+}
