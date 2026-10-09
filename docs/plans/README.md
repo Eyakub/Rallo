@@ -6,7 +6,7 @@
 |---|---|
 | 1 core + CLI | **Done** (`8011e33..b11789f`). |
 | 2 panel | **Done** (`b11789f..a1f52cd`). |
-| 3 window | **Code complete, UI pass pending** (`a1f52cd..HEAD`). Every task had a review and fix rounds; a final whole-branch review followed and its fixes are applied. Rust 455/0 (fmt, clippy clean), Swift 328/0. **Not done until the GUI pass below runs.** |
+| 3 window | **GUI pass done (Dark), fixes applied** (`a1f52cd..HEAD`). Swift 354/0, Rust 455/0. A few checks need a human: see "Plan 3 GUI pass: results" below. |
 
 Plan 3 ran over SSH, which has no Screen Recording or Accessibility, and the
 cmux socket refuses outside processes. So no task got its click-through or
@@ -16,10 +16,55 @@ Light/Dark screenshots. Each UI task instead got a headless launch smoke:
 - `windows.json` shows the window "Notes" at 1140×690, level 0;
 - it survives CLI edits.
 
-Run the GUI pass from Claude inside cmux on the Mac (it holds the grants).
-Drive behaviour once in Light, screenshot changed states in Dark.
+The GUI pass then ran on the first Mac; see "Plan 3 GUI pass: results" below.
 
-### Plan 3 GUI pass (do this next)
+### Plan 3 GUI pass: results (2026-10-10, on the first Mac)
+
+Four agent batches drove the scratch build:
+- **A:** window, Dock, expand button, panel regressions and pet;
+- **B:** sidebar, delete sheet and list;
+- **C:** editor, toolbar and reminder pill;
+- **D:** a final re-check of every fix.
+
+They drove it per pid through AX actions and per-pid keys, and took window screenshots. The shots are in `private/docs/folders-3-shots/`, which is gitignored. Five fix rounds followed (`f84c37d..e3cd510`), each code-reviewed and re-checked in the app.
+
+**User decisions made during the pass:**
+- **No system blue anywhere.** Selection, hover and highlight use a soft rust wash (`Theme.selection` when focused, `selectionSoft` when not), with ink text and a semibold sidebar label. The user picked this from a rendered comparison of three options.
+- **Rust accent.** Rallo has its own `AccentColor` (`#B4501F`), so focus rings and default buttons are rust.
+- **Native menus stay native.** Native context menus now highlight in solid rust with white text, not blue. The user was told this; a soft wash there would need custom menus.
+- **Dark only.** The user only cares about Dark for now, so UI checks run in Dark only.
+
+**Fixed:**
+- **Editor wrap.** Editor text wrapped at about 75 pt, because `sizeThatFits` mutated the text container on SwiftUI's probe sizes.
+- **Pet on hide.** The pet vanished when Rallo was hidden. It now has `canHide = false`, recorded in ADR 0002.
+- **Sidebar selection.** The selection is drawn by Rallo, with ↑/↓ that leave the rename field alone. Rows line up with their headers. The list, footer and title-bar strip share one material.
+- **Light toolbar strip.** It was white; it now uses a transparent title bar with column gradients and a soft divider.
+- **⌫ in the list.** It did nothing: SwiftUI's `.delete` is U+0008, but the Mac key sends U+007F.
+- **Delete after a delete.** Deleting the selected note now advances to the next one.
+- **Delete sheet.** Delete Notes is red. The empty folder's Delete is red and not the default.
+- **Row labels.** List rows have accessibility labels and a Mark as Done action.
+- **Error banner.** It moved to the bottom. "Weren't saved" and refusals stay until the next success, and an ordinary error never replaces them.
+- **Large paste.** The 70 KB paste error now shows in the banner.
+- **Toolbar.** It rests under the New Folder card, and Add Image is disabled at 10 images.
+- **One-line labels.** The list's reminder label, and the panel's expanded row (meta, then actions on their own line), no longer wrap mid-word.
+
+**Needs a human (not drivable without moving the pointer or changing system settings):**
+- **IME (§7):** Japanese and Bangla composition across the 0.6 s timer and every note switch.
+- **Drag and drop:** a row onto a sidebar folder, text from another app, and image tiles out.
+- **Live system Light/Dark switch** with a note open.
+- **Full screen,** then the frame restore after leaving it.
+- **VoiceOver:** reading rows, the Mark as Done action and the dropdown.
+- **Clicks AX couldn't press:** the "N done" row toggle, the toast's Undo click and a real click-away on rename.
+- **11th image through the Add Image picker.** The CLI refusal was checked.
+
+**Deferred minors:**
+- **Design question:** a one-line note shows as body text in the editor, not as a title. That follows spec §11 ("the title, when there is one") and matches the panel. Apple Notes always titles the first line.
+- **Sort order:** folders sort plainly alphabetically ("Folder 1, Folder 10, Folder 2"); natural sort would read better.
+- **Missing test:** for `letGoRaisedMessage` when a select raises a sticky message identical to the live one.
+- **Toolbar divider:** the 1 px divider overdraws the column's top pixel.
+- **Sidebar inset:** the negative inset compensates for the sidebar style's ~12 pt indent and may drift across macOS versions.
+
+### Plan 3 GUI pass: the original checklist
 
 Launch the scratch build per plan 3's **Scratch run**. It now resolves the
 scratch dir with `pwd -P`: a CLI-started instance reports `/private/var/…`,
