@@ -269,7 +269,7 @@ Mockup section 1, options B and C.
   (`FolderScopeMenu`, 214 pt wide, anchored under the chip), not a system
   menu, so it never crosses the panel's edge: a folder icon per row, the
   name truncated with its full text as a tooltip, the count right-aligned,
-  system-accent highlight, arrow keys/Return/Esc. New Folder… asks for a
+  soft rust highlight (`Theme.selection`), arrow keys/Return/Esc. New Folder… asks for a
   name (the in-panel dialog below), creates the folder and switches to it;
   a name error is shown under the field and the dialog stays up.
 - **Scope**: the list shows the chosen folder's open notes (`list_items(.open,
