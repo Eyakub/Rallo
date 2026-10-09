@@ -16,8 +16,8 @@ final class SettingsWindowController {
 
     var isOpen: Bool { window?.isVisible ?? false }
 
-    /// Without activating anything else: used when the Notes window closes and
-    /// Settings is still up.
+    /// Orders Settings front and key; the caller activates the app first (used
+    /// when the Notes window closes and Settings is still up).
     func bringForward() { window?.makeKeyAndOrderFront(nil) }
 
     func show() {

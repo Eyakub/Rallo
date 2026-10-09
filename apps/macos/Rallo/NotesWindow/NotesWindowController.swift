@@ -14,6 +14,8 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private let defaults: UserDefaults
     private static let frameKey = "RalloNotesWindow"
     private var window: NSWindow?
+    /// True from `show()` to `windowWillClose`: `isVisible` is false while Rallo is hidden (Dock Hide).
+    private var presence = false
     /// Told when the window opens (true) and closes (false), so the activation
     /// policy follows it. A closing window still reads `isVisible`, hence the argument.
     var onPresenceChange: (Bool) -> Void = { _ in }
@@ -24,7 +26,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     /// Showing, or minimised to the Dock.
-    var isOpen: Bool { window.map { $0.isVisible || $0.isMiniaturized } ?? false }
+    var isOpen: Bool { presence }
     var isKey: Bool { window?.isKeyWindow ?? false }
     var nsWindow: NSWindow? { window }
 
@@ -33,6 +35,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     func show(selection: NotesWindowSelection? = nil, noteID: String? = nil) {
         let window = self.window ?? makeWindow()
         self.window = window
+        presence = true
         onPresenceChange(true)  // `.regular` first, so the window can become key
         if window.isMiniaturized { window.deminiaturize(nil) }
         NSApp.activate()
@@ -43,12 +46,19 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         window?.makeFirstResponder(nil)  // the input method commits marked text before the editor saves
         rememberFrame()
+        presence = false
         // After AppKit's close sequence: switching the policy inside it can leave the menu bar unpainted.
-        DispatchQueue.main.async { [weak self] in self?.onPresenceChange(false) }
+        // A show() in between wins.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.presence else { return }
+            self.onPresenceChange(false)
+        }
         Task { await model.closed() }
     }
 
     func windowDidEndLiveResize(_ notification: Notification) { rememberFrame() }
+
+    func windowDidResize(_ notification: Notification) { rememberFrame() }
 
     func windowDidMove(_ notification: Notification) { rememberFrame() }
 
@@ -59,7 +69,8 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     private func rememberFrame() {
-        if let window { defaults.set(window.frameDescriptor, forKey: Self.frameKey) }
+        // Full screen must never become the remembered normal frame.
+        if let window, !window.styleMask.contains(.fullScreen) { defaults.set(window.frameDescriptor, forKey: Self.frameKey) }
     }
 
     private func makeWindow() -> NSWindow {

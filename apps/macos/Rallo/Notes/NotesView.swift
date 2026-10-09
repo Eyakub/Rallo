@@ -56,20 +56,27 @@ struct NotesView: View {
         .foregroundStyle(Theme.ink)
         .frame(width: 360, height: 460)
         .overlay(alignment: .topTrailing) {
-            Button {
-                model.onExpand()
-            } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.bark)
-                    .frame(width: 26, height: 26)
-                    .contentShape(Rectangle())
+            // The content sits below the title bar (full-size content view); the
+            // button lives in that strip, centred in it, so it clears the panda.
+            GeometryReader { proxy in
+                let bar = proxy.safeAreaInsets.top > 0 ? proxy.safeAreaInsets.top : 28
+                Button {
+                    model.onExpand()
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.bark)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open Notes Window")
+                .accessibilityLabel("Open Notes Window")
+                .frame(height: bar)
+                .padding(.trailing, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
-            .buttonStyle(.plain)
-            .help("Open Notes Window")
-            .accessibilityLabel("Open Notes Window")
-            .padding(.top, 1)
-            .padding(.trailing, 8)
+            .ignoresSafeArea(.container, edges: .top)
             .disabled(model.namePromptShown || model.scopeMenuOpen)
             .accessibilityHidden(model.namePromptShown || model.scopeMenuOpen)
             .blur(radius: model.namePromptShown ? 4 : 0)

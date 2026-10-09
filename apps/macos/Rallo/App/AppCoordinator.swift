@@ -15,9 +15,6 @@ final class AppCoordinator {
     private let notes: NotesPanelController
     private let notesWindowModel: NotesWindowModel
     private let notesWindow: NotesWindowController
-    /// `.standard` for the real data dir, else the scratch suite (`PanelDefaults`):
-    /// the panel's scope and the window's frame.
-    private let defaults: UserDefaults
     private let observer: ChangeObserver
     private let drainer: NotificationDrainer
     private let transfer: TransferController
@@ -88,7 +85,8 @@ final class AppCoordinator {
         // The panel's folder choice and the Notes window's frame (0019) live in
         // UserDefaults, which is per bundle id: any data dir but the real one
         // must not overwrite the real app's.
-        defaults = PanelDefaults.defaults(forDataDir: dataDir)
+        // `.standard` for the real data dir, else the scratch suite (`PanelDefaults`).
+        let defaults = PanelDefaults.defaults(forDataDir: dataDir)
         notesModel = NotesViewModel(core: core, defaults: defaults)
         notes = NotesPanelController(model: notesModel)
         notesWindowModel = NotesWindowModel(core: core)
@@ -481,7 +479,10 @@ final class AppCoordinator {
     /// ⌘N, ⇧⌘N and ⌘F act only while the window is key and its New Folder card is not up.
     var notesWindowAcceptsCommands: Bool { notesWindow.isKey && notesWindowModel.namePrompter.request == nil }
     var notesWindowCanCreateNote: Bool { notesWindowAcceptsCommands && notesWindowModel.canCreateNote }
-    var notesWindowHasUnsavedText: Bool { notesWindowModel.editor.hasUnsavedText }
+    var notesWindowHasUnsavedText: Bool {
+        notesWindow.nsWindow?.makeFirstResponder(nil)  // a pending composition commits, so it counts
+        return notesWindowModel.editor.hasUnsavedText
+    }
     func newNoteInNotesWindow() { Task { await notesWindowModel.beginNewNote() } }
     func newFolderInNotesWindow() { Task { await notesWindowModel.newFolderInline() } }
     func focusNotesWindowSearch() { notesWindow.focusSearch() }

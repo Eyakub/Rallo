@@ -131,10 +131,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Quitting saves what's being typed in the Notes window first (0019 §11).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let coordinator, coordinator.notesWindowHasUnsavedText else { return .terminateNow }
-        Task { @MainActor in
-            await coordinator.flushNotesWindow()
+        // Reply once, whichever of the flush and the 3 s cap (a stuck core save) finishes first.
+        var replied = false
+        let reply = {
+            guard !replied else { return }
+            replied = true
             NSApp.reply(toApplicationShouldTerminate: true)
         }
+        Task { @MainActor in
+            await coordinator.flushNotesWindow()
+            reply()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { reply() }
         return .terminateLater
     }
 
