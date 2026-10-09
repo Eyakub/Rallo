@@ -10,6 +10,8 @@ final class PlainTextView: NSTextView {
         view.importsGraphics = false
         view.allowsUndo = true
         view.drawsBackground = false
+        // A rust wash; no foreground colour, so selected text keeps its ink/rust.
+        view.selectedTextAttributes = [.backgroundColor: Theme.textSelectionNS]
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
         view.isHorizontallyResizable = false
