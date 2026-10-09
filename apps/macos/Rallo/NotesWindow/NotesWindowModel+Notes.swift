@@ -25,8 +25,10 @@ extension NotesWindowModel {
         }
     }
 
-    /// Soft delete (the trash button and ⌫); Undo restores it.
+    /// Soft delete (the trash button and ⌫); Undo restores it. Deleting the open note opens the
+    /// row after it (the one before, if it was last), as Apple Notes does.
     func delete(_ item: ItemSnapshot) async {
+        let successor = selectedNoteID == item.id ? neighbour(of: item.id) : nil
         let item = await fresh(item)
         do {
             let deleted = try await core.deleteItem(item)
@@ -36,9 +38,23 @@ extension NotesWindowModel {
                 await self.run { _ = try await $0.restoreItem(latest) }
             }
             await reload()
+            // The reload cleared the deleted note's selection (R14); don't override a pick made meanwhile.
+            if selectedNoteID == nil, !isDrafting, let successor, loadedItem(successor) != nil {
+                await selectNote(successor)
+            }
         } catch {
             await report(error)
         }
+    }
+
+    /// The row after `id` in the list it sits in, else the one before it.
+    private func neighbour(of id: String) -> String? {
+        for list in [visibleItems, isSearching ? [] : doneItems] {
+            guard let index = list.firstIndex(where: { $0.id == id }) else { continue }
+            if index + 1 < list.count { return list[index + 1].id }
+            return index > 0 ? list[index - 1].id : nil
+        }
+        return nil
     }
 
     /// Restore, in the Deleted view: the note returns to its folder (or Notes).

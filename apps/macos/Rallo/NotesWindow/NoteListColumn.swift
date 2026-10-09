@@ -119,8 +119,7 @@ struct NoteListColumn: View {
         .focusable()
         .focused($listFocused)
         .focusEffectDisabled()
-        .onKeyPress(.delete) { deleteSelected() }
-        .onKeyPress(.deleteForward) { deleteSelected() }
+        .onKeyPress(keys: Self.deleteKeys) { _ in deleteSelected() }
     }
 
     private func row(_ item: ItemSnapshot, dimmed: Bool) -> some View {
@@ -226,6 +225,9 @@ struct NoteListColumn: View {
         return .handled
     }
 
+    /// The Mac's ⌫ sends U+007F, not the U+0008 behind `KeyEquivalent.delete`.
+    private static let deleteKeys: Set<KeyEquivalent> = [.delete, .deleteForward, KeyEquivalent("\u{7F}")]
+
     /// ⌫ in the list deletes the selected note; Deleted offers Restore, no delete.
     private func deleteSelected() -> KeyPress.Result {
         if case .deleted = model.selection { return .ignored }
@@ -310,7 +312,20 @@ private struct NoteListRow: View {
         .modifier(DragIfLive(id: item.id, enabled: !isDeleted))
         .contextMenu { menu }
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// What the row shows: the title, then the reminder or time, then the preview.
+    private var accessibilityText: String {
+        var parts = [text.displayTitle]
+        if let reminder = activeReminder {
+            parts.append("Reminder " + ReminderLabel.text(for: reminder.deadline))
+        } else {
+            parts.append(RowTimeLabel.text(for: date, now: .now, calendar: .current))
+        }
+        if !text.preview.isEmpty { parts.append(text.preview) }
+        return parts.joined(separator: ", ")
     }
 
     @ViewBuilder
@@ -351,10 +366,14 @@ private struct NoteListRow: View {
                 Text(Self.capitalized(ReminderLabel.text(for: reminder.deadline)))
                     .fontWeight(.medium)
                     .foregroundStyle(Theme.rust)
+                    .lineLimit(1)
+                    .fixedSize()
             } else {
                 Text(RowTimeLabel.text(for: date, now: .now, calendar: .current))
                     .fontWeight(.medium)
                     .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                    .fixedSize()
             }
             if !text.preview.isEmpty {
                 Text(text.preview)

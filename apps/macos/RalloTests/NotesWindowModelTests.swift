@@ -413,6 +413,47 @@ final class NotesWindowModelTests: XCTestCase {
         XCTAssertEqual(model.items.map(\.text), ["Delete me"])
     }
 
+    func testDeletingTheOpenNoteOpensTheNextRow() async throws {
+        let oldest = try note("First")
+        let middle = try note("Second")
+        let newest = try note("Third")
+        await model.reload()
+        let order = model.items.map(\.id)
+        XCTAssertEqual(Set(order), [oldest.id, middle.id, newest.id])
+        await model.selectNote(order[1])
+        await model.delete(try XCTUnwrap(model.selectedItem))
+        XCTAssertEqual(model.selectedNoteID, order[2])
+        XCTAssertEqual(model.editor.note?.id, order[2])
+    }
+
+    func testDeletingTheLastRowOpensThePreviousOne() async throws {
+        try note("First")
+        try note("Second")
+        await model.reload()
+        let order = model.items.map(\.id)
+        await model.selectNote(order[1])
+        await model.delete(try XCTUnwrap(model.selectedItem))
+        XCTAssertEqual(model.selectedNoteID, order[0])
+    }
+
+    func testDeletingTheOnlyNoteLeavesNothingOpen() async throws {
+        let only = try note("Alone")
+        await model.reload()
+        await model.selectNote(only.id)
+        await model.delete(only)
+        XCTAssertNil(model.selectedNoteID)
+    }
+
+    func testDeletingAnotherNoteKeepsTheSelection() async throws {
+        try note("First")
+        try note("Second")
+        await model.reload()
+        let order = model.items.map(\.id)
+        await model.selectNote(order[0])
+        await model.delete(try XCTUnwrap(model.loadedItem(order[1])))
+        XCTAssertEqual(model.selectedNoteID, order[0])
+    }
+
     func testMarkAsDoneAndReopen() async throws {
         let item = try note("Finish")
         await model.reload()

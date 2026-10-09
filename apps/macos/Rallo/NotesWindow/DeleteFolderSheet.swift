@@ -26,14 +26,17 @@ struct DeleteFolderSheet: View {
                 if copy.holdsNotes {
                     Button { confirm(keepNotes: true) } label: { wide("Keep Notes") }
                         .buttonStyle(.borderedProminent)
+                        .tint(Theme.rust)
                         .keyboardShortcut(.defaultAction)
                     Button(role: .destructive) { confirm(keepNotes: false) } label: { wide("Delete Notes") }
                         .buttonStyle(.bordered)
+                        .tint(Theme.error)
                 } else {
-                    // Nothing to keep or delete; Keep Notes is the harmless flag for the core.
+                    // Nothing to keep or delete; Keep Notes is the harmless flag for the core. Red and
+                    // not the default, so Return can't confirm it.
                     Button(role: .destructive) { confirm(keepNotes: true) } label: { wide("Delete") }
-                        .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.bordered)
+                        .tint(Theme.error)
                 }
                 Button { model.pendingFolderDelete = nil } label: { wide("Cancel") }
                     .buttonStyle(.bordered)
@@ -44,7 +47,6 @@ struct DeleteFolderSheet: View {
         }
         .padding(24)
         .frame(width: 340)
-        .tint(Theme.rust)
     }
 
     private func wide(_ title: String) -> some View {

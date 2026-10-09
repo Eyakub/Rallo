@@ -24,8 +24,8 @@ struct ImageStrip: View {
                         .focused($focused, equals: image.id)
                         .onKeyPress(.space) { open(index) }
                         .onKeyPress(.return) { open(index) }
-                        .onKeyPress(.delete) { remove(image) }
-                        .onKeyPress(.deleteForward) { remove(image) }
+                        // The Mac's ⌫ sends U+007F, not the U+0008 behind `KeyEquivalent.delete`.
+                        .onKeyPress(keys: [.delete, .deleteForward, KeyEquivalent("\u{7F}")]) { _ in remove(image) }
                         .onTapGesture { QuickLookPresenter.shared.show(item.images, at: index) }
                         .onDrag { Self.dragProvider(image, index: index) }
                         .contextMenu {
