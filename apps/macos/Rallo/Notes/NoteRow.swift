@@ -177,63 +177,29 @@ struct NoteRow: View {
             ImageStrip(item: item, model: model).padding(.top, 4)
         }
 
-        HStack(spacing: 10) {
-            if let reminder = activeReminder {
-                reminderLabel(reminder)
-            } else {
-                Text(created, format: .relative(presentation: .named, unitsStyle: .wide))
-                    .font(Theme.rounded(12))
-                    .foregroundStyle(Theme.bark)
-            }
-            if !item.images.isEmpty {
-                HStack(spacing: 3) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(item.images.count == 1 ? "1 image" : "\(item.images.count) images")
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-                .font(Theme.rounded(12))
-                .foregroundStyle(Theme.bark)
-                .accessibilityElement(children: .combine)
-            }
-            if model.showsFolderLabel {
-                HStack(spacing: 3) {
-                    Text("·")
-                    Image(systemName: "folder")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(item.folderName ?? "Notes")
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .font(Theme.rounded(12))
-                .foregroundStyle(Theme.bark)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("In folder \(item.folderName ?? "Notes")")
-            }
-            Spacer(minLength: 0)
+        Group {
             if expanded {
-                Menu {
-                    remindButtons
-                } label: {
-                    Text(activeReminder == nil ? "Remind" : "Change")
+                // Meta and actions share a line while they fit; otherwise the
+                // actions drop to their own line instead of wrapping words.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        metaItems
+                        Spacer(minLength: 8)
+                        rowActions
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 10) { metaItems }
+                        HStack(spacing: 14) {
+                            Spacer(minLength: 0)
+                            rowActions
+                        }
+                    }
                 }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .font(Theme.rounded(12, .semibold))
-                .foregroundStyle(Theme.rust)
-                .accessibilityLabel(activeReminder == nil ? "Set a reminder" : "Change the reminder")
-                Button("Edit") { model.beginEditing(item) }
-                    .buttonStyle(.plain)
-                    .font(Theme.rounded(12, .semibold))
-                    .foregroundStyle(Theme.rust)
-                    .keyboardShortcut("e", modifiers: .command)
-                Button("Delete") { Task { await model.delete(item) } }
-                    .buttonStyle(.plain)
-                    .font(Theme.rounded(12, .semibold))
-                    .foregroundStyle(Theme.error)
+            } else {
+                HStack(spacing: 10) {
+                    metaItems
+                    Spacer(minLength: 0)
+                }
             }
         }
         .padding(.top, expanded ? 2 : 0)
@@ -247,6 +213,73 @@ struct NoteRow: View {
             }
             .padding(.top, 2)
         }
+    }
+
+    /// When, images and folder. Each keeps its words on one line; only the
+    /// folder name gives way when space runs out.
+    @ViewBuilder private var metaItems: some View {
+        if let reminder = activeReminder {
+            reminderLabel(reminder).fixedSize()
+        } else {
+            Text(created, format: .relative(presentation: .named, unitsStyle: .wide))
+                .font(Theme.rounded(12))
+                .foregroundStyle(Theme.bark)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        if !item.images.isEmpty {
+            HStack(spacing: 3) {
+                Image(systemName: "photo")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(item.images.count == 1 ? "1 image" : "\(item.images.count) images")
+                    .lineLimit(1)
+            }
+            .fixedSize()
+            .font(Theme.rounded(12))
+            .foregroundStyle(Theme.bark)
+            .accessibilityElement(children: .combine)
+        }
+        if model.showsFolderLabel {
+            HStack(spacing: 3) {
+                Text("·")
+                Image(systemName: "folder")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(item.folderName ?? "Notes")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .font(Theme.rounded(12))
+            .foregroundStyle(Theme.bark)
+            .layoutPriority(-1)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("In folder \(item.folderName ?? "Notes")")
+        }
+    }
+
+    @ViewBuilder private var rowActions: some View {
+        Menu {
+            remindButtons
+        } label: {
+            Text(activeReminder == nil ? "Remind" : "Change")
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .font(Theme.rounded(12, .semibold))
+        .foregroundStyle(Theme.rust)
+        .accessibilityLabel(activeReminder == nil ? "Set a reminder" : "Change the reminder")
+        Button("Edit") { model.beginEditing(item) }
+            .buttonStyle(.plain)
+            .font(Theme.rounded(12, .semibold))
+            .foregroundStyle(Theme.rust)
+            .keyboardShortcut("e", modifiers: .command)
+            .fixedSize()
+        Button("Delete") { Task { await model.delete(item) } }
+            .buttonStyle(.plain)
+            .font(Theme.rounded(12, .semibold))
+            .foregroundStyle(Theme.error)
+            .fixedSize()
     }
 
     private var activeReminder: ReminderSnapshot? {
