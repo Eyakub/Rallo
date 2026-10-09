@@ -9,7 +9,13 @@ struct FolderSidebar: View {
         Binding(
             get: { model.selection },
             set: { new in
-                if let new { Task { await model.select(new) } }
+                if let new {
+                    Task {
+                        await model.select(new)
+                        // A declined select (editor conflict) leaves `selection` alone; redraw so the row snaps back.
+                        if model.selection != new { model.objectWillChange.send() }
+                    }
+                }
             }
         )
     }
@@ -124,6 +130,10 @@ private struct FolderRow: View {
     @State private var targeted = false
     @State private var name = ""
     @FocusState private var fieldFocused: Bool
+    /// The field has held focus once, so a `false` is a loss, not the first appearance.
+    @State private var hadFocus = false
+    /// A rename is in flight: a second Return is ignored and the focus change it causes is not an abandon.
+    @State private var submitting = false
 
     private var renaming: Bool { folder != nil && model.renamingFolderID == folder?.id }
 
@@ -134,19 +144,35 @@ private struct FolderRow: View {
                 TextField("Folder name", text: $name)
                     .textFieldStyle(.plain)
                     .focused($fieldFocused)
-                    .onSubmit { Task { await model.renameFolder(folder, to: name) } }
+                    .onSubmit {
+                        guard !submitting else { return }
+                        submitting = true
+                        Task {
+                            await model.renameFolder(folder, to: name)
+                            submitting = false
+                        }
+                    }
                     .onExitCommand {
                         model.renamingFolderID = nil
                         model.errorMessage = nil
                     }
                     .onAppear {
                         name = folder.name
+                        hadFocus = false
                         fieldFocused = true
                     }
                     // Select the name once the field really has focus (selecting from
                     // onAppear races the focus change and can land nowhere).
                     .onChange(of: fieldFocused) { _, focused in
-                        if focused { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
+                        if focused {
+                            hadFocus = true
+                            NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                        } else if hadFocus, !submitting, model.renamingFolderID == folder.id {
+                            // Clicked elsewhere: leave the name as it was, without committing.
+                            hadFocus = false
+                            model.renamingFolderID = nil
+                            model.errorMessage = nil
+                        }
                     }
                     .accessibilityLabel("Folder name")
             } else {
@@ -172,6 +198,6 @@ private struct FolderRow: View {
                 Button("Delete Folder…", role: .destructive) { model.requestDelete(folder) }
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: renaming ? .contain : .combine)
     }
 }
