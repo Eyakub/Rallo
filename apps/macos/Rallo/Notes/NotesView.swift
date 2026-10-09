@@ -55,6 +55,25 @@ struct NotesView: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.toast?.id)
         .foregroundStyle(Theme.ink)
         .frame(width: 360, height: 460)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                model.onExpand()
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.bark)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open Notes Window")
+            .accessibilityLabel("Open Notes Window")
+            .padding(.top, 1)
+            .padding(.trailing, 8)
+            .disabled(model.namePromptShown || model.scopeMenuOpen)
+            .accessibilityHidden(model.namePromptShown || model.scopeMenuOpen)
+            .blur(radius: model.namePromptShown ? 4 : 0)
+        }
         .overlayPreferenceValue(FolderChipAnchorKey.self) { anchor in
             GeometryReader { proxy in
                 ZStack(alignment: .topLeading) {

@@ -64,6 +64,8 @@ final class NotesViewModel: ObservableObject {
     @Published var authorization: NotificationAuthorization?
     /// Asks for permission (never asked yet) or opens System Settings (denied).
     var onEnableNotifications: () -> Void = {}
+    /// The title bar's expand button: close the panel, open the Notes window (0019 §11).
+    var onExpand: () -> Void = {}
 
     /// Reminders exist but macOS won't show their alerts.
     var alertsBlocked: Bool {

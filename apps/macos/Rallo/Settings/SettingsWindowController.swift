@@ -14,6 +14,12 @@ final class SettingsWindowController {
         self.model = model
     }
 
+    var isOpen: Bool { window?.isVisible ?? false }
+
+    /// Without activating anything else: used when the Notes window closes and
+    /// Settings is still up.
+    func bringForward() { window?.makeKeyAndOrderFront(nil) }
+
     func show() {
         model.opened()
         let window = window ?? makeWindow()

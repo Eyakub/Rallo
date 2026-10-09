@@ -4,7 +4,7 @@ import AppKit
 /// can be verified without Screen Recording permission. Contains no note text.
 enum WindowReport {
     @MainActor
-    static func make(pet: PetController, notesWindow: NSWindow?) -> [String: Any] {
+    static func make(pet: PetController, notesWindow: NSWindow?, notesAppWindow: NSWindow? = nil) -> [String: Any] {
         func describe(_ window: NSWindow) -> [String: Any] {
             [
                 "title": window.title,
@@ -30,6 +30,7 @@ enum WindowReport {
             "pet": describe(pet.window),
         ]
         if let notesWindow { report["notes"] = describe(notesWindow) }
+        if let notesAppWindow { report["notes_window"] = describe(notesAppWindow) }
         return report
     }
 }

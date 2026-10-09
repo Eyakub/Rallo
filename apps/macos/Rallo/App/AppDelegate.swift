@@ -3,7 +3,7 @@ import notify
 import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let options: LaunchOptions
     private var instanceLock: InstanceLock?
     private var coordinator: AppCoordinator?
@@ -51,8 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// A menu-bar app shows no menu bar, and without a main menu nothing
     /// routes ⌘X/⌘C/⌘V/⌘A/⌘Z to text fields (the composer, the ClickUp
-    /// token field in Settings). This main menu is never visible; it only carries the
-    /// standard Edit key equivalents.
+    /// token field in Settings). It is visible only while the Notes window is open
+    /// (Rallo is then a Dock app, 0019); otherwise it carries the standard Edit key
+    /// equivalents and the Notes window's File and Window items.
     private func editMenu() -> NSMenu {
         let edit = NSMenu(title: "Edit")
         edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
@@ -62,20 +63,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        let findItem = edit.addItem(withTitle: "Find", action: #selector(find), keyEquivalent: "f")
+        findItem.target = self
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         editItem.submenu = edit
         let app = NSMenu(title: "Rallo")
         let settings = app.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
+        app.addItem(.separator())
+        app.addItem(withTitle: "Quit Rallo", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let appItem = NSMenuItem(title: "Rallo", action: nil, keyEquivalent: "")  // the app menu's slot
         appItem.submenu = app
+        let file = NSMenu(title: "File")
+        let noteItem = file.addItem(withTitle: "New Note", action: #selector(newNote), keyEquivalent: "n")
+        noteItem.target = self
+        let folderItem = file.addItem(withTitle: "New Folder", action: #selector(newFolder), keyEquivalent: "N")
+        folderItem.target = self
+        file.addItem(.separator())
+        file.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        fileItem.submenu = file
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(.separator())
+        let notesWindowItem = windowMenu.addItem(withTitle: "Notes Window", action: #selector(openNotesWindow), keyEquivalent: "")
+        notesWindowItem.target = self
+        // No NSApp.windowsMenu: AppKit would list window titles and the Settings tab title, and drop
+        // "Notes Window" while the window is closed (0019 §11 pins this menu's items).
+        let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
+        windowItem.submenu = windowMenu
         let main = NSMenu()
         main.addItem(appItem)
+        main.addItem(fileItem)
         main.addItem(editItem)
+        main.addItem(windowItem)
         return main
     }
 
     @objc private func openSettings() { coordinator?.openSettings() }
+    @objc private func newNote() { coordinator?.newNoteInNotesWindow() }
+    @objc private func newFolder() { coordinator?.newFolderInNotesWindow() }
+    @objc private func openNotesWindow() { coordinator?.openNotesWindow() }
+    @objc private func find() { coordinator?.focusNotesWindowSearch() }
+
+    /// ⌘N, ⇧⌘N and ⌘F belong to the Notes window: they are dimmed (and do
+    /// nothing) anywhere else, so they never fire from the panel or Settings,
+    /// nor behind the window's New Folder card.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(newNote) { return coordinator?.notesWindowCanCreateNote ?? false }
+        if menuItem.action == #selector(newFolder) || menuItem.action == #selector(find) {
+            return coordinator?.notesWindowAcceptsCommands ?? false
+        }
+        return true
+    }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         let source = Self.reopenSource()
@@ -85,6 +126,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// Quitting saves what's being typed in the Notes window first (0019 §11).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let coordinator, coordinator.notesWindowHasUnsavedText else { return .terminateNow }
+        Task { @MainActor in
+            await coordinator.flushNotesWindow()
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

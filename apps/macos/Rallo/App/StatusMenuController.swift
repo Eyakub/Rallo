@@ -7,6 +7,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         var togglePet: () -> Void
         var toggleAnimations: () -> Void
         var openNotes: () -> Void
+        var openNotesWindow: () -> Void
         var jumpToWaitingAgent: () -> Void
         var selectAgentSession: (AgentSessionSnapshot) -> Void
         var openSettings: () -> Void
@@ -93,6 +94,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         populateAgentsSection(menu)
         menu.addItem(notesMenuItem())
+        menu.addItem(item("Notes Window", #selector(openNotesWindow)))
         menu.addItem(jumpMenuItem())
         menu.addItem(item(petVisible() ? "Hide Pet" : "Show Pet", #selector(togglePet)))
         let pause = item("Pause Animations", #selector(toggleAnimations))
@@ -148,6 +150,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func togglePet() { actions.togglePet() }
     @objc private func toggleAnimations() { actions.toggleAnimations() }
     @objc private func openNotes() { actions.openNotes() }
+    @objc private func openNotesWindow() { actions.openNotesWindow() }
     @objc private func jumpToWaitingAgent() { actions.jumpToWaitingAgent() }
     @objc private func selectAgentSession(_ sender: NSMenuItem) {
         guard let session = sender.representedObject as? AgentSessionSnapshot else { return }

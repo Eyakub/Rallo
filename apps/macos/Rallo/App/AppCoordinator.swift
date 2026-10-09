@@ -13,6 +13,11 @@ final class AppCoordinator {
     private let pet = PetController()
     private let notesModel: NotesViewModel
     private let notes: NotesPanelController
+    private let notesWindowModel: NotesWindowModel
+    private let notesWindow: NotesWindowController
+    /// `.standard` for the real data dir, else the scratch suite (`PanelDefaults`):
+    /// the panel's scope and the window's frame.
+    private let defaults: UserDefaults
     private let observer: ChangeObserver
     private let drainer: NotificationDrainer
     private let transfer: TransferController
@@ -80,10 +85,14 @@ final class AppCoordinator {
         // The wait-threshold testing override (0008) only ever applies to a
         // scratch instance started with an explicit --data-dir.
         agentWaitNotifier = AgentWaitNotifier(adapter: notifications.adapter, log: log, allowThresholdOverride: isScratch)
-        // The panel's folder choice (0019) lives in UserDefaults, which is per
-        // bundle id: any data dir but the real one must not overwrite the real app's.
-        notesModel = NotesViewModel(core: core, defaults: PanelDefaults.defaults(forDataDir: dataDir))
+        // The panel's folder choice and the Notes window's frame (0019) live in
+        // UserDefaults, which is per bundle id: any data dir but the real one
+        // must not overwrite the real app's.
+        defaults = PanelDefaults.defaults(forDataDir: dataDir)
+        notesModel = NotesViewModel(core: core, defaults: defaults)
         notes = NotesPanelController(model: notesModel)
+        notesWindowModel = NotesWindowModel(core: core)
+        notesWindow = NotesWindowController(model: notesWindowModel, defaults: defaults)
         observer = ChangeObserver(dataDir: dataDir)
     }
 
@@ -94,6 +103,7 @@ final class AppCoordinator {
                 togglePet: { [weak self] in Task { await self?.togglePet() } },
                 toggleAnimations: { [weak self] in Task { await self?.toggleAnimations() } },
                 openNotes: { [weak self] in self?.openNotes(highlighting: nil) },
+                openNotesWindow: { [weak self] in self?.openNotesWindow() },
                 jumpToWaitingAgent: { [weak self] in self?.jumpToWaitingAgent() },
                 selectAgentSession: { [weak self] session in self?.activateAgent(session) },
                 openSettings: { [weak self] in self?.openSettings() },
@@ -120,9 +130,12 @@ final class AppCoordinator {
         }
         transfer.onShowNotes = { [weak self] in self?.openNotes(highlighting: nil) }
         notesModel.onEnableNotifications = { [weak self] in Task { await self?.turnOnNotifications() } }
+        notesModel.onExpand = { [weak self] in self?.expandNotesPanel() }
+        notesWindow.onPresenceChange = { [weak self] open in self?.updateActivationPolicy(notesWindowOpen: open) }
         petState.onDueBoundary = { [weak self] in
-            guard let self, self.notes.isOpen else { return }
-            Task { await self.notesModel.reload() }
+            guard let self else { return }
+            if notes.isOpen { Task { await self.notesModel.reload() } }
+            if notesWindow.isOpen { Task { await self.notesWindowModel.reload() } }
         }
         pet.onMoved = { [weak self] origin in Task { await self?.petMoved(to: origin) } }
         pet.contextMenu = { [weak self] in self?.statusMenu?.makeMenu() }
@@ -196,6 +209,7 @@ final class AppCoordinator {
             guard let self else { return }
             switch demoOpen.split(separator: ":").first {
             case "notes": openNotes(highlighting: nil)
+            case "window": openNotesWindow()
             case "menu": statusMenu?.openMenu()
             case "listening":
                 // The voice-typing pose (0013): 8 s listening with a nod every
@@ -253,7 +267,11 @@ final class AppCoordinator {
         switch source {
         case let .application(bundleID):
             log.record("app_reopen", ["sender": bundleID])
-            openNotes(highlighting: nil)
+            if notesWindow.isOpen {
+                openNotesWindow()  // the Dock icon: bring the window back, minimised or not
+            } else {
+                openNotes(highlighting: nil)
+            }
         case let .unknown(pid):
             // Most likely a CLI launch that raced startup: never let it open
             // panels or override a deliberate hide.
@@ -308,6 +326,9 @@ final class AppCoordinator {
         }
         if notes.isOpen {
             await notesModel.reload()
+        }
+        if notesWindow.isOpen {
+            await notesWindowModel.reload()
         }
         animationsPaused = (try? await core.petAnimationsPaused()) ?? false
         agentSessions = (try? await core.agentSessions()) ?? []
@@ -424,6 +445,51 @@ final class AppCoordinator {
     /// ⌘, and the menu's "Settings…" (also the hidden app menu's).
     func openSettings() {
         settings.show()
+    }
+
+    // MARK: Notes window (0019)
+
+    /// The status menu's and the Window menu's "Notes Window", the Dock icon.
+    func openNotesWindow() {
+        notesWindow.show()
+    }
+
+    /// The panel's expand button: the panel closes and the window opens on the
+    /// panel's scope, with the panel's expanded note selected.
+    private func expandNotesPanel() {
+        let selection = NotesWindowSelection.scope(notesModel.scope)
+        let noteID = notesModel.expandedID
+        notes.close()
+        notesWindow.show(selection: selection, noteID: noteID)
+        log.record("notes_window_opened", ["from": "panel"])
+    }
+
+    /// Rallo is a Dock app only while the Notes window is open (0019 §11);
+    /// Settings and the panel never change the policy.
+    private func updateActivationPolicy(notesWindowOpen: Bool) {
+        let wanted: NSApplication.ActivationPolicy = notesWindowOpen ? .regular : .accessory
+        guard wanted != NSApp.activationPolicy() else { return }
+        NSApp.setActivationPolicy(wanted)
+        log.record("activation_policy", ["policy": wanted == .regular ? "regular" : "accessory"])
+        // Dropping to .accessory can leave Settings or the panel showing in an inactive app.
+        if wanted == .accessory, settings.isOpen || notes.isOpen {
+            NSApp.activate()
+            if settings.isOpen { settings.bringForward() } else { notes.window?.makeKeyAndOrderFront(nil) }
+        }
+    }
+
+    /// ⌘N, ⇧⌘N and ⌘F act only while the window is key and its New Folder card is not up.
+    var notesWindowAcceptsCommands: Bool { notesWindow.isKey && notesWindowModel.namePrompter.request == nil }
+    var notesWindowCanCreateNote: Bool { notesWindowAcceptsCommands && notesWindowModel.canCreateNote }
+    var notesWindowHasUnsavedText: Bool { notesWindowModel.editor.hasUnsavedText }
+    func newNoteInNotesWindow() { Task { await notesWindowModel.beginNewNote() } }
+    func newFolderInNotesWindow() { Task { await notesWindowModel.newFolderInline() } }
+    func focusNotesWindowSearch() { notesWindow.focusSearch() }
+
+    /// ⌘Q: end any input-method composition first, so the committed text is what saves.
+    func flushNotesWindow() async {
+        notesWindow.nsWindow?.makeFirstResponder(nil)
+        await notesWindowModel.editor.flush()
     }
 
     /// The menu item and the update notification: Settings → About, where
@@ -676,7 +742,7 @@ final class AppCoordinator {
     }
 
     private func writeWindowReport() {
-        let report = WindowReport.make(pet: pet, notesWindow: notes.window)
+        let report = WindowReport.make(pet: pet, notesWindow: notes.window, notesAppWindow: notesWindow.nsWindow)
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
             log.write("windows.json", data: data)
         }
