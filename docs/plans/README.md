@@ -368,5 +368,7 @@ Branch `feat/attention-breaks`, which also carries the update badge (0020,
 | [1 alerts](2026-10-10-attention-1-alerts.md) | 0021 | Not started. Task 1 runs spikes S1–S5 first. |
 | [2 eye breaks](2026-10-10-attention-2-eye-breaks.md) | 0022 | Not started. Needs plan 1 merged; Task 1 checks plan 1's API, Task 2 runs spike S6. |
 
+Start here on a new machine: [handoff](2026-10-10-attention-handoff.md).
+
 The two plans share a frozen API ("API this plan produces for plan 2" in
 plan 1). Plan 2 compile-checks it before anything else.
