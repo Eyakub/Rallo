@@ -76,10 +76,15 @@ fails() { ! "$@"; }
 schema() { sqlite3 "$1" "PRAGMA user_version"; }
 count_items() { sqlite3 "$1" "SELECT count(*) FROM items"; }
 notes_ok() { local list; list="$("$1" list --json)" && grep -q '"first note"' <<<"$list" && grep -q '"second note"' <<<"$list"; }
-# Undoes 0002_reminders.sql and 0003_agent_sessions.sql: the store as a
-# schema v1 build left it.
+# Undoes 0002_reminders.sql through 0006_folders.sql (0004 only dropped
+# agent_sessions): the store as a schema v1 build left it. The store may be
+# v5 (--upgrade-from 0.12) or v6, so 0005 and 0006 are undone only if present.
 downgrade_to_v1() {
-  sqlite3 "$db" "DROP TABLE IF EXISTS agent_sessions; DELETE FROM metadata WHERE key = 'agents.state_seq';
+  if [ "$(sqlite3 "$db" "SELECT count(*) FROM pragma_table_info('items') WHERE name = 'folder_id'")" = 1 ]; then
+    sqlite3 "$db" "DROP INDEX items_open_by_folder; ALTER TABLE items DROP COLUMN folder_id; DROP TABLE folders;"
+  fi
+  sqlite3 "$db" "DROP TABLE IF EXISTS attachments;
+    DROP TABLE IF EXISTS agent_sessions; DELETE FROM metadata WHERE key = 'agents.state_seq';
     DROP TABLE notification_observations; DROP TABLE notification_intents; DROP TABLE reminders;
     DROP TABLE request_receipts; DROP INDEX items_match_key; PRAGMA user_version = 1;"
 }
@@ -186,8 +191,11 @@ expect_exit 1 "--purge refuses when it can't save a final export" "${install[@]}
 check "notes and app kept" test -f "$db" -a -x "$cli"
 sqlite3 "$db" "PRAGMA user_version = $supported"
 expect_exit 0 "install.sh --uninstall --purge" "${install[@]}" --uninstall --purge
-export_file="$(ls "$HOME"/Downloads/rallo-export-*.json 2>/dev/null | head -1)"
-check "purge saved a final export with the notes" grep -q '"first note"' "$export_file"
+# `rallo uninstall --purge` saves a zip with images; install.sh's own
+# fallback, for a CLI without `uninstall`, saves JSON.
+export_file="$(ls "$HOME"/Downloads/rallo-export-* 2>/dev/null | head -1 || true)"
+export_has_notes() { case "$1" in *.zip) unzip -p "$1" rallo-export.json ;; *) cat "$1" ;; esac | grep -q '"first note"'; }
+check "purge saved a final export with the notes" export_has_notes "$export_file"
 check "purge deleted the data directory" test ! -e "$RALLO_DATA_DIR"
 check "app removed" test ! -e "$app"
 check "terminal link removed" test ! -L "$HOME/.local/bin/rallo"
