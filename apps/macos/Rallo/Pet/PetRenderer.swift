@@ -41,9 +41,15 @@ final class PetView: NSView {
     /// Furthest lean toward the cursor, in radians (about 5.7°).
     private static let maxLean: CGFloat = 0.1
     /// Between the idle pose's eyes, in view points (from the art).
-    private static let eyesCenter = CGPoint(x: 55, y: 68)
+    private static let eyesCenter = CGPoint(x: 55 * artScale, y: 68 * artScale)
     /// Furthest the eyes move toward the cursor, in points.
-    private static let maxLook = CGSize(width: 2, height: 1.5)
+    private static let maxLook = CGSize(width: 2 * artScale, height: 1.5 * artScale)
+    /// The pet's size relative to the 143 pt art the offsets below were
+    /// drawn for.
+    private static let artScale: CGFloat = 112.0 / 143.0
+    /// How much of the view the curled poses fill, so the ball sleeps at
+    /// about the sitting panda's size (same ground line, centred).
+    private static let curledScale: CGFloat = 0.85
     /// Holds the hover lean, so it composes with the sprite's own motion.
     private let leanLayer = CALayer()
     private let sprite = CALayer()
@@ -108,7 +114,7 @@ final class PetView: NSView {
         leanLayer.actions = ["transform": NSNull()]
         layer?.addSublayer(leanLayer)
         sprite.anchorPoint = CGPoint(x: 0.5, y: 0.08)
-        sprite.frame = leanLayer.bounds
+        sprite.frame = Self.spriteFrame(for: steadyPose, in: leanLayer.bounds)
         sprite.contentsGravity = .resizeAspect
         sprite.contents = Self.image(for: steadyPose)
         sprite.actions = ["contents": NSNull(), "transform": NSNull()]
@@ -123,19 +129,23 @@ final class PetView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways,
                                                               .inVisibleRect], owner: self))
 
-        let diameter: CGFloat = 20
+        // Slightly smaller than the 20 pt that suited the bigger pet, so the
+        // badges stay clear of the face; the text is a point smaller to match.
+        let diameter: CGFloat = 18
+        let inset = 22 * Self.artScale
+        let top = 10 * Self.artScale
         badge.path = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: diameter, height: diameter), transform: nil)
         badge.fillColor = NSColor(hex: 0xB4501F).cgColor
         badge.strokeColor = NSColor.white.cgColor
         badge.lineWidth = 1.5
-        badge.frame = CGRect(x: bounds.width - diameter - 22, y: bounds.height - diameter - 10,
+        badge.frame = CGRect(x: bounds.width - diameter - inset, y: bounds.height - diameter - top,
                              width: diameter, height: diameter)
         badge.isHidden = true
         badge.actions = ["hidden": NSNull()]
-        badgeText.frame = CGRect(x: 0, y: 3, width: diameter, height: 14)
+        badgeText.frame = CGRect(x: 0, y: 2.5, width: diameter, height: 13)
         badgeText.alignmentMode = .center
-        badgeText.fontSize = 11
-        badgeText.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        badgeText.fontSize = 10
+        badgeText.font = NSFont.systemFont(ofSize: 10, weight: .bold)
         badgeText.foregroundColor = NSColor.white.cgColor
         // Without this the count cross-fades, so a badge appearing shows the
         // stale "0" it kept while hidden.
@@ -151,9 +161,9 @@ final class PetView: NSView {
         savedMark.opacity = 0
         let check = CAShapeLayer()
         let tick = CGMutablePath()
-        tick.move(to: CGPoint(x: 5.5, y: 10.5))
-        tick.addLine(to: CGPoint(x: 8.5, y: 7))
-        tick.addLine(to: CGPoint(x: 14.5, y: 13.5))
+        tick.move(to: CGPoint(x: 5, y: 9.5))
+        tick.addLine(to: CGPoint(x: 7.8, y: 6.3))
+        tick.addLine(to: CGPoint(x: 13, y: 12.2))
         check.path = tick
         check.fillColor = nil
         check.strokeColor = NSColor.white.cgColor
@@ -167,13 +177,13 @@ final class PetView: NSView {
         agentBadge.fillColor = NSColor(hex: 0x2F6FB0).cgColor
         agentBadge.strokeColor = NSColor.white.cgColor
         agentBadge.lineWidth = 1.5
-        agentBadge.frame = CGRect(x: 22, y: bounds.height - diameter - 10, width: diameter, height: diameter)
+        agentBadge.frame = CGRect(x: inset, y: bounds.height - diameter - top, width: diameter, height: diameter)
         agentBadge.isHidden = true
         agentBadge.actions = ["hidden": NSNull()]
-        agentBadgeText.frame = CGRect(x: 0, y: 3, width: diameter, height: 14)
+        agentBadgeText.frame = CGRect(x: 0, y: 2.5, width: diameter, height: 13)
         agentBadgeText.alignmentMode = .center
-        agentBadgeText.fontSize = 11
-        agentBadgeText.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        agentBadgeText.fontSize = 10
+        agentBadgeText.font = NSFont.systemFont(ofSize: 10, weight: .bold)
         agentBadgeText.foregroundColor = NSColor.white.cgColor
         // Same fix as badgeText: without this the count cross-fades, so a
         // badge appearing shows the stale "0" it kept while hidden.
@@ -301,8 +311,28 @@ final class PetView: NSView {
         sprite.add(animation, forKey: key)
     }
 
+    /// Curled poses (sleep and its play faces) are drawn smaller, bottom-centred.
+    /// A frame, not a transform: the sprite's motion already owns its transform.
+    private static func spriteFrame(for pose: Pose, in bounds: CGRect) -> CGRect {
+        switch pose {
+        case .sleep, .drowsy, .content:
+            let size = CGSize(width: bounds.width * curledScale, height: bounds.height * curledScale)
+            return CGRect(x: bounds.midX - size.width / 2, y: bounds.minY, width: size.width, height: size.height)
+        default:
+            return bounds
+        }
+    }
+
     private func show(_ pose: Pose, fade: Bool) {
         eyes.isHidden = pose != .idle
+        let frame = Self.spriteFrame(for: pose, in: leanLayer.bounds)
+        if sprite.frame != frame {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            sprite.frame = frame
+            eyes.frame = sprite.bounds
+            CATransaction.commit()
+        }
         guard sprite.contents as AnyObject? !== Self.image(for: pose) else { return }
         if fade {
             let transition = CATransition()
@@ -485,8 +515,8 @@ final class PetView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         let clamp = { (value: CGFloat) in max(-1, min(1, value)) }
         lean(to: -clamp((point.x - bounds.midX) / (bounds.width / 2)) * Self.maxLean)
-        look(toward: CGSize(width: clamp((point.x - Self.eyesCenter.x) / 40) * Self.maxLook.width,
-                            height: clamp((point.y - Self.eyesCenter.y) / 40) * Self.maxLook.height))
+        look(toward: CGSize(width: clamp((point.x - Self.eyesCenter.x) / (40 * Self.artScale)) * Self.maxLook.width,
+                            height: clamp((point.y - Self.eyesCenter.y) / (40 * Self.artScale)) * Self.maxLook.height))
     }
 
     private func lean(to angle: CGFloat) {

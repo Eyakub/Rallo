@@ -18,7 +18,7 @@ its level or collection behaviour ad hoc.
 | `collectionBehavior` | `[.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]` (raw 337) | Follows the user across Spaces; *permitted* (not guaranteed) over other apps' full-screen Spaces; not rearranged by Mission Control/Exposé; excluded from ⌘\` cycling. |
 | `canBecomeKey` / `canBecomeMain` | `false` / `false` | A passive pet never takes keyboard focus. |
 | Opaque / background / shadow | `false` / `.clear` / none | Sprite-shaped presence. |
-| Size | 96 × 96 pt, the sprite bounds | Avoids a large invisible rectangle blocking other apps. No global mouse monitor is used to simulate click-through. |
+| Size | 112 × 92 pt, the sprite bounds | Avoids a large invisible rectangle blocking other apps. No global mouse monitor is used to simulate click-through. |
 | Activation on click | None for the pet itself | Clicking opens the notes panel, which is an explicit request to type and does activate Rallo (see below). |
 
 The notes panel is a separate, ordinary titled `NSPanel` (`.floating`,
