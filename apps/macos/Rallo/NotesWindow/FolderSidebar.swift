@@ -275,8 +275,9 @@ private extension View {
         tag: NotesWindowSelection, selected: Bool, focused: Bool, targeted: Bool = false, enabled: Bool = true,
         select: @escaping (NotesWindowSelection) -> Void
     ) -> some View {
-        // 8 pt of padding inside a 2 pt list inset puts the icon level with the section header text.
-        let row = padding(.horizontal, 8)
+        // The sidebar list indents rows ~12 pt past its headers, so `sidebarRowChrome` pulls them back; this padding places the icon level with the section header text.
+        let row = padding(.leading, 5)
+            .padding(.trailing, 8)
             .padding(.vertical, 3)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -297,6 +298,6 @@ private extension View {
     func sidebarRowChrome(tag: NotesWindowSelection) -> some View {
         listRowBackground(Color.clear)
             .id(tag)
-            .listRowInsets(EdgeInsets(top: 1, leading: 2, bottom: 1, trailing: 2))
+            .listRowInsets(EdgeInsets(top: 1, leading: -8, bottom: 1, trailing: -4))
     }
 }
