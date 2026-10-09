@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds Rallo.app (Release) with its embedded CLI.
-#   scripts/build-macos.sh            build into build/DerivedData
+#   scripts/build-macos.sh            build into build/DerivedData.noindex
 #   scripts/build-macos.sh --install  also install to ~/Applications/Rallo.app
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
@@ -9,10 +9,13 @@ source "$(dirname "$0")/env.sh"
 command -v xcodegen >/dev/null || { echo "error: xcodegen not found (brew install xcodegen)" >&2; exit 1; }
 (cd "$REPO_ROOT/apps/macos" && xcodegen generate --quiet)
 
+# Spotlight skips *.noindex folders, so it never offers this build as "Rallo"
+# in place of the installed copy (a build outside Applications greys out
+# Open at Login and Uninstall).
 xcodebuild -project "$REPO_ROOT/apps/macos/Rallo.xcodeproj" -scheme Rallo -configuration Release \
-  -derivedDataPath "$REPO_ROOT/build/DerivedData" -quiet build
+  -derivedDataPath "$REPO_ROOT/build/DerivedData.noindex" -quiet build
 
-app="$REPO_ROOT/build/DerivedData/Build/Products/Release/Rallo.app"
+app="$REPO_ROOT/build/DerivedData.noindex/Build/Products/Release/Rallo.app"
 
 # Strip local symbols (about 3 MB, mostly whisper.cpp), then sign: with Rallo's
 # own certificate when it's in the Keychain, so macOS keeps permissions and

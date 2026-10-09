@@ -259,7 +259,7 @@ build downloads and compiles whisper.cpp).
 scripts/build-macos.sh --install   # Release build → ~/Applications/Rallo.app
 cargo test --workspace             # Rust tests
 (cd apps/macos && xcodegen generate) && xcodebuild -project apps/macos/Rallo.xcodeproj \
-  -scheme Rallo -configuration Release -derivedDataPath build/DerivedData test   # Swift tests
+  -scheme Rallo -configuration Release -derivedDataPath build/DerivedData.noindex test   # Swift tests
 ```
 
 Use `--data-dir` (or `RALLO_DATA_DIR`) for experiments, so tests never touch your real notes.

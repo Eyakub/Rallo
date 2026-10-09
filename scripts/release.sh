@@ -19,7 +19,7 @@ tag="v$version"
 repo="${RALLO_REPO:-Eyakub/Rallo}"
 dist="build/dist/$version"
 asset="Rallo-$version-macos-arm64.zip"
-app="build/DerivedData/Build/Products/Release/Rallo.app"
+app="build/DerivedData.noindex/Build/Products/Release/Rallo.app"
 
 fail() { echo "error: $*" >&2; exit 1; }
 # A stalled SSH connection to GitHub otherwise hangs the tag check forever.
@@ -50,7 +50,7 @@ cargo test --workspace --quiet 2>&1 | grep -E "test result|FAILED|panicked" | gr
 cargo test --workspace --quiet >/dev/null 2>&1 || fail "cargo test failed"
 (cd apps/macos && xcodegen generate --quiet)
 xcodebuild -project apps/macos/Rallo.xcodeproj -scheme Rallo -configuration Release \
-  -derivedDataPath build/DerivedData test -quiet >/dev/null || fail "Swift tests failed"
+  -derivedDataPath build/DerivedData.noindex test -quiet >/dev/null || fail "Swift tests failed"
 
 # --- Build and verify --------------------------------------------------------
 echo "==> build"

@@ -20,5 +20,8 @@
   the user says so. Distribution without a Developer ID: `docs/distribution.md`.
 - Build products registered with LaunchServices can receive notification
   clicks meant for the installed app: `lsregister -u` scratch builds.
+- Build into a `*.noindex` folder (`build/DerivedData.noindex`, or e.g.
+  `build/DerivedData-fix.noindex` for a scratch build): Spotlight skips it, so
+  it never offers a build copy as "Rallo" in place of the installed one.
 - A terminal can't toggle Reduce Motion (`com.apple.universalaccess` is
   TCC-protected), and `sfltool dumpbtm` blocks on an admin prompt.
