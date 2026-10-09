@@ -14,6 +14,7 @@ its level or collection behaviour ad hoc.
 | Class / style | `NSPanel`, `[.borderless, .nonactivatingPanel]` | Clicking the pet never makes Rallo the active app and never disturbs the frontmost app's text cursor. |
 | `isFloatingPanel` | `true` | Stays above ordinary document windows. |
 | `hidesOnDeactivate` | `false` | Remains visible while another app is frontmost (Rallo is almost never frontmost). |
+| `canHide` | `false` | Stays when Rallo is hidden (⌘H, or Hide Others from another app while the notes window makes Rallo a Dock app). |
 | `level` | `.statusBar` (raw 25) | Default from the spec. Not escalated further to force visibility on surfaces that decline it. Fallback is `.floating` if real use shows `.statusBar` covers surfaces it should not. |
 | `collectionBehavior` | `[.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]` (raw 337) | Follows the user across Spaces; *permitted* (not guaranteed) over other apps' full-screen Spaces; not rearranged by Mission Control/Exposé; excluded from ⌘\` cycling. |
 | `canBecomeKey` / `canBecomeMain` | `false` / `false` | A passive pet never takes keyboard focus. |
