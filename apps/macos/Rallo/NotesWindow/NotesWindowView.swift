@@ -9,7 +9,7 @@ struct NotesWindowView: View {
             FolderSidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 300)
         } content: {
-            Text("List")  // replaced in Task 11
+            NoteListColumn(model: model)
                 .navigationSplitViewColumnWidth(min: 280, ideal: 330, max: 440)
         } detail: {
             Text("Editor")  // replaced in Task 12
@@ -21,6 +21,7 @@ struct NotesWindowView: View {
             DeleteFolderSheet(pending: pending, model: model)
         }
         .overlay(alignment: .top) { errorBanner }
+        .folderNamePrompt(model.namePrompter)
     }
 
     @ViewBuilder

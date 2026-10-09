@@ -33,16 +33,17 @@ final class ThumbnailCache {
     private let cache = NSCache<NSString, NSImage>()
 
     /// Nil when the file is missing or unreadable.
-    func image(for path: String) async -> NSImage? {
-        if let cached = cache.object(forKey: path as NSString) {
+    func image(for path: String, points: CGFloat? = nil) async -> NSImage? {
+        let points = points ?? Self.points
+        let key = "\(path)@\(Int(points))" as NSString
+        if let cached = cache.object(forKey: key) {
             if FileManager.default.fileExists(atPath: path) { return cached }
-            cache.removeObject(forKey: path as NSString)  // deleted behind our back
+            cache.removeObject(forKey: key)  // deleted behind our back
             return nil
         }
         let url = URL(fileURLWithPath: path)
-        let points = Self.points
         let made = await Task.detached(priority: .userInitiated) { Thumbnails.image(url: url, points: points) }.value
-        if let made { cache.setObject(made, forKey: path as NSString) }
+        if let made { cache.setObject(made, forKey: key) }
         return made
     }
 }

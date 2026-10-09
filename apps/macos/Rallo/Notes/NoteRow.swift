@@ -283,13 +283,11 @@ struct NoteRow: View {
         Menu("Remind Me") { remindButtons }
     }
 
-    @ViewBuilder
     private var remindButtons: some View {
-        ForEach(RemindPreset.allCases) { preset in
-            Button(preset.title) { Task { await model.remind(item, preset) } }
-        }
-        Divider()
-        Button("Custom…") { model.customRemindID = item.id }
+        RemindMenuItems(
+            onPreset: { preset in Task { await model.remind(item, preset) } },
+            onCustom: { model.customRemindID = item.id }
+        )
     }
 
     private func copy(_ string: String) {

@@ -83,6 +83,7 @@ private struct FolderNameCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .accessibilityLabel(request.title)
+        .onExitCommand { prompter.cancel() }
         // Keyed on the count, not the text: an identical repeated error still counts.
         .onChange(of: prompter.errorCount) { _, _ in
             if !reduceMotion { shakes += 1 }
@@ -190,4 +191,45 @@ private struct PressedFadeStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.opacity(configuration.isPressed ? 0.85 : 1)
     }
+}
+
+extension View {
+    /// Draws `prompter`'s card over this view (0019 §10). While it shows, the
+    /// view behind is blurred, disabled and hidden from VoiceOver, so nothing
+    /// there (an Undo toast, a toolbar button) reacts; when it goes, the
+    /// keyboard returns to whatever had it. The panel wires the same fence
+    /// itself, because its scope dropdown shares it.
+    func folderNamePrompt(_ prompter: FolderNamePrompter) -> some View {
+        modifier(FolderNamePromptModifier(prompter: prompter))
+    }
+}
+
+private struct FolderNamePromptModifier: ViewModifier {
+    @ObservedObject var prompter: FolderNamePrompter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The first responder when the card appeared (the list, the text view, …).
+    @State private var returnFocus: WeakResponder?
+
+    func body(content: Content) -> some View {
+        let shown = prompter.request != nil
+        content
+            .disabled(shown)
+            .accessibilityHidden(shown)
+            .blur(radius: shown ? 4 : 0)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: shown)
+            .overlay { FolderNameOverlay(prompter: prompter) }
+            .onChange(of: shown) { _, isShown in
+                if isShown {
+                    returnFocus = NSApp.keyWindow.map { WeakResponder(window: $0, responder: $0.firstResponder) }
+                } else if let saved = returnFocus {
+                    returnFocus = nil
+                    if let window = saved.window, let responder = saved.responder { window.makeFirstResponder(responder) }
+                }
+            }
+    }
+}
+
+private struct WeakResponder {
+    weak var window: NSWindow?
+    weak var responder: NSResponder?
 }

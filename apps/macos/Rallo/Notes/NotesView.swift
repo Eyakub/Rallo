@@ -43,7 +43,7 @@ struct NotesView: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: model.namePromptShown)
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
-                ToastBar(toast: toast) { Task { await model.undo() } }
+                ToastBar(message: toast.message, undoable: toast.undo != nil) { Task { await model.undo() } }
                     .id(toast.id)
                     // Its Undo (and ⌘Z) must not fire behind the dialog or dropdown.
                     .disabled(model.namePromptShown || model.scopeMenuOpen)
@@ -334,22 +334,27 @@ private struct AlertsBlockedBanner: View {
     }
 }
 
-private struct ToastBar: View {
-    let toast: Toast
+/// A transient message with an optional Undo, at the bottom of the panel and
+/// of the notes window's list (0019 §11).
+struct ToastBar: View {
+    let message: String
+    let undoable: Bool
+    /// ⌘Z presses Undo in the panel; in the notes window ⌘Z belongs to the text.
+    var undoShortcut = true
     let undo: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(toast.message)
+            Text(message)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            if toast.undo != nil {
+            if undoable {
                 Button("Undo", action: undo)
                     .buttonStyle(.plain)
                     .font(Theme.rounded(13, .semibold))
                     .foregroundStyle(Theme.toastAccent)
-                    .keyboardShortcut("z", modifiers: .command)
+                    .keyboardShortcut(undoShortcut ? KeyboardShortcut("z", modifiers: .command) : nil)
             }
         }
         .font(Theme.rounded(13))
