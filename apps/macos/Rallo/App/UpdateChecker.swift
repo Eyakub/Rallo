@@ -1,7 +1,7 @@
 import Foundation
 import UserNotifications
 
-/// Opt-in daily update check (0011): the embedded CLI's read-only
+/// Daily update check, on unless the user turned it off (0011, 0020): the embedded CLI's read-only
 /// `rallo update --check --json`, at most once a day. It only tells the user
 /// (menu item, one notification per version); installing stays in Settings →
 /// About behind its confirmation.
@@ -16,7 +16,7 @@ final class UpdateChecker {
     private static let interval: TimeInterval = 24 * 60 * 60
 
     private let log: DiagnosticsLog
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private var timer: Timer?
     private var checking = false
 
@@ -24,14 +24,20 @@ final class UpdateChecker {
     var allowed = true
     var onChange: () -> Void = {}
 
-    init(log: DiagnosticsLog) {
+    init(log: DiagnosticsLog, defaults: UserDefaults = .standard) {
         self.log = log
+        self.defaults = defaults
     }
 
-    var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
+    /// On unless the user stored `false`.
+    var isEnabled: Bool { defaults.object(forKey: Self.enabledKey) as? Bool ?? true }
 
     /// The stored latest version, only while it is newer than this app.
     var available: String? {
+        // Only a scratch instance (allowed == false) honours this, so the installed app can't be faked.
+        if !allowed, let preview = ProcessInfo.processInfo.environment["RALLO_PREVIEW_UPDATE"], !preview.isEmpty {
+            return preview
+        }
         guard allowed, let latest = defaults.string(forKey: Self.latestKey),
               let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
               CLIReports.isNewer(latest, than: current) else { return nil }

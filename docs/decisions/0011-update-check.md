@@ -2,6 +2,7 @@
 
 - **Status:** accepted (user, 2026-10-02). Amends 0010's network rule: Rallo
   also checks for new releases, but only if the user turns it on.
+  Amended by 0020: the check is now on by default.
 - **Date:** 2026-10-02
 
 ## Context

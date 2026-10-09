@@ -129,7 +129,7 @@ the same interface you do. `rallo --help` lists them all;
 | **Notes window** | The expand button at the top right of the panel, **Notes Window** in the menu bar menu, or the Dock icon while it is open. A three-column window like Apple Notes: folders, views (All Notes, Due, Done, Deleted) and `#tags` on the left; the notes of the selection, grouped by date, in the middle, with a collapsed "N done" row, search (⌘F) across every folder, and Undo for done, delete and move; the note itself on the right, edited in place (saved as you type) with its reminder, images, and a Move chip. ⌘N starts a note in the current folder, ⇧⌘N a folder; drag a note onto a folder to file it; right-click a folder to rename or delete it (keep its notes in Notes, or delete them too). Rallo shows in the Dock only while this window is open. |
 | **Screenshot to a note** | Turn it on in Settings → General, then press **⌃⌥⌘S**, select part of the screen, and the capture waits in the notes panel: add a few words and press Return. Needs Screen Recording access (macOS asks the first time). |
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
-| **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, voice typing, screenshots, export (with images) and import, updates (including an opt-in daily check). |
+| **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, voice typing, screenshots, export (with images) and import, updates (including the daily check, on by default). |
 | **Voice typing (experimental)** | Turn it on in Settings → Voice, then hold **Right ⌥** (or **Right ⌘**, your pick), talk, and Rallo types into whatever app has focus; let go to stop. Double-tap the key, or press **⌃⌥⌘V**, to keep listening hands-free until you press it again (it also stops after 120 s of silence). Pick an engine in Settings → Voice:<br>• **Apple** (macOS 26, built in): your Mac's language, if it's one of the 33 Apple supports (54 regional variants, from English, Spanish and Chinese to Hindi and Arabic; not Bangla).<br>• **Whisper** (macOS 14+, a one-time download you choose): **Large-v3 turbo**, 16-bit (1.6 GB) or 8-bit (874 MB, nearly the same accuracy), understands about 99 languages, including Bangla; for Bangla, set Language to Bangla (Automatic can mistake it for Hindi). **Small** (190 MB) is English only, and fast.<br>• **Cloud** (macOS 14+): your own Groq, OpenAI or compatible API key; languages depend on the provider (Whisper-based ones cover about 99).<br>With Whisper and Cloud, Rallo drops the stock phrases Whisper invents from noise ("Thank you.") and doesn't send long stretches of steady noise. It never presses Return, so a dictated command waits for you in the terminal. Add names it should know ("Rallo", your teammates) under Words to recognize; "um"s and stutters ("like like") are dropped. The pet cups an ear while it listens. Needs Microphone and Accessibility access. |
 | **Reminders** | Delivered by macOS Notification Center, even after Rallo quits. Up to 32 active at once. |
 
@@ -202,7 +202,7 @@ message text. Channel @mentions and task comments aren't covered yet
 - **Local.** Notes live in SQLite at `~/Library/Application Support/Razlio/Rallo`. There is
   no account and no telemetry.
 - **Network.** Only `rallo update`, when you run it, ClickUp, if you connect it, a daily check
-  for new releases, if you turn it on in Settings → General, and voice typing's Whisper model
+  for new releases (on by default; turn it off in Settings → General), and voice typing's Whisper model
   download or cloud engine, if you choose them (below).
 - **Voice typing** is off by default and runs on your Mac, with Apple's speech engine or
   Whisper. Audio and the text are never stored or logged; macOS may download Apple's speech
@@ -236,8 +236,9 @@ rallo uninstall        # remove Rallo; keeps your notes
 rallo uninstall --purge  # also delete your notes (after exporting them, with images, to a zip in ~/Downloads)
 ```
 
-Settings → General has an opt-in "Check for updates daily" that tells you when a release is out;
-installing still waits for you.
+Rallo checks daily by default and tells you when a release is out, with a small download badge on
+the menu bar paw; turn it off with "Check for updates daily" in Settings → General. Installing
+still waits for you.
 
 `rallo uninstall` (or Settings → About → Uninstall Rallo…) removes the app, the
 `rallo` command, the agent hooks and skill, Open at Login, scheduled reminders,

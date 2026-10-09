@@ -105,6 +105,10 @@ targets:
       - path: Rallo/App/AgentJumpPlanner.swift
       - path: Rallo/App/LaunchOptions.swift
       - path: Rallo/Settings/CLIReports.swift
+      - path: Rallo/Settings/EmbeddedCLI.swift
+      - path: Rallo/Diagnostics/DiagnosticsLog.swift
+      - path: Rallo/App/UpdateChecker.swift
+      - path: Rallo/App/StatusMenuController.swift
       - path: Rallo/Voice/VoiceText.swift
       - path: Rallo/Voice/WhisperText.swift
       - path: Rallo/Voice/SpeechSegmenter.swift

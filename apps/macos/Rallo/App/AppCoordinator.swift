@@ -118,7 +118,11 @@ final class AppCoordinator {
         menu.install()
         statusMenu = menu
         configureSettings()
-        updateChecker.onChange = { [weak self] in self?.settingsModel.refresh() }
+        updateChecker.onChange = { [weak self] in
+            self?.settingsModel.refresh()
+            self?.statusMenu?.setUpdateBadge(self?.updateChecker.available)
+        }
+        menu.setUpdateBadge(updateChecker.available)
         updateChecker.start()
         notifications.onOpenUpdate = { [weak self] in self?.openUpdate() }
 

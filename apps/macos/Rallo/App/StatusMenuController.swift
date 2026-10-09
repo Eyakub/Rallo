@@ -20,6 +20,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private static let shortcutModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
 
     private var statusItem: NSStatusItem?
+    private var agentToolTip = "Rallo"
+    private var updateVersion: String?
     private let actions: Actions
     private let petVisible: () -> Bool
     var animationsPaused: () -> Bool = { false }
@@ -44,15 +46,59 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let image = NSImage(systemSymbolName: "pawprint.fill", accessibilityDescription: "Rallo")
-        image?.isTemplate = true
-        item.button?.image = image
+        item.button?.image = Self.pawImage(updateAvailable: false)
         item.button?.imagePosition = .imageLeft
         item.button?.toolTip = "Rallo"
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
         statusItem = item
+    }
+
+    /// The plain paw, or (update available) the paw with a download badge
+    /// punched into its bottom-right corner. Still one template image, so the
+    /// menu bar tints it.
+    static func pawImage(updateAvailable: Bool) -> NSImage? {
+        let description = updateAvailable ? "Rallo, update available" : "Rallo"
+        guard let paw = NSImage(systemSymbolName: "pawprint.fill", accessibilityDescription: description) else { return nil }
+        guard updateAvailable,
+              let arrow = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: nil) else {
+            paw.isTemplate = true
+            return paw
+        }
+        let size = paw.size
+        let diameter = size.height * 0.58
+        let overhang = diameter * 0.25
+        let canvas = NSSize(width: size.width + overhang, height: size.height)
+        let image = NSImage(size: canvas, flipped: false) { _ in
+            paw.draw(in: NSRect(origin: NSPoint(x: 0, y: 0), size: size))
+            // Bottom-right, overhanging the paw; the vertical size stays the paw's.
+            let badge = NSRect(x: canvas.width - diameter, y: 0, width: diameter, height: diameter)
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            NSBezierPath(ovalIn: badge.insetBy(dx: -1.5, dy: -1.5)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            arrow.draw(in: badge)
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = description
+        return image
+    }
+
+    /// Paw badge and tooltip for a pending update; nil clears it.
+    func setUpdateBadge(_ version: String?) {
+        updateVersion = version
+        statusItem?.button?.image = Self.pawImage(updateAvailable: version != nil)
+        applyToolTip()
+    }
+
+    private func applyToolTip() {
+        var lines = [agentToolTip]
+        if let version = updateVersion {
+            let update = "Rallo — update available (\(version))"
+            lines = agentToolTip == "Rallo" ? [update] : [update, agentToolTip]
+        }
+        statusItem?.button?.toolTip = lines.joined(separator: "\n")
     }
 
     /// Waiting-agent count beside the paw, nothing at zero, and a tooltip
@@ -62,7 +108,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         guard let button = statusItem?.button else { return }
         let waiting = sessions.filter { $0.state == "waiting" }.count
         button.title = waiting > 0 ? " \(waiting)" : ""
-        button.toolTip = sessions.isEmpty ? "Rallo" : Self.tooltipLines(sessions).joined(separator: "\n")
+        agentToolTip = sessions.isEmpty ? "Rallo" : Self.tooltipLines(sessions).joined(separator: "\n")
+        applyToolTip()
     }
 
     private static func tooltipLines(_ sessions: [AgentSessionSnapshot]) -> [String] {
