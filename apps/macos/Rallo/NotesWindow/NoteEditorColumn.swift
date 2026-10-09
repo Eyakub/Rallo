@@ -34,6 +34,9 @@ struct NoteEditorColumn: View {
         return note
     }
 
+    /// The core refuses an 11th image; don't offer the picker.
+    private var atImageLimit: Bool { (actionable?.images.count ?? 0) >= 10 }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
@@ -62,8 +65,8 @@ struct NoteEditorColumn: View {
             Button(action: addImage) {
                 Label("Add Image", systemImage: "photo.badge.plus")
             }
-            .disabled(actionable == nil)
-            .help("Add Image")
+            .disabled(actionable == nil || atImageLimit)
+            .help(atImageLimit ? "A note holds up to 10 images" : "Add Image")
 
             Menu {
                 if let note = actionable {
