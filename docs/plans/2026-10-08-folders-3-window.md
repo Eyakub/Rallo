@@ -34,7 +34,9 @@ Task 1 compiles release 1's list and checks release 2's names; if the repo diffe
   ```bash
   export PATH=/opt/homebrew/opt/rustup/bin:$PATH
   cd /Users/eyakub/Desktop/Rallo
-  SCRATCH=$(mktemp -d); export RALLO_DATA_DIR="$SCRATCH/data"
+  # Resolve /var → /private/var: a CLI-started instance reports the real path, so a pkill on
+  # the /var spelling misses it; it keeps app.lock and the launch below exits at once.
+  SCRATCH=$(cd "$(mktemp -d)" && pwd -P); export RALLO_DATA_DIR="$SCRATCH/data"
   APP="$PWD/build/DerivedData/Build/Products/Release/Rallo.app"; CLI="$APP/Contents/Helpers/rallo"
   mkdir -p private/docs/folders-3-shots
   # seed (the CLI may start a background instance on this data dir; stop it before the real launch)
