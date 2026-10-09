@@ -337,14 +337,18 @@ final class NotesWindowModel: ObservableObject {
     private func syncSelectedNote() async {
         guard let id = selectedNoteID else { return }
         if let item = loadedItem(id) { editor.sync(item); return }
+        let started = generation
         do {
             let latest = try await core.item(id)
+            // The lookup is late if the user picked another note, or another reload landed, meanwhile.
+            guard selectedNoteID == id, generation == started, loadedItem(id) == nil else { return }
             if latest.deletedAtMs != nil, selection != .deleted {
                 await letGoOfNote(force: true)
             } else {
                 editor.sync(latest)
             }
         } catch let error as RalloError {
+            guard selectedNoteID == id, generation == started, loadedItem(id) == nil else { return }
             if case .NotFound = error { await letGoOfNote(force: true) }
         } catch {}
     }

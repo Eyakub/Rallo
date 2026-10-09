@@ -554,4 +554,23 @@ final class NotesWindowModelTests: XCTestCase {
         XCTAssertEqual(stored.text, "v2")
         XCTAssertNil(stored.folderId)
     }
+
+    /// Round 2: a lookup of the note that left the list must not close the note picked meanwhile.
+    /// The interleaving can't be forced without hooks (the guard is what's pinned: whichever order
+    /// the two run in, the picked note and its typing survive), so this test never depends on timing.
+    func testALateLookupNeverClosesTheNotePickedMeanwhile() async throws {
+        let a = try note("A")
+        let b = try note("B")
+        await model.reload()
+        await model.selectNote(a.id)
+        _ = try other.deleteItem(id: a.id, ifRevision: nil)
+        let reload = Task { await model.reload() }
+        await model.selectNote(b.id)
+        model.editor.textChanged("B typed")
+        await reload.value
+        await model.reload()
+        XCTAssertEqual(model.selectedNoteID, b.id)
+        XCTAssertEqual(model.editor.note?.id, b.id)
+        XCTAssertEqual(model.editor.text, "B typed")
+    }
 }
