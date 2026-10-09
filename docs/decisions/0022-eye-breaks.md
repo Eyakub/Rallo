@@ -75,7 +75,9 @@ nobody asked to black out would be hostile.
 - **Strict mode** ("Allow skipping" off): no buttons, and Esc alone does
   nothing. **Holding Esc for 3 s always ends the break**, in strict mode
   too, so a stuck overlay can never lock the user out. The overlay also
-  closes itself when the countdown ends, whatever else happens.
+  closes itself when the countdown ends, whatever else happens. Strict mode
+  changes only the black screen: the warning pill keeps **Start now**,
+  **+5 min** and **Skip** (user, 2026-10-10).
 - VoiceOver: an announcement "Eye break, 20 seconds" when it starts, and
   the buttons are labelled.
 

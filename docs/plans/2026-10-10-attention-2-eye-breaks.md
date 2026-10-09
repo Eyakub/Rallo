@@ -213,7 +213,7 @@ func eyeBreakSettings() async throws -> EyeBreakSettings
 
 ## Spec notes (where 0022 is silent, this plan decides)
 
-1. **Strict mode and the pill.** Strict mode also hides **+5 min** and **Skip** on the pill. **Start now** stays. Both buttons avoid the break, which is what "Allow skipping" is about.
+1. **Strict mode and the pill.** Superseded by the user (2026-10-10, 0022 §4): strict mode changes only the black screen. The pill keeps **Start now**, **+5 min** and **Skip** in strict mode, and they work there. The tasks below still carry the old rule; the executor's pre-flight rulings change them.
 2. **Esc outside strict mode** skips on key-down. Key repeats are ignored.
 3. **Status line while held.** A due break held by a call or a bubble shows "Eye break when you’re free".
 4. **Take a Break Now** works while counting, held, warned or paused, because the user asked. It does nothing while off or away.

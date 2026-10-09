@@ -50,7 +50,7 @@
 1. **Nag count:** `nag_max_rounds` counts **repeats after the first round**. Settings' "5×" means five repeats.
 2. **Resumed rounds:** a round held by Focus or an eye break later runs as a **resumed** round. It chimes, because the banner's own sound was muted or is long past, and it counts as one repeat.
 3. **Agent alerts without permission:** the agent alert reaches the coordinator **before** `AgentWaitNotifier`'s authorization guard. The summon needs no notification permission.
-4. **Focus permission:** requested once at launch, unless the app was started with `--background` (a CLI launch), because background launches "never onboard or activate".
+4. **Focus permission:** requested at launch until the user answers it, on every launch mode, `--background` (a CLI launch) included (user, 2026-10-10; 0021 §9).
 5. **When the pet window can't show:** detected only as secure input, via `IsSecureEventInputEnabled()`. The login window and full-screen apps that decline auxiliary windows are left to macOS, as 0002 documents.
 6. **Bubble actions:**
    - **Done** completes the note, the way the panel's Done does.
@@ -3081,8 +3081,8 @@ Replace `observeSystemEvents()` in `start()` (`:197`) with:
 
 ```swift
         observeSystemEvents()
-        // 0021 §9: one prompt, never from a background (CLI) launch.
-        if launchMode != .background { quietSignals.requestFocusAuthorization() }
+        // 0021 §9: asked until answered, on every launch mode (user, 2026-10-10).
+        quietSignals.requestFocusAuthorization()
 ```
 
 In `reloadFromCore()`, right before `petState.refresh()` (`:340`):

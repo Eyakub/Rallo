@@ -205,6 +205,8 @@ One `QuietSignals` object answers:
   regardless; Settings says so under the Alerts group. S1 also checks that
   re-adding a delivered request's identifier alerts again; if it doesn't,
   the nag stays visual only while a Focus could be on.
+  The prompt is requested at launch until the user answers it, also when
+  the `rallo` CLI starts Rallo in the background (user, 2026-10-10).
 - **Camera or mic in use?** CoreMediaIO
   `kCMIODevicePropertyDeviceIsRunningSomewhere` over the video devices and
   CoreAudio `kAudioDevicePropertyDeviceIsRunningSomewhere` on input
