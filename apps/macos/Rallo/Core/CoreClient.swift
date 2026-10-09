@@ -84,6 +84,37 @@ final class CoreClient {
         return try await worker.perform { try $0.remindAt(id: item.id, rfc3339: instant, ifRevision: item.revision) }
     }
 
+    // MARK: The notes window (0019 §9, §11)
+
+    /// How many rows a list asks for at a time (the core allows 1…200).
+    static let pageSize: UInt32 = 100
+
+    func listTags() async throws -> [TagSnapshot] {
+        try await worker.perform { try $0.listTags() }
+    }
+
+    func renameFolder(_ folder: FolderSnapshot, to name: String) async throws -> FolderSnapshot {
+        try await worker.perform { try $0.renameFolder(id: folder.id, name: name) }
+    }
+
+    /// One page per call; pass the previous page's `nextCursor` for the next.
+    func listItems(
+        _ kind: ItemListKind, scope: FolderScope = .all, tag: String? = nil, cursor: String? = nil,
+        limit: UInt32 = CoreClient.pageSize
+    ) async throws -> ItemPage {
+        try await worker.perform { try $0.listItems(kind: kind, scope: scope, tag: tag, limit: limit, cursor: cursor) }
+    }
+
+    /// Open and done notes in every folder, a page at a time.
+    func searchItems(_ query: String, cursor: String? = nil, limit: UInt32 = CoreClient.pageSize) async throws -> ItemPage {
+        try await worker.perform { try $0.searchItems(query: query, limit: limit, cursor: cursor) }
+    }
+
+    /// The CLI's `cancel-reminder`: the reminder's state becomes `cancelled`; the note stays open.
+    func cancelReminder(_ item: ItemSnapshot) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.cancelReminder(id: item.id, ifRevision: item.revision) }
+    }
+
     // MARK: Export and import (0004)
 
     func exportToFile(_ path: String, format: TransferFormat, overwrite: Bool) async throws -> ExportResult {
