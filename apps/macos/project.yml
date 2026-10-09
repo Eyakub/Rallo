@@ -29,6 +29,8 @@ targets:
       - path: Rallo
     settings:
       base:
+        # Rust accent for native focus rings and default buttons (Assets.xcassets/AccentColor).
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         PRODUCT_NAME: Rallo
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo
         INFOPLIST_FILE: Rallo/Resources/Info.plist

@@ -26,6 +26,11 @@ enum Theme {
     static let onToast = Color(light: 0xF5E8DC, dark: 0x2B1A13)
     // The toast inverts the surface, so its accent inverts too.
     static let toastAccent = Color(light: 0xF08A4B, dark: 0xB4501F)
+    // Selection is a soft rust wash under ink text, never system blue: `selection` when its column
+    // has focus (and on hover), `selectionSoft` when it doesn't.
+    static let selection = Color(light: 0xB4501F, lightAlpha: 0.15, dark: 0xF08A4B, darkAlpha: 0.20)
+    static let selectionSoft = Color(light: 0xB4501F, lightAlpha: 0.09, dark: 0xF08A4B, darkAlpha: 0.12)
+    static let textSelectionNS = NSColor.dynamic(light: 0xB4501F, lightAlpha: 0.22, dark: 0xF08A4B, darkAlpha: 0.32)
     static let highlight = Color(light: 0xB4501F, lightAlpha: 0.10, dark: 0xF08A4B, darkAlpha: 0.14)
     // The folder dropdown (0019 §10) and the dialog's backdrop.
     static let menu = Color(light: 0xFAF6F3, lightAlpha: 0.98, dark: 0x2E2622, darkAlpha: 0.98)
