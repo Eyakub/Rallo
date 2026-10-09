@@ -87,11 +87,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         window.toolbarStyle = .unified
         // The toolbar strip over the list and editor shows the window's own background, which is
         // plain white in Light. Warm it to the columns' top surface; Dark keeps the system colour.
-        window.backgroundColor = NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                ? .windowBackgroundColor
-                : NSColor(hex: 0xFCF8F5)
-        }
+        window.backgroundColor = Theme.windowBackgroundNS
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 900, height: 560)
         window.delegate = self

@@ -27,7 +27,11 @@ enum Theme {
     // The toast inverts the surface, so its accent inverts too.
     static let toastAccent = Color(light: 0xF08A4B, dark: 0xB4501F)
     // Selection is a soft rust wash under ink text, never system blue: `selection` when its column
-    // has focus (and on hover), `selectionSoft` when it doesn't.
+    // has focus, `selectionSoft` when it doesn't. Hover is the separate, fainter `hover`.
+    /// The notes window's own background: warm in Light (`surfaceTop`), the system colour in Dark.
+    static let windowBackgroundNS = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .windowBackgroundColor : NSColor(hex: 0xFCF8F5)
+    }
     static let selection = Color(light: 0xB4501F, lightAlpha: 0.15, dark: 0xF08A4B, darkAlpha: 0.20)
     static let selectionSoft = Color(light: 0xB4501F, lightAlpha: 0.09, dark: 0xF08A4B, darkAlpha: 0.12)
     static let textSelectionNS = NSColor.dynamic(light: 0xB4501F, lightAlpha: 0.22, dark: 0xF08A4B, darkAlpha: 0.32)
