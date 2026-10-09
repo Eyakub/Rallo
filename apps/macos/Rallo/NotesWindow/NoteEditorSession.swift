@@ -22,7 +22,7 @@ final class NoteEditorSession: ObservableObject {
     @Published private(set) var target: Target = .none
     /// "This note changed somewhere else." is showing.
     @Published private(set) var conflict = false
-    /// A refused save (`TEXT_TOO_LONG`, …), shown inline; the text stays.
+    /// A refused save (`TEXT_TOO_LONG`, …), kept for the window's banner; the text stays.
     @Published private(set) var error: String?
     /// The `showCount` of the last `show(_, focus: true)`. Keyed to the shown
     /// target, so a text view mounted after the request still honours it.
@@ -38,6 +38,8 @@ final class NoteEditorSession: ObservableObject {
     var onCreated: (ItemSnapshot) -> Void = { _ in }
     /// A save reached the database; the window reloads.
     var onSaved: (ItemSnapshot) -> Void = { _ in }
+    /// A refused save's message, for a window that shows it where it can be seen.
+    var onError: (String) -> Void = { _ in }
 
     private let core: CoreClient
     private var scheduler: SaveScheduler
@@ -243,12 +245,14 @@ final class NoteEditorSession: ObservableObject {
             } else {
                 scheduler.refused()
                 error = failure.displayMessage
+                onError(failure.displayMessage)
             }
             armTimer()
         } catch {
             guard showCount == shown else { return }
             scheduler.refused()
             self.error = error.localizedDescription
+            onError(error.localizedDescription)
             armTimer()
         }
     }

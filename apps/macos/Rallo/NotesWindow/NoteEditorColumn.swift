@@ -135,12 +135,6 @@ struct NoteEditorColumn: View {
                         )
                     }
                     NoteTextEditor(session: editor)
-                    if let message = editor.error {
-                        Text(message)
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(Theme.error)
-                            .accessibilityLabel("Error: \(message)")
-                    }
                     if let note, !note.images.isEmpty {
                         ImageStrip(
                             item: note,

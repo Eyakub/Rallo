@@ -325,6 +325,17 @@ final class NotesWindowModelTests: XCTestCase {
         XCTAssertEqual(stored.folderId, work.id)
     }
 
+    func testAPasteOverTheLimitShowsTheCoresMessageInTheBanner() async throws {
+        let item = try note("v1")
+        await model.reload()
+        model.editor.show(.note(item))
+        model.editor.textChanged(String(repeating: "a", count: 70_000))  // the core's limit is 64 KiB
+        await model.editor.flush()
+        let message = try XCTUnwrap(model.editor.error)
+        XCTAssertEqual(model.errorMessage, message)
+        XCTAssertFalse(model.errorIsSticky, "it clears itself like any other informational message")
+    }
+
     // MARK: Folders
 
     func testNewFolderInlineNamesSelectsAndStartsRenaming() async throws {

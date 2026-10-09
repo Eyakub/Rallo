@@ -104,6 +104,7 @@ final class NotesWindowModel: ObservableObject {
             Task { await self?.reload() }
         }
         editor.onCreated = { [weak self] note in self?.draftCreated(note) }
+        editor.onError = { [weak self] message in self?.errorMessage = message }
     }
 
     // MARK: What the window shows
