@@ -110,6 +110,11 @@ final class CoreClient {
         try await worker.perform { try $0.searchItems(query: query, limit: limit, cursor: cursor) }
     }
 
+    /// One note by id, deleted ones included: a note whose row left the list is still open in the editor.
+    func item(_ id: String) async throws -> ItemSnapshot {
+        try await worker.perform { try $0.getItem(id: id) }
+    }
+
     /// The CLI's `cancel-reminder`: the reminder's state becomes `cancelled`; the note stays open.
     func cancelReminder(_ item: ItemSnapshot) async throws -> ItemSnapshot {
         try await worker.perform { try $0.cancelReminder(id: item.id, ifRevision: item.revision) }

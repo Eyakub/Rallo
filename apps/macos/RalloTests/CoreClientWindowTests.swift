@@ -81,4 +81,19 @@ final class CoreClientWindowTests: XCTestCase {
         XCTAssertEqual(cancelled.reminder?.state, .cancelled)
         XCTAssertEqual(cancelled.status, .open)
     }
+
+    func testItemReadsOneNoteByIDEvenWhenDeleted() async throws {
+        let note = try await core.createNote("Find me", images: [], folderID: nil)
+        let found = try await core.item(note.id)
+        XCTAssertEqual(found.text, "Find me")
+        _ = try await core.deleteItem(found)
+        let deleted = try await core.item(note.id)
+        XCTAssertNotNil(deleted.deletedAtMs)
+        do {
+            _ = try await core.item(UUID().uuidString.lowercased())
+            XCTFail("an unknown id is NotFound")
+        } catch let error as RalloError {
+            guard case .NotFound = error else { return XCTFail("unexpected \(error)") }
+        }
+    }
 }

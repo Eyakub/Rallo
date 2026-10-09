@@ -383,6 +383,14 @@ impl RalloStore {
         item_page(&store, page)
     }
 
+    /// One item by id, deleted ones included (their `deleted_at_ms` is set): the
+    /// window reads a note whose row has left the list. Unknown id is `NotFound`.
+    pub fn get_item(&self, id: String) -> Result<ItemSnapshot, RalloError> {
+        let store = self.store();
+        let view = store.get_item(&id)?;
+        from_view(&store, view)
+    }
+
     /// The CLI's `cancel-reminder`: disables an active reminder (state
     /// `cancelled`) without completing the note; requires a reminder.
     pub fn cancel_reminder(&self, id: String, if_revision: Option<i64>) -> Result<ItemSnapshot, RalloError> {
@@ -787,6 +795,21 @@ mod tests {
         let other = store.create_reminder("water the plants".into(), "in 1 hour".into()).unwrap();
         let stale = store.cancel_reminder(other.id, Some(other.revision + 1)).unwrap_err();
         assert!(matches!(stale, RalloError::Conflict { ref code, .. } if code == "REVISION_CONFLICT"), "{stale:?}");
+    }
+
+    #[test]
+    fn get_item_reads_one_note_even_when_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+        let note = store.create_note_with_images("find me".into(), vec![], None).unwrap();
+        let found = store.get_item(note.id.clone()).unwrap();
+        assert_eq!((found.id.as_str(), found.revision), (note.id.as_str(), note.revision));
+        let deleted = store.delete_item(note.id.clone(), None).unwrap();
+        let after = store.get_item(note.id.clone()).unwrap();
+        assert!(after.deleted_at_ms.is_some(), "a deleted note is a snapshot, not an error");
+        assert_eq!(after.revision, deleted.revision);
+        let missing = store.get_item(uuid::Uuid::new_v4().to_string()).unwrap_err();
+        assert!(matches!(missing, RalloError::NotFound { .. }), "{missing:?}");
     }
 
     #[test]
