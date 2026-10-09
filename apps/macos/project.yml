@@ -74,6 +74,7 @@ targets:
       - path: Rallo/Notes/ImageClipboard.swift
       - path: Rallo/Notes/Thumbnails.swift
       - path: Rallo/Notes/RalloError+Display.swift
+      - path: Rallo/NotesWindow/DateGrouping.swift
       - path: Rallo/Notes/NotesScope.swift
       - path: Rallo/Notes/PanelDefaults.swift
       - path: Rallo/Notes/FolderMenuItems.swift
