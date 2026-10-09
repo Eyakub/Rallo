@@ -6,7 +6,12 @@ import SwiftUI
 /// instead of system label colours, which turn white in Dark Mode.
 enum Theme {
     // Surfaces: warm white by day, bamboo-forest night by dark.
-    static let surfaceTop = Color(light: 0xFCF8F5, dark: 0x221A16)
+    private static let surfaceTopLight: UInt32 = 0xFCF8F5
+    static let surfaceTop = Color(light: surfaceTopLight, dark: 0x221A16)
+    /// The notes window's own background: warm in Light (`surfaceTop`), the system colour in Dark.
+    static let windowBackgroundNS = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .windowBackgroundColor : NSColor(hex: surfaceTopLight)
+    }
     static let surfaceBottom = Color(light: 0xF8EDE4, dark: 0x1A1411)
     // Paw ink / belly cream.
     static let inkNS = NSColor.dynamic(light: 0x2B1A13, dark: 0xF5E8DC)
@@ -28,10 +33,6 @@ enum Theme {
     static let toastAccent = Color(light: 0xF08A4B, dark: 0xB4501F)
     // Selection is a soft rust wash under ink text, never system blue: `selection` when its column
     // has focus, `selectionSoft` when it doesn't. Hover is the separate, fainter `hover`.
-    /// The notes window's own background: warm in Light (`surfaceTop`), the system colour in Dark.
-    static let windowBackgroundNS = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .windowBackgroundColor : NSColor(hex: 0xFCF8F5)
-    }
     static let selection = Color(light: 0xB4501F, lightAlpha: 0.15, dark: 0xF08A4B, darkAlpha: 0.20)
     static let selectionSoft = Color(light: 0xB4501F, lightAlpha: 0.09, dark: 0xF08A4B, darkAlpha: 0.12)
     static let textSelectionNS = NSColor.dynamic(light: 0xB4501F, lightAlpha: 0.22, dark: 0xF08A4B, darkAlpha: 0.32)

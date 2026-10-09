@@ -35,47 +35,47 @@ struct FolderSidebar: View {
         // and can't be a soft wash.
         VStack(spacing: 0) {
             ScrollViewReader { scroll in
-            List {
-                Section {
-                    FolderRow(model: model, folder: nil, count: Int(model.overview?.unfiledOpen ?? 0), focused: focused, select: select)
-                    ForEach(model.folders, id: \.id) { folder in
-                        FolderRow(model: model, folder: folder, count: Int(folder.openCount), focused: focused, select: select)
-                    }
-                } header: {
-                    HStack {
-                        Text("Folders")
-                        Spacer()
-                        Button {
-                            Task { await model.newFolderInline() }
-                        } label: {
-                            Image(systemName: "plus")
+                List {
+                    Section {
+                        FolderRow(model: model, folder: nil, count: Int(model.overview?.unfiledOpen ?? 0), focused: focused, select: select)
+                        ForEach(model.folders, id: \.id) { folder in
+                            FolderRow(model: model, folder: folder, count: Int(folder.openCount), focused: focused, select: select)
                         }
-                        .buttonStyle(.plain)
-                        .help("New Folder")
-                        .accessibilityLabel("New Folder")
-                    }
-                }
-                Section("Views") {
-                    SidebarLabel(model: model, tag: .scope(.all), focused: focused, select: select, symbol: "tray.full", title: "All Notes", count: Int(model.overview?.allOpen ?? 0))
-                    SidebarLabel(model: model, tag: .due, focused: focused, select: select, symbol: "bell", title: "Due", count: Int(model.overview?.due ?? 0))
-                    SidebarLabel(model: model, tag: .done, focused: focused, select: select, symbol: "checkmark.circle", title: "Done", count: Int(model.overview?.done ?? 0))
-                    SidebarLabel(model: model, tag: .deleted, focused: focused, select: select, symbol: "trash", title: "Deleted", count: Int(model.overview?.deleted ?? 0))
-                }
-                if !model.tags.isEmpty {
-                    Section("Tags") {
-                        ForEach(model.tags, id: \.name) { tag in
-                            SidebarLabel(model: model, tag: .tag(tag.name), focused: focused, select: select, hash: tag.name, count: Int(tag.openCount))
+                    } header: {
+                        HStack {
+                            Text("Folders")
+                            Spacer()
+                            Button {
+                                Task { await model.newFolderInline() }
+                            } label: {
+                                Image(systemName: "plus")
+                            }
+                            .buttonStyle(.plain)
+                            .help("New Folder")
+                            .accessibilityLabel("New Folder")
                         }
                     }
+                    Section("Views") {
+                        SidebarLabel(model: model, tag: .scope(.all), focused: focused, select: select, symbol: "tray.full", title: "All Notes", count: Int(model.overview?.allOpen ?? 0))
+                        SidebarLabel(model: model, tag: .due, focused: focused, select: select, symbol: "bell", title: "Due", count: Int(model.overview?.due ?? 0))
+                        SidebarLabel(model: model, tag: .done, focused: focused, select: select, symbol: "checkmark.circle", title: "Done", count: Int(model.overview?.done ?? 0))
+                        SidebarLabel(model: model, tag: .deleted, focused: focused, select: select, symbol: "trash", title: "Deleted", count: Int(model.overview?.deleted ?? 0))
+                    }
+                    if !model.tags.isEmpty {
+                        Section("Tags") {
+                            ForEach(model.tags, id: \.name) { tag in
+                                SidebarLabel(model: model, tag: .tag(tag.name), focused: focused, select: select, hash: tag.name, count: Int(tag.openCount))
+                            }
+                        }
+                    }
                 }
-            }
-            .listStyle(.sidebar)
-            .focusable()
-            .focused($focused)
-            .focusEffectDisabled()
-            .onKeyPress(.upArrow) { move(.up, scroll: scroll) }
-            .onKeyPress(.downArrow) { move(.down, scroll: scroll) }
-            }
+                .listStyle(.sidebar)
+                .focusable()
+                .focused($focused)
+                .focusEffectDisabled()
+                .onKeyPress(.upArrow) { move(.up, scroll: scroll) }
+                .onKeyPress(.downArrow) { move(.down, scroll: scroll) }
+                }
             // Stacked, not an inset: the list ends where the footer starts, so no row scrolls under it.
             footer
         }

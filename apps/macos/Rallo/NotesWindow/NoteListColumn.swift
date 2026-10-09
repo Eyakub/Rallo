@@ -311,7 +311,7 @@ private struct NoteListRow: View {
         .onHover { hovering = $0 }
         .modifier(DragIfLive(id: item.id, enabled: !isDeleted))
         .contextMenu { menu }
-        .accessibilityElement(children: .contain)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -319,6 +319,7 @@ private struct NoteListRow: View {
     /// What the row shows: the title, then the reminder or time, then the preview.
     private var accessibilityText: String {
         var parts = [text.displayTitle]
+        if isDeleted { parts.append("Deleted") } else if isDone { parts.append("Done") }
         if let reminder = activeReminder {
             parts.append("Reminder " + ReminderLabel.text(for: reminder.deadline))
         } else {
