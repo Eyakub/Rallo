@@ -20,7 +20,7 @@ struct NoteListColumn: View {
             if isEmpty { emptyState } else { list }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.surface)
+        .background(Theme.surface.ignoresSafeArea(edges: .top))
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
                 ToastBar(message: toast.message, undoable: toast.undo != nil, undoShortcut: false) { Task { await model.undo() } }

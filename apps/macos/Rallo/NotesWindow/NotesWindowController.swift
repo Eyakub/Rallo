@@ -85,8 +85,10 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         window.title = "Notes"
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
-        // The toolbar strip over the list and editor shows the window's own background, which is
-        // plain white in Light. Warm it to the columns' top surface; Dark keeps the system colour.
+        // The unified toolbar strip is drawn white in Light by the system, whatever the window
+        // background is. Make it transparent so the columns' own gradient (extended under it) shows;
+        // Dark keeps the system colour behind.
+        window.titlebarAppearsTransparent = true
         window.backgroundColor = Theme.windowBackgroundNS
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 900, height: 560)

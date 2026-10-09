@@ -24,7 +24,7 @@ struct NoteEditorColumn: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.surface)
+        .background(Theme.surface.ignoresSafeArea(edges: .top))
         .toolbar { toolbar }
     }
 
