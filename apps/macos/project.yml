@@ -80,6 +80,7 @@ targets:
       - path: Rallo/NotesWindow/DateGrouping.swift
       - path: Rallo/NotesWindow/FolderNaming.swift
       - path: Rallo/NotesWindow/NotesWindowSelection.swift
+      - path: Rallo/NotesWindow/SidebarOrder.swift
       - path: Rallo/NotesWindow/SaveScheduler.swift
       - path: Rallo/NotesWindow/EditorStyling.swift
       - path: Rallo/NotesWindow/NoteTextStyler.swift
