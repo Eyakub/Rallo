@@ -64,6 +64,12 @@ Four effects, each with its own switch in Settings (§7):
   handled (§4). The existing `onDueBoundary` is not enough: it fires only
   when the due count goes from zero to some, so a reminder coming due while
   an older one is still due would be missed. Alerted IDs are kept in memory.
+  An ID that leaves the due list is removed from the set, so a snoozed
+  reminder that comes due again alerts again. The list is read with a limit
+  of at least 32 (the active-reminder cap), so a short page can never look
+  like a handled reminder.
+- **Seeding:** at launch and on wake, every currently due ID goes into the
+  alerted set first; only those that qualify below get a round.
 - **On wake:** reminders that came due while the Mac slept produce **one
   grouped summon, no nag**.
 - **On launch:** due reminders whose deadline is within the last 12 hours
