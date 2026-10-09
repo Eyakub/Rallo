@@ -16,7 +16,7 @@ final class PlainTextView: NSTextView {
         view.isVerticallyResizable = false
         view.textContainerInset = NSSize(width: 0, height: 4)
         view.textContainer?.lineFragmentPadding = 0
-        view.textContainer?.widthTracksTextView = false
+        view.textContainer?.widthTracksTextView = true
         return view
     }
 

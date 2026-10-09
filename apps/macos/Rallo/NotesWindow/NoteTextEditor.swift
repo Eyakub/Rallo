@@ -50,13 +50,30 @@ struct NoteTextEditor: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: PlainTextView, context: Context) -> CGSize? {
         let width = max(proposal.width ?? 480, 80)
-        guard let container = nsView.textContainer, let layout = nsView.layoutManager else { return nil }
-        if container.containerSize.width != width {
-            container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        guard let container = nsView.textContainer, let layout = nsView.layoutManager,
+            let storage = nsView.textStorage
+        else { return nil }
+        // The view's own container follows its frame; probing proposals must not resize it.
+        let height: CGFloat
+        if container.containerSize.width == width {
+            layout.ensureLayout(for: container)
+            height = layout.usedRect(for: container).height
+        } else {
+            height = Self.textHeight(storage, width: width)
         }
+        return CGSize(width: width, height: max(ceil(height) + nsView.textContainerInset.height * 2, 200))
+    }
+
+    /// The height `text` needs at `width`, measured in a throwaway layout.
+    static func textHeight(_ text: NSAttributedString, width: CGFloat) -> CGFloat {
+        let storage = NSTextStorage(attributedString: text)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
         layout.ensureLayout(for: container)
-        let used = layout.usedRect(for: container)
-        return CGSize(width: width, height: max(ceil(used.height) + nsView.textContainerInset.height * 2, 200))
+        return layout.usedRect(for: container).height
     }
 
     @MainActor
