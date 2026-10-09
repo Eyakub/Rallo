@@ -6,29 +6,35 @@ struct FolderSidebar: View {
     @ObservedObject var model: NotesWindowModel
 
     @FocusState private var focused: Bool
+    @State private var pendingTarget: NotesWindowSelection?
 
-    /// Same decline / snap-back as a binding would give: a declined select (editor conflict)
-    /// leaves `selection` alone, so redraw and the highlight returns to the row that still owns it.
+    /// A declined select (editor conflict) leaves `selection` alone, so the highlight stays on the row that owns it.
     private func select(_ new: NotesWindowSelection) {
         focused = true
-        Task {
-            await model.select(new)
-            if model.selection != new { model.objectWillChange.send() }
-        }
+        Task { await model.select(new) }
     }
 
     private func move(_ direction: SidebarOrder.Direction, scroll: ScrollViewProxy) -> KeyPress.Result {
+        guard model.renamingFolderID == nil else { return .ignored }
+        // A held arrow must not start a second reload while the first select is in flight.
+        guard pendingTarget == nil else { return .handled }
         let rows = SidebarOrder.rows(folderIDs: model.folders.map(\.id), tagNames: model.tags.map(\.name))
         guard let next = SidebarOrder.next(after: model.selection, in: rows, direction: direction) else { return .handled }
-        select(next)
-        scroll.scrollTo(next)
+        pendingTarget = next
+        focused = true
+        Task {
+            await model.select(next)
+            pendingTarget = nil
+            if model.selection == next { scroll.scrollTo(next) }
+        }
         return .handled
     }
 
     var body: some View {
         // The sidebar draws selection itself: the native List highlight is a solid accent fill
         // and can't be a soft wash.
-        ScrollViewReader { scroll in
+        VStack(spacing: 0) {
+            ScrollViewReader { scroll in
             List {
                 Section {
                     FolderRow(model: model, folder: nil, count: Int(model.overview?.unfiledOpen ?? 0), focused: focused, select: select)
@@ -69,8 +75,10 @@ struct FolderSidebar: View {
             .focusEffectDisabled()
             .onKeyPress(.upArrow) { move(.up, scroll: scroll) }
             .onKeyPress(.downArrow) { move(.down, scroll: scroll) }
+            }
+            // Stacked, not an inset: the list ends where the footer starts, so no row scrolls under it.
+            footer
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { footer }
     }
 
     private var footer: some View {
@@ -85,10 +93,27 @@ struct FolderSidebar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        // Opaque, so rows scrolled underneath don't show through it.
-        .background(Theme.surfaceBottom)
+        .background(SidebarMaterial())
         .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1) }
         .help("New Folder (⇧⌘N)")
+    }
+}
+
+/// The same material the sidebar list draws, so the footer doesn't read as a separate opaque slab.
+private struct SidebarMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        NSVisualEffectView(frame: .zero).configured()
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
+private extension NSVisualEffectView {
+    func configured() -> Self {
+        material = .sidebar
+        blendingMode = .behindWindow
+        state = .followsWindowActiveState
+        return self
     }
 }
 
@@ -140,6 +165,7 @@ private struct SidebarLabel: View {
                 .foregroundStyle(Theme.bark)
         }
         .sidebarRow(tag: tag, selected: selected, focused: focused, select: select)
+        .sidebarRowChrome(tag: tag)
     }
 
     private var selected: Bool { model.selection == tag }
@@ -223,8 +249,8 @@ private struct FolderRow: View {
                 .monospacedDigit()
                 .foregroundStyle(Theme.bark)
         }
-        .padding(.vertical, 1)
-        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(targeted ? Theme.highlight : .clear))
+        .sidebarRow(tag: tag, selected: selected, focused: focused, targeted: targeted, enabled: !renaming, select: select)
+        // After the row's padding and fill, so the whole washed rect is the drop target and menu anchor.
         .dropDestination(for: String.self) { ids, _ in
             guard model.canDrop(ids) else { return false }  // an unknown id is ignored
             Task { await model.drop(ids, onto: folder?.id) }
@@ -237,30 +263,40 @@ private struct FolderRow: View {
                 Button("Delete Folder…", role: .destructive) { model.requestDelete(folder) }
             }
         }
-        .sidebarRow(tag: tag, selected: selected, focused: focused, enabled: !renaming, select: select)
+        .sidebarRowChrome(tag: tag)
     }
 }
 
 private extension View {
     /// The soft rust wash, the click-to-select and the button semantics of one sidebar row.
     /// `enabled` is off while the row hosts the inline rename field, which keeps its own clicks.
+    @ViewBuilder
     func sidebarRow(
-        tag: NotesWindowSelection, selected: Bool, focused: Bool, enabled: Bool = true,
+        tag: NotesWindowSelection, selected: Bool, focused: Bool, targeted: Bool = false, enabled: Bool = true,
         select: @escaping (NotesWindowSelection) -> Void
     ) -> some View {
-        padding(.horizontal, 6)
+        // 8 pt of padding inside a 2 pt list inset puts the icon level with the section header text.
+        let row = padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(selected ? (focused ? Theme.selection : Theme.selectionSoft) : .clear)
+                    .fill(targeted ? Theme.selection : selected ? (focused ? Theme.selection : Theme.selectionSoft) : .clear)
             )
-            .listRowBackground(Color.clear)
-            .id(tag)
-            .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
             .contentShape(Rectangle())
             .gesture(TapGesture().onEnded { select(tag) }, including: enabled ? .all : .subviews)
-            .accessibilityElement(children: enabled ? .combine : .contain)
-            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-            .accessibilityAction { select(tag) }
+        if enabled {
+            row.accessibilityElement(children: .combine)
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                .accessibilityAction { select(tag) }
+        } else {
+            row.accessibilityElement(children: .contain)
+        }
+    }
+
+    /// List-level chrome; applied last so it sits outside the drop target and context menu.
+    func sidebarRowChrome(tag: NotesWindowSelection) -> some View {
+        listRowBackground(Color.clear)
+            .id(tag)
+            .listRowInsets(EdgeInsets(top: 1, leading: 2, bottom: 1, trailing: 2))
     }
 }
