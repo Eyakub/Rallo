@@ -25,6 +25,8 @@ struct NoteEditorColumn: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.surface.ignoresSafeArea(edges: .top))
+        // The toolbar strip is transparent, so its bottom edge needs its own hairline.
+        .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1).allowsHitTesting(false) }
         .toolbar { toolbar }
     }
 
