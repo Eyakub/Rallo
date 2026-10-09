@@ -51,18 +51,24 @@ final class NotesWindowModel: ObservableObject {
     @Published var query = ""
     @Published var doneExpanded = false
     @Published private(set) var toast: WindowToast?
-    /// Clears itself after the toast's 5 s, so a stale "weren't saved" never outlives the moment.
+    /// A plain assignment is informational and clears itself after `errorTimeout`. Data-loss
+    /// messages go through `showError(_:sticky:)` and stay until dismissed or the next success.
     @Published var errorMessage: String? {
         didSet {
             errorTask?.cancel()
-            guard errorMessage != nil else { return }
-            errorTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            let sticky = nextErrorIsSticky
+            nextErrorIsSticky = false
+            errorIsSticky = sticky && errorMessage != nil
+            guard errorMessage != nil, !sticky else { return }
+            errorTask = Task { [weak self, errorTimeout] in
+                try? await Task.sleep(nanoseconds: UInt64(errorTimeout * 1_000_000_000))
                 guard !Task.isCancelled else { return }
                 self?.errorMessage = nil
             }
         }
     }
+    private(set) var errorIsSticky = false
+    private var nextErrorIsSticky = false
     @Published var renamingFolderID: String?
     @Published var pendingFolderDelete: PendingFolderDelete?
     /// The Custom… reminder popover is open on the selected note.
@@ -84,13 +90,17 @@ final class NotesWindowModel: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var errorTask: Task<Void, Never>?
+    private let errorTimeout: TimeInterval
 
-    init(core: CoreClient, saveDelay: TimeInterval = 0.6, pageSize: UInt32 = CoreClient.pageSize) {
+    init(core: CoreClient, saveDelay: TimeInterval = 0.6, pageSize: UInt32 = CoreClient.pageSize,
+         errorTimeout: TimeInterval = 5) {
         self.core = core
+        self.errorTimeout = errorTimeout
         self.pageSize = pageSize
         editor = NoteEditorSession(core: core, saveDelay: saveDelay)
         editor.onSaved = { [weak self] saved in
             self?.lastSaved = saved
+            self?.clearStickyError()
             Task { await self?.reload() }
         }
         editor.onCreated = { [weak self] note in self?.draftCreated(note) }
@@ -203,7 +213,7 @@ final class NotesWindowModel: ObservableObject {
         pendingFolderDelete = nil
         customRemindOpen = false
         renamingFolderID = nil
-        if let message = await editor.leave() { errorMessage = message }
+        if let message = await editor.leave() { showError(message, sticky: true) }
         if isDrafting {
             isDrafting = false
             editor.show(.none)
@@ -212,7 +222,9 @@ final class NotesWindowModel: ObservableObject {
 
     func select(_ new: NotesWindowSelection) async {
         guard new != selection else { return }
+        let before = errorMessage
         guard await letGoOfNote() else { return }
+        if errorMessage == before { clearStickyError() }  // not one this very action raised
         selection = new
         query = ""
         open = PagedItems()
@@ -224,7 +236,9 @@ final class NotesWindowModel: ObservableObject {
 
     func selectNote(_ id: String?) async {
         guard id != selectedNoteID || isDrafting else { return }
+        let before = errorMessage
         guard await letGoOfNote() else { return }
+        if errorMessage == before { clearStickyError() }  // not one this very action raised
         selectedNoteID = id
         // The list's copy can be older than the revision the editor just saved.
         let saved = lastSaved.flatMap { $0.id == id ? $0 : nil }
@@ -247,7 +261,7 @@ final class NotesWindowModel: ObservableObject {
     @discardableResult
     private func letGoOfNote(force: Bool = false) async -> Bool {
         if !force, !(await editor.readyToLeave()) { return false }
-        if let message = await editor.leave() { errorMessage = message }
+        if let message = await editor.leave() { showError(message, sticky: true) }
         isDrafting = false
         selectedNoteID = nil
         customRemindOpen = false
@@ -437,16 +451,27 @@ final class NotesWindowModel: ObservableObject {
         }
     }
 
-    func report(_ error: Error) async {
+    /// `sticky` keeps the message until it's dismissed or the user's next action succeeds.
+    func showError(_ message: String, sticky: Bool) {
+        nextErrorIsSticky = sticky
+        errorMessage = message
+    }
+
+    /// A sticky message ends with the user's next successful select or save.
+    private func clearStickyError() {
+        if errorIsSticky { errorMessage = nil }
+    }
+
+    func report(_ error: Error, sticky: Bool = false) async {
         await reload()
         if let error = error as? RalloError {
             if error.code == "REVISION_CONFLICT" {
-                errorMessage = "That note changed elsewhere; here’s the latest."
+                showError("That note changed elsewhere; here’s the latest.", sticky: sticky)
             } else {
-                errorMessage = error.displayMessage
+                showError(error.displayMessage, sticky: sticky)
             }
         } else {
-            errorMessage = error.localizedDescription
+            showError(error.localizedDescription, sticky: sticky)
         }
     }
 
@@ -538,7 +563,8 @@ final class NotesWindowModel: ObservableObject {
             await reload()
             return true
         } catch {
-            await report(error)
+            // The field stays open on a refusal; its message must not vanish under the user's cursor.
+            await report(error, sticky: renamingFolderID == folder.id)
             return false
         }
     }
