@@ -20,7 +20,7 @@ struct NotesWindowView: View {
         .sheet(item: $model.pendingFolderDelete) { pending in
             DeleteFolderSheet(pending: pending, model: model)
         }
-        .overlay(alignment: .top) { errorBanner }
+        .overlay(alignment: .bottom) { errorBanner }
         .folderNamePrompt(model.namePrompter)
     }
 
@@ -48,7 +48,8 @@ struct NotesWindowView: View {
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surfaceTop))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.error.opacity(0.45)))
             .frame(maxWidth: 520)
-            .padding(.top, 10)
+            // Along the bottom, clear of the list header and the editor's conflict bar; above the toast when one shows.
+            .padding(.bottom, model.toast == nil ? 12 : 72)
             .accessibilityLabel("Error: \(message)")
         }
     }

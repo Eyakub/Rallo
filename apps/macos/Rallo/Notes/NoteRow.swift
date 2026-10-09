@@ -190,6 +190,8 @@ struct NoteRow: View {
                     Image(systemName: "photo")
                         .font(.system(size: 10, weight: .semibold))
                     Text(item.images.count == 1 ? "1 image" : "\(item.images.count) images")
+                        .lineLimit(1)
+                        .fixedSize()
                 }
                 .font(Theme.rounded(12))
                 .foregroundStyle(Theme.bark)

@@ -51,7 +51,18 @@ final class NotesWindowModel: ObservableObject {
     @Published var query = ""
     @Published var doneExpanded = false
     @Published private(set) var toast: WindowToast?
-    @Published var errorMessage: String?
+    /// Clears itself after the toast's 5 s, so a stale "weren't saved" never outlives the moment.
+    @Published var errorMessage: String? {
+        didSet {
+            errorTask?.cancel()
+            guard errorMessage != nil else { return }
+            errorTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.errorMessage = nil
+            }
+        }
+    }
     @Published var renamingFolderID: String?
     @Published var pendingFolderDelete: PendingFolderDelete?
     /// The Custom… reminder popover is open on the selected note.
@@ -72,6 +83,7 @@ final class NotesWindowModel: ObservableObject {
     private var loadingCursors: [String: String] = [:]
     private var searchTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
+    private var errorTask: Task<Void, Never>?
 
     init(core: CoreClient, saveDelay: TimeInterval = 0.6, pageSize: UInt32 = CoreClient.pageSize) {
         self.core = core
