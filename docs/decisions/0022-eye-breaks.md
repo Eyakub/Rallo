@@ -1,7 +1,6 @@
 # 0022 — Eye breaks
 
-- **Status:** proposed (design agreed with the user in chat, 2026-10-10; this
-  written spec awaits the user's review)
+- **Status:** accepted (user, 2026-10-10)
 - **Date:** 2026-10-10
 - **Mockup:** `docs/mockups/eye-break.html` (open it in a browser; it
   follows the system's Light or Dark Mode)
