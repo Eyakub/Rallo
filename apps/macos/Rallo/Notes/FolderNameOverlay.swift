@@ -220,7 +220,14 @@ private struct FolderNamePromptModifier: ViewModifier {
             .overlay { FolderNameOverlay(prompter: prompter) }
             .onChange(of: shown) { _, isShown in
                 if isShown {
-                    returnFocus = NSApp.keyWindow.map { WeakResponder(window: $0, responder: $0.firstResponder) }
+                    returnFocus = NSApp.keyWindow.map { window in
+                        var responder = window.firstResponder
+                        // A field's editor is detached once the field loses focus: restore the field itself.
+                        if let editor = responder as? NSTextView, editor.isFieldEditor, let field = editor.delegate as? NSResponder {
+                            responder = field
+                        }
+                        return WeakResponder(window: window, responder: responder)
+                    }
                 } else if let saved = returnFocus {
                     returnFocus = nil
                     if let window = saved.window, let responder = saved.responder { window.makeFirstResponder(responder) }

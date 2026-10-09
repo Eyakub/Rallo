@@ -39,6 +39,7 @@ struct NoteListColumn: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(model.header.title)
                 .font(Theme.rounded(20, .bold))
+                .foregroundStyle(Theme.ink)
                 .lineLimit(1)
             Text(model.header.subtitle)
                 .font(.system(size: 12))
@@ -78,9 +79,17 @@ struct NoteListColumn: View {
     }
 
     private var list: some View {
+        ScrollViewReader { proxy in
+            listBody
+                .onKeyPress(.upArrow) { step(-1, proxy) }
+                .onKeyPress(.downArrow) { step(1, proxy) }
+        }
+    }
+
+    private var listBody: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                if model.isDrafting { DraftRow() }
+                if model.isDrafting { DraftRow().id("draft") }
                 if model.listIsGrouped {
                     ForEach(sections) { section in
                         Text(section.title)
@@ -95,10 +104,12 @@ struct NoteListColumn: View {
                 } else {
                     ForEach(model.visibleItems, id: \.id) { row($0, dimmed: false) }
                 }
+                sentinel(model.isSearching ? model.found : model.open, done: false)
                 if hasDoneRow {
                     doneRow
                     if model.doneExpanded {
                         ForEach(model.doneItems, id: \.id) { row($0, dimmed: true) }
+                        sentinel(model.done, done: true)
                     }
                 }
             }
@@ -108,8 +119,6 @@ struct NoteListColumn: View {
         .focusable()
         .focused($listFocused)
         .focusEffectDisabled()
-        .onKeyPress(.upArrow) { step(-1) }
-        .onKeyPress(.downArrow) { step(1) }
         .onKeyPress(.delete) { deleteSelected() }
         .onKeyPress(.deleteForward) { deleteSelected() }
     }
@@ -118,14 +127,24 @@ struct NoteListColumn: View {
         NoteListRow(
             item: item, selected: !model.isDrafting && model.selectedNoteID == item.id, dimmed: dimmed, model: model
         )
+        .id(item.id)
         .onTapGesture {
-            listFocused = true
-            Task { await model.selectNote(item.id) }
+            Task {
+                await model.selectNote(item.id)
+                // A declined switch (a conflict bar) leaves the keyboard where it was.
+                if model.selectedNoteID == item.id { listFocused = true }
+            }
         }
-        .onAppear {
-            // The last loaded row came into view: the next page (0019 §9).
-            let list = dimmed ? model.done : (model.isSearching ? model.found : model.open)
-            if item.id == list.items.last?.id, list.hasMore { Task { await model.loadMore(done: dimmed) } }
+    }
+
+    /// Below a list's rows: when it comes into view the list's next page loads (0019 §9).
+    /// Keyed on the cursor, so a page that was dropped or failed re-arms it.
+    @ViewBuilder
+    private func sentinel(_ list: PagedItems, done: Bool) -> some View {
+        if let cursor = list.nextCursor {
+            Color.clear.frame(height: 1)
+                .id("more-\(done)-\(cursor)")
+                .onAppear { Task { await model.loadMore(done: done) } }
         }
     }
 
@@ -188,12 +207,18 @@ struct NoteListColumn: View {
 
     // MARK: Keys
 
-    private func step(_ delta: Int) -> KeyPress.Result {
+    private func step(_ delta: Int, _ proxy: ScrollViewProxy) -> KeyPress.Result {
         let ids = order.map(\.id)
         guard !ids.isEmpty else { return .ignored }
         let current = model.selectedNoteID.flatMap { ids.firstIndex(of: $0) }
         let next = current.map { min(max($0 + delta, 0), ids.count - 1) } ?? (delta > 0 ? 0 : ids.count - 1)
-        Task { await model.selectNote(ids[next]) }
+        let target = ids[next]
+        Task {
+            await model.selectNote(target)
+            guard model.selectedNoteID == target else { return }
+            // Minimal scroll: nothing moves when the row is already in view.
+            if reduceMotion { proxy.scrollTo(target) } else { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(target) } }
+        }
         return .handled
     }
 
@@ -214,7 +239,7 @@ private struct DraftRow: View {
                 .foregroundStyle(Theme.rust)
                 .frame(width: 26, height: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text("New Note").font(.system(size: 13.5, weight: .semibold))
+                Text("New Note").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.ink)
                 Text("Start typing…").font(.system(size: 12)).foregroundStyle(Theme.bark)
             }
             Spacer(minLength: 0)
@@ -236,7 +261,15 @@ private struct NoteListRow: View {
     @ObservedObject var model: NotesWindowModel
     @State private var hovering = false
 
-    private var text: RowText { RowText(item.text) }
+    private let text: RowText
+
+    init(item: ItemSnapshot, selected: Bool, dimmed: Bool, model: NotesWindowModel) {
+        self.item = item
+        self.selected = selected
+        self.dimmed = dimmed
+        self.model = model
+        text = RowText(item.text)
+    }
     private var isDone: Bool { item.status == .done }
     private var isDeleted: Bool { item.deletedAtMs != nil }
     private var date: Date { Date(timeIntervalSince1970: TimeInterval(model.groupTimestamp(item)) / 1000) }
@@ -268,7 +301,7 @@ private struct NoteListRow: View {
         .opacity(dimmed ? 0.55 : 1)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .draggable(item.id)
+        .modifier(DragIfLive(id: item.id, enabled: !isDeleted))
         .contextMenu { menu }
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -342,6 +375,8 @@ private struct NoteListRow: View {
                     onCustom: {
                         Task {
                             await model.selectNote(item.id)
+                            // A fresh conflict bar can decline the switch: then the popover would hit the wrong note.
+                            guard model.selectedNoteID == item.id else { return }
                             model.customRemindOpen = true
                         }
                     }
@@ -387,5 +422,16 @@ private struct ListThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .task(id: path) { image = await ThumbnailCache.shared.image(for: path, points: 38) }
         .accessibilityHidden(true)
+    }
+}
+
+/// Deleted notes can't be dragged into a folder.
+private struct DragIfLive: ViewModifier {
+    let id: String
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled { content.draggable(id) } else { content }
     }
 }

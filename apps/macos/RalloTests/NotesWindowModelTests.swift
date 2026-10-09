@@ -145,6 +145,21 @@ final class NotesWindowModelTests: XCTestCase {
         XCTAssertEqual(model.editor.note?.id, oldest.id)
     }
 
+    /// Loading the done list must not block loading the open list (the dedupe is per list).
+    func testLoadingTheDoneListDoesNotBlockTheOpenList() async throws {
+        model = NotesWindowModel(core: core, saveDelay: 0.05, pageSize: 2)
+        let made = try await notes(6)
+        for item in made.prefix(3) { _ = try other.completeItem(id: item.id, ifRevision: nil) }
+        await model.reload()
+        XCTAssertTrue(model.open.hasMore)
+        XCTAssertTrue(model.done.hasMore)
+        async let moreDone: Void = model.loadMore(done: true)
+        async let moreOpen: Void = model.loadMore()
+        _ = await (moreDone, moreOpen)
+        XCTAssertEqual(model.open.items.count, 3)
+        XCTAssertEqual(model.done.items.count, 3)
+    }
+
     func testSearchResultsPageToo() async throws {
         model = NotesWindowModel(core: core, saveDelay: 0.05, pageSize: 2)
         _ = try await notes(3)

@@ -64,8 +64,9 @@ final class NotesWindowModel: ObservableObject {
     /// Rows per page (tests pass 2 to exercise paging).
     let pageSize: UInt32
     private var generation = 0
-    /// The cursor being fetched, so a last row appearing twice doesn't load its page twice.
-    private var loadingCursor: String?
+    /// The cursor being fetched per list (open, done, results), so a sentinel appearing
+    /// twice doesn't load a page twice while another list can still load meanwhile.
+    private var loadingCursors: [String: String] = [:]
     private var searchTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
 
@@ -306,9 +307,10 @@ final class NotesWindowModel: ObservableObject {
     func loadMore(done wantDone: Bool = false) async {
         let searching = isSearching  // the field can change while the page loads
         let list = searching ? found : (wantDone ? done : open)
-        guard let cursor = list.nextCursor, cursor != loadingCursor else { return }
-        loadingCursor = cursor
-        defer { if loadingCursor == cursor { loadingCursor = nil } }
+        let listKey = searching ? "found" : (wantDone ? "done" : "open")
+        guard let cursor = list.nextCursor, cursor != loadingCursors[listKey] else { return }
+        loadingCursors[listKey] = cursor
+        defer { if loadingCursors[listKey] == cursor { loadingCursors[listKey] = nil } }
         let mine = generation
         do {
             let next: ItemPage
