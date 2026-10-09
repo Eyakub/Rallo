@@ -50,18 +50,41 @@ struct NoteTextEditor: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: PlainTextView, context: Context) -> CGSize? {
         let width = max(proposal.width ?? 480, 80)
-        guard let container = nsView.textContainer, let layout = nsView.layoutManager,
-            let storage = nsView.textStorage
+        guard let height = Self.fittingHeight(of: nsView, width: width, cache: context.coordinator.measurements) else {
+            return nil
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    /// The view's height at `width`, inset included. The view's own container follows its frame, so a
+    /// probe at another width is measured in a throwaway layout (cached per width and text revision).
+    static func fittingHeight(of view: PlainTextView, width: CGFloat, cache: MeasureCache? = nil) -> CGFloat? {
+        guard let container = view.textContainer, let layout = view.layoutManager, let storage = view.textStorage
         else { return nil }
-        // The view's own container follows its frame; probing proposals must not resize it.
         let height: CGFloat
         if container.containerSize.width == width {
             layout.ensureLayout(for: container)
             height = layout.usedRect(for: container).height
+        } else if let cache, let hit = cache.height(width: width) {
+            height = hit
         } else {
-            height = Self.textHeight(storage, width: width)
+            height = textHeight(storage, width: width)
+            cache?.store(height, width: width)
         }
-        return CGSize(width: width, height: max(ceil(height) + nsView.textContainerInset.height * 2, 200))
+        return max(ceil(height) + view.textContainerInset.height * 2, 200)
+    }
+
+    /// The last throwaway measurement, dropped when the text or its styling changes.
+    final class MeasureCache {
+        private var last: (width: CGFloat, height: CGFloat)?
+
+        func height(width: CGFloat) -> CGFloat? {
+            guard let last, last.width == width else { return nil }
+            return last.height
+        }
+
+        func store(_ height: CGFloat, width: CGFloat) { last = (width, height) }
+        func invalidate() { last = nil }
     }
 
     /// The height `text` needs at `width`, measured in a throwaway layout.
@@ -81,6 +104,7 @@ struct NoteTextEditor: NSViewRepresentable {
         let session: NoteEditorSession
         var applying = false
         var shown = -1
+        let measurements = MeasureCache()
 
         init(session: NoteEditorSession) {
             self.session = session
@@ -127,6 +151,7 @@ struct NoteTextEditor: NSViewRepresentable {
 
         /// Dynamic colours: Light/Dark switches redraw them without a restyle.
         func restyle(_ view: PlainTextView) {
+            measurements.invalidate()  // every text change and style change comes through here
             let palette = NoteTextStyler.Palette(ink: Theme.inkNS, rust: Theme.rustNS)
             NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), palette: palette)
         }

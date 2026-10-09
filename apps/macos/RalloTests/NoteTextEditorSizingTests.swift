@@ -28,4 +28,24 @@ final class NoteTextEditorSizingTests: XCTestCase {
         view.setFrameSize(NSSize(width: 600, height: 300))
         XCTAssertEqual(try XCTUnwrap(view.textContainer).containerSize.width, 600)
     }
+
+    func testMeasuringAtAnotherWidthLeavesTheContainerAlone() throws {
+        let view = makeView()
+        view.setFrameSize(NSSize(width: 600, height: 300))
+        let cache = NoteTextEditor.MeasureCache()
+        _ = NoteTextEditor.fittingHeight(of: view, width: 80, cache: cache)
+        XCTAssertEqual(try XCTUnwrap(view.textContainer).containerSize.width, 600)
+    }
+
+    func testShortcutAndThrowawayPathsAgree() throws {
+        let view = makeView()
+        view.setFrameSize(NSSize(width: 600, height: 300))
+        let shortcut = try XCTUnwrap(NoteTextEditor.fittingHeight(of: view, width: 600))
+        view.setFrameSize(NSSize(width: 300, height: 300))
+        let cache = NoteTextEditor.MeasureCache()
+        let throwaway = try XCTUnwrap(NoteTextEditor.fittingHeight(of: view, width: 600, cache: cache))
+        let cached = try XCTUnwrap(NoteTextEditor.fittingHeight(of: view, width: 600, cache: cache))
+        XCTAssertEqual(shortcut, throwaway)
+        XCTAssertEqual(throwaway, cached)
+    }
 }
