@@ -12,7 +12,7 @@ struct NotesWindowView: View {
             NoteListColumn(model: model)
                 .navigationSplitViewColumnWidth(min: 280, ideal: 330, max: 440)
         } detail: {
-            Text("Editor")  // replaced in Task 12
+            NoteEditorColumn(model: model, editor: model.editor)
         }
         .tint(Theme.rust)
         .searchable(text: $model.query, placement: .toolbar, prompt: "Search all notes")

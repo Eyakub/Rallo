@@ -9,11 +9,13 @@ enum Theme {
     static let surfaceTop = Color(light: 0xFCF8F5, dark: 0x221A16)
     static let surfaceBottom = Color(light: 0xF8EDE4, dark: 0x1A1411)
     // Paw ink / belly cream.
-    static let ink = Color(light: 0x2B1A13, dark: 0xF5E8DC)
+    static let inkNS = NSColor.dynamic(light: 0x2B1A13, dark: 0xF5E8DC)
+    static let ink = Color(nsColor: inkNS)
     // Bark: secondary text (≥ 4.5:1 on both surfaces).
     static let bark = Color(light: 0x7D5F50, dark: 0xB59C8D)
     // Fur rust: the accent. Lighter ember on dark for contrast.
-    static let rust = Color(light: 0xB4501F, dark: 0xF08A4B)
+    static let rustNS = NSColor.dynamic(light: 0xB4501F, dark: 0xF08A4B)
+    static let rust = Color(nsColor: rustNS)
     // Bamboo: completion.
     static let bamboo = Color(light: 0x5E8C4A, dark: 0x8DBF74)
     static let field = Color(light: 0xFFFFFF, dark: 0xFFFFFF, darkAlpha: 0.06)
@@ -52,14 +54,19 @@ enum Theme {
 
 extension Color {
     init(light: UInt32, lightAlpha: CGFloat = 1, dark: UInt32, darkAlpha: CGFloat = 1) {
-        self.init(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return NSColor(hex: isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha)
-        })
+        self.init(nsColor: .dynamic(light: light, lightAlpha: lightAlpha, dark: dark, darkAlpha: darkAlpha))
     }
 }
 
 extension NSColor {
+    /// Resolves in the appearance it is drawn in (Light or Dark).
+    static func dynamic(light: UInt32, lightAlpha: CGFloat = 1, dark: UInt32, darkAlpha: CGFloat = 1) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(hex: isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha)
+        }
+    }
+
     convenience init(hex: UInt32, alpha: CGFloat = 1) {
         self.init(
             srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,

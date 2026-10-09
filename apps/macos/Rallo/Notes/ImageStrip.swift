@@ -9,14 +9,17 @@ let ownDragType = "com.razlio.rallo.image"
 /// drag out as files, and offer Copy Image, Show in Finder and Remove Image.
 struct ImageStrip: View {
     let item: ItemSnapshot
-    @ObservedObject var model: NotesViewModel
+    /// 56 pt squares in the panel (`ThumbnailCache.points`), 210×140 tiles in the notes window (0019).
+    var tile = CGSize(width: 56, height: 56)
+    let onRemove: (ImageSnapshot) -> Void
+    let onFocusChange: (Bool) -> Void
     @FocusState private var focused: String?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(Array(item.images.enumerated()), id: \.element.id) { index, image in
-                    RowThumbnail(image: image, label: "Image \(index + 1) of \(item.images.count), \(Self.kind(image))")
+                    RowThumbnail(image: image, label: "Image \(index + 1) of \(item.images.count), \(Self.kind(image))", size: tile)
                         .focusable()
                         .focused($focused, equals: image.id)
                         .onKeyPress(.space) { open(index) }
@@ -31,19 +34,19 @@ struct ImageStrip: View {
                                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: image.path)])
                             }
                             Divider()
-                            Button("Remove Image", role: .destructive) { Task { await model.removeImage(image, from: item) } }
+                            Button("Remove Image", role: .destructive) { onRemove(image) }
                         }
                         .accessibilityAction { QuickLookPresenter.shared.show(item.images, at: index) }
-                        .accessibilityAction(named: "Remove Image") { Task { await model.removeImage(image, from: item) } }
+                        .accessibilityAction(named: "Remove Image") { onRemove(image) }
                 }
             }
         }
-        .frame(height: ThumbnailCache.points)
+        .frame(height: tile.height)
         .background(GeometryReader { proxy in
             Color.clear.preference(key: ImageStripFrameKey.self, value: proxy.frame(in: .named(ImageStripFrameKey.space)))
         })
-        .onChange(of: focused) { _, id in model.thumbnailFocused = id != nil }
-        .onDisappear { model.thumbnailFocused = false }
+        .onChange(of: focused) { _, id in onFocusChange(id != nil) }
+        .onDisappear { onFocusChange(false) }
     }
 
     private func open(_ index: Int) -> KeyPress.Result {
@@ -52,7 +55,7 @@ struct ImageStrip: View {
     }
 
     private func remove(_ image: ImageSnapshot) -> KeyPress.Result {
-        Task { await model.removeImage(image, from: item) }
+        onRemove(image)
         return .handled
     }
 
@@ -94,9 +97,22 @@ struct ImageStrip: View {
     }
 }
 
+extension ImageStrip {
+    /// The panel's strip: 56 pt tiles; removals and focus go to the panel's model.
+    @MainActor
+    init(item: ItemSnapshot, model: NotesViewModel) {
+        self.init(
+            item: item,
+            onRemove: { image in Task { await model.removeImage(image, from: item) } },
+            onFocusChange: { model.thumbnailFocused = $0 }
+        )
+    }
+}
+
 private struct RowThumbnail: View {
     let image: ImageSnapshot
     let label: String
+    let size: CGSize
     @State private var thumbnail: NSImage?
     @State private var missing = false
 
@@ -110,14 +126,14 @@ private struct RowThumbnail: View {
                     .foregroundStyle(Theme.bark)
             }
         }
-        .frame(width: ThumbnailCache.points, height: ThumbnailCache.points)
+        .frame(width: size.width, height: size.height)
         .background(Theme.field)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.fieldStroke))
         .contentShape(Rectangle())
         .help(missing ? "This image’s file is missing. Run rallo doctor in Terminal." : "Click to preview")
         .task(id: image.path) {
-            thumbnail = await ThumbnailCache.shared.image(for: image.path)
+            thumbnail = await ThumbnailCache.shared.image(for: image.path, points: max(size.width, size.height))
             missing = thumbnail == nil
         }
         .accessibilityElement(children: .ignore)
