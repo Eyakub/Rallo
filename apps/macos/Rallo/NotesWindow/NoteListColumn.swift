@@ -314,6 +314,12 @@ private struct NoteListRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(selected ? .isSelected : [])
+        // The row is one element, so its completion circle comes back as an action.
+        .accessibilityActions {
+            if !isDeleted {
+                Button(isDone ? "Reopen" : "Mark as Done") { Task { await model.toggleDone(item) } }
+            }
+        }
     }
 
     /// What the row shows: the title, then the reminder or time, then the preview.
