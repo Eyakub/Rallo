@@ -181,6 +181,34 @@ final class NoteEditorSessionTests: XCTestCase {
         XCTAssertEqual(try stored(note.id).text, "v2 日本")
     }
 
+    /// The text view commits the marked word into the current note before anything is saved or left.
+    func testFlushCommitsTheCompositionFirstAndSavesTheCommittedText() async throws {
+        let note = try await core.createNote("v1")
+        let session = session()
+        session.show(.note(note))
+        var calls = 0
+        session.commitComposition = { calls += 1; session.isComposing = false; session.textChanged("v2 日本") }
+        session.isComposing = true
+        session.textChanged("v2 にほ")
+        await session.flush()
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(try stored(note.id).text, "v2 日本")
+    }
+
+    func testReadyToLeaveCommitsTheCompositionFirstAndSavesTheCommittedText() async throws {
+        let note = try await core.createNote("v1")
+        let session = session()
+        session.show(.note(note))
+        var calls = 0
+        session.commitComposition = { calls += 1; session.isComposing = false; session.textChanged("v2 日本") }
+        session.isComposing = true
+        session.textChanged("v2 にほ")
+        let ready = await session.readyToLeave()
+        XCTAssertTrue(ready)
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(try stored(note.id).text, "v2 日本")
+    }
+
     func testADraftIsCreatedByTheFirstNonEmptySaveInItsFolder() async throws {
         let work = try await core.createFolder("Work")
         let session = session()

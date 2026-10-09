@@ -24,8 +24,9 @@ final class NoteEditorSession: ObservableObject {
     @Published private(set) var conflict = false
     /// A refused save (`TEXT_TOO_LONG`, …), shown inline; the text stays.
     @Published private(set) var error: String?
-    /// Moves the caret to the text view; bumped for a new note.
-    @Published private(set) var focusToken = 0
+    /// The `showCount` of the last `show(_, focus: true)`. Keyed to the shown
+    /// target, so a text view mounted after the request still honours it.
+    private(set) var focusShow = -1
     /// Counts `show` calls, so the text view knows a different note arrived.
     private(set) var showCount = 0
     /// The text view has an input method's marked text: never save mid-composition.
@@ -68,6 +69,9 @@ final class NoteEditorSession: ObservableObject {
         }
     }
 
+    /// The note on show was opened with a request to focus the editor.
+    var wantsFocus: Bool { focusShow == showCount }
+
     var hasUnsavedText: Bool { scheduler.hasUnsavedText }
 
     /// Opens a note, nothing, or a draft. Call `leave()` first.
@@ -84,7 +88,7 @@ final class NoteEditorSession: ObservableObject {
         case let .draft(_, seed): text = seed
         }
         showCount += 1
-        if focus { focusToken += 1 }
+        if focus { focusShow = showCount }
     }
 
     /// The text view changed (the user typed, pasted or deleted).

@@ -147,7 +147,7 @@ final class NoteTextEditorCommitTests: XCTestCase {
         window.contentView = view
         view.string = "abc "
         coordinator.attach(view)
-        view.setMarkedText("にほ", selectedRange: NSRange(location: 2, length: 1), replacementRange: NSRange(location: 4, length: 0))
+        view.setMarkedText("にほ", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: 4, length: 0))
         session.isComposing = true
         XCTAssertTrue(view.hasMarkedText())
 
@@ -160,9 +160,28 @@ final class NoteTextEditorCommitTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
 
-    func testTheCoordinatorStartsAtTheSessionsFocusToken() {
-        let core = CoreClient(dataDir: NSTemporaryDirectory() + "rallo-unused")
-        let session = NoteEditorSession(core: core)
-        XCTAssertEqual(NoteTextEditor.Coordinator(session: session).focusToken, session.focusToken)
+    /// A focus request belongs to the shown target, so an editor mounted afterwards still honours it.
+    func testAShowWithFocusAsksForFocusAndAPlainShowDoesNot() {
+        let session = NoteEditorSession(core: CoreClient(dataDir: NSTemporaryDirectory() + "rallo-unused"))
+        session.show(.draft(folderID: nil, seed: ""), focus: true)
+        XCTAssertTrue(session.wantsFocus)
+        session.show(.none)
+        XCTAssertFalse(session.wantsFocus, "a re-created editor for a note shown without focus must not steal it")
+    }
+
+    func testCommitWithoutMarkedTextStillClearsComposingAndPushesText() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rallo-commit2-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = CoreClient(dataDir: dir.path)
+        try await core.open()
+        let session = NoteEditorSession(core: core, saveDelay: 0.05)
+        session.show(.draft(folderID: nil, seed: ""))
+        let coordinator = NoteTextEditor.Coordinator(session: session)
+        let view = PlainTextView.make()
+        view.string = "typed"
+        session.isComposing = true
+        coordinator.commitComposition(view)
+        XCTAssertFalse(session.isComposing)
+        XCTAssertEqual(session.text, "typed")
     }
 }

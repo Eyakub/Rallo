@@ -37,6 +37,7 @@ struct NoteTextEditor: NSViewRepresentable {
             view.undoManager?.removeAllActions()
             view.setSelectedRange(NSRange(location: session.isDraft ? length : 0, length: 0))
             changed = true
+            if session.wantsFocus { DispatchQueue.main.async { view.window?.makeFirstResponder(view) } }
         } else if !view.hasMarkedText(), view.string != session.text {  // never replace while an input method is composing
             let kept = view.selectedRange()
             view.string = session.text
@@ -45,10 +46,6 @@ struct NoteTextEditor: NSViewRepresentable {
             changed = true
         }
         if changed { coordinator.restyle(view) }
-        if coordinator.focusToken != session.focusToken {
-            coordinator.focusToken = session.focusToken
-            DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
-        }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: PlainTextView, context: Context) -> CGSize? {
@@ -67,12 +64,9 @@ struct NoteTextEditor: NSViewRepresentable {
         let session: NoteEditorSession
         var applying = false
         var shown = -1
-        /// Seeded so a re-created editor doesn't take focus for an old token.
-        var focusToken: Int
 
         init(session: NoteEditorSession) {
             self.session = session
-            focusToken = session.focusToken
         }
 
         func attach(_ view: PlainTextView) {
@@ -92,7 +86,12 @@ struct NoteTextEditor: NSViewRepresentable {
         /// Makes the underlined run ordinary text of the current note and tells
         /// the session; unmarking may not post `textDidChange` by itself.
         func commitComposition(_ view: PlainTextView) {
-            guard view.hasMarkedText() else { return }
+            // Usually the marked text is already gone (focus loss ended it); the flag must still clear.
+            guard view.hasMarkedText() else {
+                session.isComposing = false
+                if view.string != session.text { session.textChanged(view.string) }
+                return
+            }
             let wasApplying = applying
             applying = true
             endMarkedText(in: view)
