@@ -336,6 +336,26 @@ final class NotesWindowModelTests: XCTestCase {
         XCTAssertFalse(model.errorIsSticky, "it clears itself like any other informational message")
     }
 
+    func testEditingAfterAPasteErrorClearsTheBannerToo() async throws {
+        let item = try note("v1")
+        await model.reload()
+        model.editor.show(.note(item))
+        model.editor.textChanged(String(repeating: "a", count: 70_000))
+        await model.editor.flush()
+        XCTAssertNotNil(model.errorMessage)
+        model.editor.textChanged("short")
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testEditingDoesNotClearAStickyMessage() async throws {
+        let item = try note("v1")
+        await model.reload()
+        model.editor.show(.note(item))
+        model.showError("Your last changes to “X” weren’t saved.", sticky: true)
+        model.editor.textChanged("v2")
+        XCTAssertNotNil(model.errorMessage)
+    }
+
     // MARK: Folders
 
     func testNewFolderInlineNamesSelectsAndStartsRenaming() async throws {
@@ -354,7 +374,7 @@ final class NotesWindowModelTests: XCTestCase {
         await model.reload()
         model.renamingFolderID = work.id
         for refused in ["notes", "ideas", "   "] {  // reserved, taken (any case), empty: the core says no
-            model.errorMessage = nil
+            model.clearError()
             await model.renameFolder(work, to: refused)
             XCTAssertNotNil(model.errorMessage, "“\(refused)” should show the core's message")
             XCTAssertEqual(model.renamingFolderID, work.id, "the field stays editable")
@@ -518,7 +538,7 @@ final class NotesWindowModelTests: XCTestCase {
 
     func testAnInformationalErrorClearsItself() async throws {
         let quick = quickModel()
-        quick.errorMessage = "Couldn’t read that image."
+        quick.showError("Couldn’t read that image.", sticky: false)
         await eventually { quick.errorMessage == nil }
         XCTAssertNil(quick.errorMessage)
     }
@@ -528,6 +548,28 @@ final class NotesWindowModelTests: XCTestCase {
         quick.showError("Your last changes to “X” weren’t saved.", sticky: true)
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertNotNil(quick.errorMessage)
+    }
+
+    func testAStickyMessageSurvivesAFollowingPlainError() async throws {
+        let quick = quickModel()
+        quick.showError("Your last changes to “X” weren’t saved.", sticky: true)
+        quick.showError("Couldn’t read that image.", sticky: false)
+        XCTAssertEqual(quick.errorMessage, "Your last changes to “X” weren’t saved.")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNotNil(quick.errorMessage)
+    }
+
+    func testAStickyMessageSurvivesAReloadFailure() async throws {
+        let unopened = NotesWindowModel(core: CoreClient(dataDir: dataDir.path + "-never-opened"), saveDelay: 0.05)
+        unopened.showError("Your last changes to “X” weren’t saved.", sticky: true)
+        await unopened.reload()
+        XCTAssertEqual(unopened.errorMessage, "Your last changes to “X” weren’t saved.")
+    }
+
+    func testAReloadFailureShowsWhenNothingIsSticky() async throws {
+        let unopened = NotesWindowModel(core: CoreClient(dataDir: dataDir.path + "-never-opened"), saveDelay: 0.05)
+        await unopened.reload()
+        XCTAssertEqual(unopened.errorMessage?.hasPrefix("Couldn’t load notes"), true)
     }
 
     func testADataLossErrorClearsOnTheNextSuccessfulSelect() async throws {

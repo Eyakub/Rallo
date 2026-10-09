@@ -43,7 +43,7 @@ struct NotesWindowView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 4)
                 Button {
-                    model.errorMessage = nil
+                    model.clearError()
                 } label: {
                     Image(systemName: "xmark")
                 }

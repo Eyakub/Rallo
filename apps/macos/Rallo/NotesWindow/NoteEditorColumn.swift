@@ -99,7 +99,7 @@ struct NoteEditorColumn: View {
         Task { @MainActor in
             let images = await Task.detached { urls.compactMap { try? Data(contentsOf: $0) }.compactMap(ImageClipboard.storable) }.value
             if images.isEmpty {
-                model.errorMessage = "Couldn’t read that image."
+                model.showError("Couldn’t read that image.", sticky: false)
             } else {
                 await model.attachImages(images, to: note)
             }

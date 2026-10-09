@@ -40,6 +40,8 @@ final class NoteEditorSession: ObservableObject {
     var onSaved: (ItemSnapshot) -> Void = { _ in }
     /// A refused save's message, for a window that shows it where it can be seen.
     var onError: (String) -> Void = { _ in }
+    /// The user edited, which dropped this message from the session.
+    var onErrorCleared: (String) -> Void = { _ in }
 
     private let core: CoreClient
     private var scheduler: SaveScheduler
@@ -97,7 +99,10 @@ final class NoteEditorSession: ObservableObject {
     func textChanged(_ newText: String) {
         if case .none = target { return }
         text = newText
-        error = nil
+        if let shown = error {
+            error = nil
+            onErrorCleared(shown)
+        }
         scheduler.edited()
         armTimer()
     }

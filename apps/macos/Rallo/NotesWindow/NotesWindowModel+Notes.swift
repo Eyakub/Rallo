@@ -114,7 +114,7 @@ extension NotesWindowModel {
             _ = try await core.attachImages(item, images: images)
             await reload()
         } catch let refusal as ImageRefusal {
-            errorMessage = refusal.message
+            showError(refusal.message, sticky: false)
         } catch {
             await report(error)
         }

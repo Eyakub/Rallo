@@ -215,7 +215,7 @@ private struct FolderRow: View {
                     }
                     .onExitCommand {
                         model.renamingFolderID = nil
-                        model.errorMessage = nil
+                        model.clearError()
                     }
                     .onAppear {
                         name = folder.name

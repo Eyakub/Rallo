@@ -51,9 +51,10 @@ final class NotesWindowModel: ObservableObject {
     @Published var query = ""
     @Published var doneExpanded = false
     @Published private(set) var toast: WindowToast?
-    /// A plain assignment is informational and clears itself after `errorTimeout`. Data-loss
-    /// messages go through `showError(_:sticky:)` and stay until dismissed or the next success.
-    @Published var errorMessage: String? {
+    /// Every message goes through `showError(_:sticky:)`. A plain one is informational and clears
+    /// itself after `errorTimeout`; a sticky (data-loss) one stays until dismissed or the next
+    /// success, and no plain message replaces it.
+    @Published private(set) var errorMessage: String? {
         didSet {
             errorTask?.cancel()
             let sticky = nextErrorIsSticky
@@ -63,12 +64,14 @@ final class NotesWindowModel: ObservableObject {
             errorTask = Task { [weak self, errorTimeout] in
                 try? await Task.sleep(nanoseconds: UInt64(errorTimeout * 1_000_000_000))
                 guard !Task.isCancelled else { return }
-                self?.errorMessage = nil
+                self?.clearError()
             }
         }
     }
     private(set) var errorIsSticky = false
     private var nextErrorIsSticky = false
+    /// Set when the last `letGoOfNote` said something (an unsaved-changes notice).
+    private var letGoRaisedMessage = false
     @Published var renamingFolderID: String?
     @Published var pendingFolderDelete: PendingFolderDelete?
     /// The Custom… reminder popover is open on the selected note.
@@ -104,7 +107,11 @@ final class NotesWindowModel: ObservableObject {
             Task { await self?.reload() }
         }
         editor.onCreated = { [weak self] note in self?.draftCreated(note) }
-        editor.onError = { [weak self] message in self?.errorMessage = message }
+        editor.onError = { [weak self] message in self?.showError(message, sticky: false) }
+        editor.onErrorCleared = { [weak self] message in
+            guard let self, !errorIsSticky, errorMessage == message else { return }
+            clearError()
+        }
     }
 
     // MARK: What the window shows
@@ -223,9 +230,8 @@ final class NotesWindowModel: ObservableObject {
 
     func select(_ new: NotesWindowSelection) async {
         guard new != selection else { return }
-        let before = errorMessage
         guard await letGoOfNote() else { return }
-        if errorMessage == before { clearStickyError() }  // not one this very action raised
+        if !letGoRaisedMessage { clearStickyError() }
         selection = new
         query = ""
         open = PagedItems()
@@ -237,9 +243,8 @@ final class NotesWindowModel: ObservableObject {
 
     func selectNote(_ id: String?) async {
         guard id != selectedNoteID || isDrafting else { return }
-        let before = errorMessage
         guard await letGoOfNote() else { return }
-        if errorMessage == before { clearStickyError() }  // not one this very action raised
+        if !letGoRaisedMessage { clearStickyError() }
         selectedNoteID = id
         // The list's copy can be older than the revision the editor just saved.
         let saved = lastSaved.flatMap { $0.id == id ? $0 : nil }
@@ -262,7 +267,11 @@ final class NotesWindowModel: ObservableObject {
     @discardableResult
     private func letGoOfNote(force: Bool = false) async -> Bool {
         if !force, !(await editor.readyToLeave()) { return false }
-        if let message = await editor.leave() { showError(message, sticky: true) }
+        letGoRaisedMessage = false
+        if let message = await editor.leave() {
+            showError(message, sticky: true)
+            letGoRaisedMessage = true
+        }
         isDrafting = false
         selectedNoteID = nil
         customRemindOpen = false
@@ -309,7 +318,7 @@ final class NotesWindowModel: ObservableObject {
             await syncSelectedNote()
         } catch {
             guard mine == generation else { return }
-            errorMessage = "Couldn’t load notes: \(error.localizedDescription)"
+            showError("Couldn’t load notes: \(error.localizedDescription)", sticky: false)
         }
     }
 
@@ -424,7 +433,7 @@ final class NotesWindowModel: ObservableObject {
     // MARK: Toasts and errors
 
     func announce(_ message: String, undo: (() async -> Void)? = nil) {
-        errorMessage = nil
+        clearError()  // callers announce a success, which ends a sticky message too
         toastTask?.cancel()
         toast = WindowToast(message: message, undo: undo)
         toastTask = Task { [weak self] in
@@ -443,9 +452,10 @@ final class NotesWindowModel: ObservableObject {
 
     /// Runs one core change, then reloads; a failure reloads and says why.
     func run(_ work: (CoreClient) async throws -> Void) async {
-        errorMessage = nil
+        if !errorIsSticky { clearError() }
         do {
             try await work(core)
+            clearError()
             await reload()
         } catch {
             await report(error)
@@ -454,13 +464,19 @@ final class NotesWindowModel: ObservableObject {
 
     /// `sticky` keeps the message until it's dismissed or the user's next action succeeds.
     func showError(_ message: String, sticky: Bool) {
+        if errorIsSticky, !sticky { return }
         nextErrorIsSticky = sticky
         errorMessage = message
     }
 
+    /// Dismisses whatever is showing.
+    func clearError() {
+        errorMessage = nil
+    }
+
     /// A sticky message ends with the user's next successful select or save.
     private func clearStickyError() {
-        if errorIsSticky { errorMessage = nil }
+        if errorIsSticky { clearError() }
     }
 
     func report(_ error: Error, sticky: Bool = false) async {
@@ -560,7 +576,7 @@ final class NotesWindowModel: ObservableObject {
         do {
             _ = try await core.renameFolder(folder, to: name)
             renamingFolderID = nil
-            errorMessage = nil
+            clearError()
             await reload()
             return true
         } catch {
