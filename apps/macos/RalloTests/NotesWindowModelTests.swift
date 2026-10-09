@@ -232,8 +232,58 @@ final class NotesWindowModelTests: XCTestCase {
         model.query = ""
         model.queryChanged()
         XCTAssertFalse(model.isSearching)
+        XCTAssertTrue(model.found.items.isEmpty, "clearing the field drops the results at once")
+        XCTAssertEqual(model.found.pages, 0)
         XCTAssertEqual(Set(model.visibleItems.map(\.text)), ["budget notes", "unrelated"])
         XCTAssertEqual(model.header.title, "Notes")
+        // The debounced reload lands: a note made meanwhile shows in the scope's list.
+        try note("late arrival")
+        try await eventually { model.items.count == 3 }
+        XCTAssertEqual(Set(model.items.map(\.text)), ["budget notes", "unrelated", "late arrival"])
+        XCTAssertEqual(model.header, NotesWindowModel.Header(title: "Notes", subtitle: "3 open · 0 done"))
+    }
+
+    // MARK: Opening
+
+    func testOpenedSwitchesTheScopeAndSelectsTheNote() async throws {
+        let work = try folder("Work")
+        let item = try note("In work", in: work)
+        await model.opened(selection: .scope(.folder(work.id)), noteID: item.id)
+        XCTAssertEqual(model.selection, .scope(.folder(work.id)))
+        XCTAssertEqual(model.selectedNoteID, item.id)
+        XCTAssertEqual(model.editor.note?.id, item.id)
+    }
+
+    func testOpenedWithADeclinedSwitchKeepsTheOpenNoteAndItsTyping() async throws {
+        let work = try folder("Work")
+        let first = try note("First")
+        let second = try note("Second", in: work)
+        await model.reload()
+        await model.selectNote(first.id)
+        _ = try other.editItemText(id: first.id, text: "theirs", ifRevision: nil)
+        model.editor.textChanged("mine")
+        await model.opened(selection: .scope(.folder(work.id)), noteID: second.id)
+        XCTAssertEqual(model.selection, .scope(.all))
+        XCTAssertEqual(model.selectedNoteID, first.id)
+        XCTAssertEqual(model.editor.note?.id, first.id)
+        XCTAssertEqual(model.editor.text, "mine")
+        XCTAssertTrue(model.editor.conflict)
+        XCTAssertNil(model.errorMessage, "nothing was dropped")
+    }
+
+    func testSwitchingBackToANoteOpensTheRevisionJustSaved() async throws {
+        let first = try note("First")
+        let second = try note("Second")
+        await model.reload()
+        await model.selectNote(first.id)
+        model.editor.textChanged("saved text")
+        await model.editor.flush()
+        let savedRevision = try XCTUnwrap(model.editor.note?.revision)
+        await model.selectNote(second.id)
+        await model.selectNote(first.id)
+        XCTAssertEqual(model.editor.text, "saved text")
+        XCTAssertEqual(model.editor.note?.revision, savedRevision)
+        XCTAssertNil(model.errorMessage)
     }
 
     // MARK: Moving
@@ -456,6 +506,17 @@ final class NotesWindowModelTests: XCTestCase {
         await model.keepMine()
         try await eventually { try other.listOpenItems(limit: 50).first?.text == "mine 2" }
         XCTAssertEqual(try other.listOpenItems(limit: 50).first?.text, "mine 2")
+    }
+
+    func testShowTheirsAfterTheBarWentAwayDoesNothing() async throws {
+        let first = try note("First")
+        let second = try note("Second")
+        await model.reload()
+        await model.selectNote(first.id)
+        await model.selectNote(second.id)
+        await model.showTheirs()
+        XCTAssertEqual(model.selectedNoteID, second.id)
+        XCTAssertEqual(model.editor.note?.id, second.id)
     }
 
     func testSwitchingNotesRightAfterAChangeElsewhereStaysOnTheBar() async throws {

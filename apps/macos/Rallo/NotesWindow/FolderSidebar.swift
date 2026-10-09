@@ -137,6 +137,18 @@ private struct FolderRow: View {
 
     private var renaming: Bool { folder != nil && model.renamingFolderID == folder?.id }
 
+    /// Submits the typed name. Return keeps a refused field editable; a click-away has no
+    /// field to keep, so a refusal ends the rename and leaves the core's message in the banner.
+    private func commit(_ folder: FolderSnapshot, endOnRefusal: Bool) {
+        guard !submitting else { return }
+        submitting = true
+        Task {
+            let renamed = await model.renameFolder(folder, to: name)
+            submitting = false
+            if !renamed, endOnRefusal, model.renamingFolderID == folder.id { model.renamingFolderID = nil }
+        }
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "folder").foregroundStyle(Theme.rust).frame(width: 18)
@@ -145,12 +157,7 @@ private struct FolderRow: View {
                     .textFieldStyle(.plain)
                     .focused($fieldFocused)
                     .onSubmit {
-                        guard !submitting else { return }
-                        submitting = true
-                        Task {
-                            await model.renameFolder(folder, to: name)
-                            submitting = false
-                        }
+                        commit(folder, endOnRefusal: false)
                     }
                     .onExitCommand {
                         model.renamingFolderID = nil
@@ -168,10 +175,14 @@ private struct FolderRow: View {
                             hadFocus = true
                             NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
                         } else if hadFocus, !submitting, model.renamingFolderID == folder.id {
-                            // Clicked elsewhere: leave the name as it was, without committing.
+                            // Clicked elsewhere: a changed name commits like Return (Esc cancels first by
+                            // clearing `renamingFolderID`, so its own focus loss lands here as a no-op).
                             hadFocus = false
-                            model.renamingFolderID = nil
-                            model.errorMessage = nil
+                            if name.trimmingCharacters(in: .whitespacesAndNewlines) == folder.name {
+                                model.renamingFolderID = nil
+                            } else {
+                                commit(folder, endOnRefusal: true)
+                            }
                         }
                     }
                     .accessibilityLabel("Folder name")

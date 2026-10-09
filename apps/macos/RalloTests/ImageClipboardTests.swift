@@ -138,7 +138,8 @@ final class ImageClipboardTests: XCTestCase {
         let first = await cache.image(for: url.path)
         XCTAssertNotNil(first)
         let second = await cache.image(for: url.path)
-        XCTAssertTrue(first === second)
+        // NSCache may evict between the reads, so the same object isn't guaranteed; the same image is.
+        XCTAssertEqual(second?.size, first?.size)
     }
 
     @MainActor

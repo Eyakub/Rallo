@@ -20,10 +20,4 @@ final class SelectionFallbackTests: XCTestCase {
     func testATagNoOpenNoteCarriesAnyMoreFallsBackToAllNotes() {
         XCTAssertEqual(SelectionFallback.resolve(.tag("bug"), folderIDs: ["w"], tagNames: ["release"]), .scope(.all))
     }
-
-    func testTheSelectedNoteSurvivesOnlyWhileItIsLoaded() {
-        XCTAssertEqual(SelectionFallback.noteID("a", loaded: ["a", "b"]), "a")
-        XCTAssertNil(SelectionFallback.noteID("gone", loaded: ["a", "b"]))
-        XCTAssertNil(SelectionFallback.noteID(nil, loaded: ["a"]))
-    }
 }

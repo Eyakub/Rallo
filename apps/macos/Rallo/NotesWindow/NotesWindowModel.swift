@@ -63,7 +63,10 @@ final class NotesWindowModel: ObservableObject {
     let namePrompter = FolderNamePrompter()
     /// Rows per page (tests pass 2 to exercise paging).
     let pageSize: UInt32
-    private var generation = 0
+    /// Bumped by every reload; the list's paging sentinels key on it so a page a superseded reload dropped re-arms.
+    private(set) var generation = 0
+    /// The newest copy the editor saved, which the list may not have caught up to yet.
+    private var lastSaved: ItemSnapshot?
     /// The cursor being fetched per list (open, done, results), so a sentinel appearing
     /// twice doesn't load a page twice while another list can still load meanwhile.
     private var loadingCursors: [String: String] = [:]
@@ -74,7 +77,10 @@ final class NotesWindowModel: ObservableObject {
         self.core = core
         self.pageSize = pageSize
         editor = NoteEditorSession(core: core, saveDelay: saveDelay)
-        editor.onSaved = { [weak self] _ in Task { await self?.reload() } }
+        editor.onSaved = { [weak self] saved in
+            self?.lastSaved = saved
+            Task { await self?.reload() }
+        }
         editor.onCreated = { [weak self] note in self?.draftCreated(note) }
     }
 
@@ -168,6 +174,8 @@ final class NotesWindowModel: ObservableObject {
     func opened(selection requested: NotesWindowSelection?, noteID: String?) async {
         if let requested, requested != selection {
             await select(requested)
+            // A declined switch (a conflict bar) keeps the open note: selecting another would drop the typing.
+            guard selection == requested else { return }
         } else {
             await reload()
         }
@@ -206,7 +214,19 @@ final class NotesWindowModel: ObservableObject {
         guard id != selectedNoteID || isDrafting else { return }
         guard await letGoOfNote() else { return }
         selectedNoteID = id
-        if let item = selectedItem { editor.show(.note(item)) } else { editor.show(.none) }
+        // The list's copy can be older than the revision the editor just saved.
+        let saved = lastSaved.flatMap { $0.id == id ? $0 : nil }
+        if let item = Self.newest(listed: id.flatMap(loadedItem), saved: saved) ?? selectedItem {
+            editor.show(.note(item))
+        } else {
+            editor.show(.none)
+        }
+    }
+
+    /// The saved copy when the list hasn't caught up to it, else the listed one.
+    private static func newest(listed: ItemSnapshot?, saved: ItemSnapshot?) -> ItemSnapshot? {
+        if let saved, saved.revision > (listed?.revision ?? 0) { return saved }
+        return listed
     }
 
     /// Saves typing and closes the editor's note; what couldn't be saved is said once.
@@ -218,6 +238,7 @@ final class NotesWindowModel: ObservableObject {
         if let message = await editor.leave() { errorMessage = message }
         isDrafting = false
         selectedNoteID = nil
+        customRemindOpen = false
         editor.show(.none)
         return true
     }
@@ -424,10 +445,9 @@ final class NotesWindowModel: ObservableObject {
             await editor.flush()
             await reload()
         }
-        let listed = loadedItem(item.id)
         // A save a moment ago may not have reached the list yet: the editor's copy is newer.
-        if let saved = editor.note, saved.id == item.id, saved.revision > (listed?.revision ?? 0) { return saved }
-        if let listed { return listed }
+        let saved = editor.note.flatMap { $0.id == item.id ? $0 : nil }
+        if let newest = Self.newest(listed: loadedItem(item.id), saved: saved) { return newest }
         // Off the list (moved out of the scope, deleted): the core still has it.
         return (try? await core.item(item.id)) ?? item
     }
@@ -458,7 +478,10 @@ final class NotesWindowModel: ObservableObject {
     func showTheirs() async {
         guard let id = editor.note?.id else { return }
         await reload()
-        if let latest = await latestItem(id) { editor.showTheirs(latest) } else { await letGoOfNote() }
+        let latest = await latestItem(id)
+        // The awaits above can outlast the bar: only answer it for the note still open.
+        guard editor.note?.id == id, editor.conflict else { return }
+        if let latest { editor.showTheirs(latest) } else { await letGoOfNote() }
     }
 
     /// Keep Mine: the typed text saves again on the note's new revision.
@@ -479,7 +502,8 @@ final class NotesWindowModel: ObservableObject {
             do {
                 let folder = try await core.createFolder(name)
                 await select(.scope(.folder(folder.id)))
-                renamingFolderID = folder.id
+                // A declined switch (a conflict bar) leaves the folder made but not selected: no rename then.
+                if selection == .scope(.folder(folder.id)) { renamingFolderID = folder.id }
                 return
             } catch let error as RalloError where error.code == "FOLDER_EXISTS" {
                 await reload()  // someone else made it first (the CLI); try the next free name
@@ -492,15 +516,18 @@ final class NotesWindowModel: ObservableObject {
     }
 
     /// Inline rename. The core judges the name: a refusal shows its message
-    /// and the field stays editable.
-    func renameFolder(_ folder: FolderSnapshot, to name: String) async {
+    /// and the field stays editable. False when the core refused.
+    @discardableResult
+    func renameFolder(_ folder: FolderSnapshot, to name: String) async -> Bool {
         do {
             _ = try await core.renameFolder(folder, to: name)
             renamingFolderID = nil
             errorMessage = nil
             await reload()
+            return true
         } catch {
             await report(error)
+            return false
         }
     }
 

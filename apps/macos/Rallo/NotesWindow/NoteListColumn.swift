@@ -128,22 +128,26 @@ struct NoteListColumn: View {
             item: item, selected: !model.isDrafting && model.selectedNoteID == item.id, dimmed: dimmed, model: model
         )
         .id(item.id)
-        .onTapGesture {
-            Task {
-                await model.selectNote(item.id)
-                // A declined switch (a conflict bar) leaves the keyboard where it was.
-                if model.selectedNoteID == item.id { listFocused = true }
-            }
+        .onTapGesture { open(item) }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { open(item) }
+    }
+
+    private func open(_ item: ItemSnapshot) {
+        Task {
+            await model.selectNote(item.id)
+            // A declined switch (a conflict bar) leaves the keyboard where it was.
+            if model.selectedNoteID == item.id { listFocused = true }
         }
     }
 
     /// Below a list's rows: when it comes into view the list's next page loads (0019 §9).
-    /// Keyed on the cursor, so a page that was dropped or failed re-arms it.
+    /// Keyed on the cursor and the reload generation, so a page that was dropped or failed re-arms it.
     @ViewBuilder
     private func sentinel(_ list: PagedItems, done: Bool) -> some View {
         if let cursor = list.nextCursor {
             Color.clear.frame(height: 1)
-                .id("more-\(done)-\(cursor)")
+                .id("more-\(done)-\(cursor)-\(model.generation)")
                 .onAppear { Task { await model.loadMore(done: done) } }
         }
     }

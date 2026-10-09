@@ -18,9 +18,4 @@ enum SelectionFallback {
         default: selection
         }
     }
-
-    /// The selected note survives a reload only while it is in what loaded.
-    static func noteID(_ selected: String?, loaded: Set<String>) -> String? {
-        selected.flatMap { loaded.contains($0) ? $0 : nil }
-    }
 }
