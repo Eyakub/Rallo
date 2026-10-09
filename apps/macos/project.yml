@@ -77,6 +77,7 @@ targets:
       - path: Rallo/NotesWindow/DateGrouping.swift
       - path: Rallo/NotesWindow/FolderNaming.swift
       - path: Rallo/NotesWindow/NotesWindowSelection.swift
+      - path: Rallo/NotesWindow/SaveScheduler.swift
       - path: Rallo/Notes/NotesScope.swift
       - path: Rallo/Notes/PanelDefaults.swift
       - path: Rallo/Notes/FolderMenuItems.swift
