@@ -10,7 +10,7 @@
 
 **Spec:** docs/decisions/0019-folders-and-tags.md
 
-Scope: §11 (window, expand button) and §12 (delete-folder sheet). §9 (FFI), §10 (`NotesScope`, `FolderMoveMenu`, `FolderNamePrompt`, built by release 2 and reused here) and §11's `NotesWindowSelection` are inputs.
+Scope: §11 (window, expand button) and §12 (delete-folder sheet). §9 (FFI), §10 (`NotesScope`, `FolderMoveMenu`, `FolderNamePrompter`/`FolderNameOverlay`, built by release 2 and reused here) and §11's `NotesWindowSelection` are inputs.
 
 ## Swift API this plan assumes from releases 1 and 2
 
@@ -18,9 +18,9 @@ Task 1 compiles release 1's list and checks release 2's names; if the repo diffe
 
 **Release 1 (UniFFI names, from §9).** The FFI class is `RalloStore`. Methods on it: `folderOverview() throws -> FolderOverview`, `listTags() throws -> [TagSnapshot]`, `createFolder(name: String) throws -> FolderSnapshot`, `renameFolder(id: String, name: String) throws -> FolderSnapshot`, `deleteFolder(id: String, keepNotes: Bool) throws -> FolderDeleteResult`, `moveItem(id: String, folderId: String?, ifRevision: Int64?) throws -> ItemSnapshot`, `listItems(kind: ItemListKind, scope: FolderScope, tag: String?, limit: UInt32, cursor: String?) throws -> ItemPage`, `searchItems(query: String, limit: UInt32, cursor: String?) throws -> ItemPage`, `cancelReminder(id: String, ifRevision: Int64?) throws -> ItemSnapshot`, `createNoteWithImages(text: String, images: [Data], folderId: String?)`, `createReminderWithImages(text:when:images:folderId:)`; existing and unchanged: `editItemText(id:text:ifRevision:)`, `completeItem`, `reopenItem`, `deleteItem`, `restoreItem`, `remindIn`, `remindAt`, `attachImages`, `detachImage`, `changeRevision`. Free function `tagRanges(text: String) -> [TagRange]`. Types: `FolderSnapshot { id, name, openCount: UInt32, noteCount: UInt32, revision: Int64 }` (`noteCount` is open + done, nondeleted), `FolderOverview { allOpen, unfiledOpen, due, done, deleted: UInt32; folders: [FolderSnapshot] }`, `TagSnapshot { name, openCount: UInt32 }`, `TagRange { utf16Start: UInt32, utf16Len: UInt32, name: String }`, `ItemPage { items: [ItemSnapshot], nextCursor: String?, totalCount: UInt32 }`, `enum FolderScope { case all, unfiled, folder(id: String) }`, `enum ItemListKind { case open, done, due, deleted }`, `FolderDeleteResult { moved: UInt32, deleted: UInt32 }`, and `ItemSnapshot.folderId: String?`, `.folderName: String?`, `.tags: [String]`. `RalloError` keeps its five cases; `FOLDER_NAME_INVALID` is `InvalidInput`, `FOLDER_NOT_FOUND` `NotFound`, `FOLDER_EXISTS` `Conflict`, stale revisions `Conflict(code: "REVISION_CONFLICT", …)`. `tagRanges` ranges are UTF-16, cover the `#`, and are computed on exactly the string passed in (§7).
 
-**Release 2 (panel; exactly the "API this plan produces for release 3" section of `docs/plans/2026-10-08-folders-2-panel.md`).** `CoreClient`: `createNote(_:images:folderID:)` (default `nil`), `createReminder(_:when:images:folderID:)`, `openItems(scope:limit:)`, `folderOverview()`, `createFolder(_:)`, `moveItem(_:folderID:)`. `enum NotesScope: Hashable { case all, unfiled, folder(String) }` in `Notes/NotesScope.swift` with `folderScope: FolderScope` (release 2's `RalloTests` sources already list `NotesScope.swift` and `Theme.swift`). `struct FolderMoveMenu: View { currentFolderID: String?; folders: [FolderSnapshot]; onMove: (String?) -> Void; onNewFolder: () -> Void }`. `@MainActor enum FolderNamePrompt { static func ask(title: String, initial: String, validate: @escaping (String) async throws -> Void) async -> String? }` (`validate` is the real create call, so the core's own message shows in the alert; Swift never re-implements the name rules, §3 and §10). `NotesViewModel`: `init(core:defaults: UserDefaults = .standard)` and `private(set) var scope: NotesScope` (plus existing `expandedID`); `AppCoordinator` builds it as `NotesViewModel(core: core, defaults: isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard)` (release 2 Task 5 Step 6). The panel's `Toast` (`Toast.Undo` gains `move`) is unchanged; its private `ToastBar` becomes `ToastBar(message:undoable:undoShortcut:undo:)` in Task 11 so the window can reuse it with its own `WindowToast` model.
+**Release 2 (panel; the "API this plan produces for release 3" section of `docs/plans/2026-10-08-folders-2-panel.md`, as built: `docs/plans/README.md`, "Plan 2 as built", wins where they differ).** `CoreClient`: `createNote(_:images:folderID:)` (default `nil`), `createReminder(_:when:images:folderID:)`, `openItems(scope:limit:)`, `folderOverview()`, `createFolder(_:)`, `deleteFolder(_ id: String, keepNotes: Bool)`, `moveItem(_:folderID:)`. `enum NotesScope: Hashable { case all, unfiled, folder(String) }` in `Notes/NotesScope.swift` with `folderScope: FolderScope` (release 2's `RalloTests` sources already list `NotesScope.swift`, `FolderNamePrompter.swift`, `RemindPreset.swift` and `Theme.swift`). `struct FolderMoveMenu: View { currentFolderID: String?; folders: [FolderSnapshot]; onMove: (String?) -> Void; onNewFolder: () -> Void }`. `@MainActor final class FolderNamePrompter: ObservableObject` in `Notes/FolderNamePrompter.swift` with `ask(title: String, initial: String, confirmTitle: String, validate: @escaping (String) async throws -> Void) async -> String?`, `request`, `cancel()`, shown by `FolderNameOverlay(prompter:)` (`Notes/FolderNameOverlay.swift`), a card on a scrim drawn inside its host view, not an `NSAlert` (`runModal` inside a main-actor job starves `validate`). `validate` is the real create call, so the core's own message shows under the field; Swift never re-implements the name rules, §3 and §10. `NotesViewModel` (now `Notes/NotesViewModel.swift`, with `Toast`): `init(core:defaults: UserDefaults = .standard)` and `private(set) var scope: NotesScope` (plus existing `expandedID`, `namePromptShown`, `scopeMenuOpen`); `AppCoordinator` builds it as `NotesViewModel(core: core, defaults: PanelDefaults.defaults(forDataDir: dataDir))` (`Notes/PanelDefaults.swift`: any data dir but the real one gets the `com.razlio.rallo.scratch` suite). `RemindPreset` and `ReminderSnapshot.deadline` live in `Notes/RemindPreset.swift`. The panel's `Toast` (`Toast.Undo` gains `move`) is unchanged; its private `ToastBar` (still in `Notes/NotesView.swift`) becomes `ToastBar(message:undoable:undoShortcut:undo:)` in Task 11 so the window can reuse it with its own `WindowToast` model.
 
-**What this plan adds to `CoreClient` (Task 2):** `listTags`, `renameFolder`, `deleteFolder`, paged `listItems`/`searchItems` (return `ItemPage`), `cancelReminder`, `static let pageSize`.
+**What this plan adds to `CoreClient` (Task 2):** `listTags`, `renameFolder`, paged `listItems`/`searchItems` (return `ItemPage`), `cancelReminder`, `static let pageSize`. Deleting a folder uses release 2's `deleteFolder(_ id:keepNotes:)`; no second API.
 
 ## Global Constraints
 
@@ -44,12 +44,14 @@ Task 1 compiles release 1's list and checks release 2's names; if the repo diffe
   "$CLI" note "Call the dentist"
   "$CLI" note "Café ideas #كلمة and カフェ 🦊 #bug"
   pkill -f -- "--data-dir $RALLO_DATA_DIR"; sleep 1
-  open -n "$APP" --args --data-dir "$RALLO_DATA_DIR" --demo-appearance light --demo-open window
+  # `open` hands its environment to the app: with RALLO_DATA_DIR set the instance is not scratch and ignores the demo flags.
+  env -u RALLO_DATA_DIR open -n -g "$APP" --args --data-dir "$RALLO_DATA_DIR" --demo-appearance light --demo-open window
   ```
-  Dark Mode: stop it (`pkill -f -- "--data-dir $RALLO_DATA_DIR"`; if an open menu or sheet ignores SIGTERM, `sleep 1; pkill -9 -f -- "--data-dir $RALLO_DATA_DIR"`) and relaunch with `--demo-appearance dark`. Window screenshots: copy the `windows.swift` helper from `scripts/screenshots.sh` (the heredoc under "Capture"), `swiftc -O -o "$SCRATCH/windows" "$SCRATCH/windows.swift"`, then `"$SCRATCH/windows" $(pgrep -f -- "--demo-open window" | head -1)` prints `id layer name`; `screencapture -x -l <id> private/docs/folders-3-shots/<task>-<what>-<light|dark>.png` (needs Screen Recording permission for the terminal). `private/` is gitignored.
+  Dark Mode: stop it (`pkill -f -- "--data-dir $RALLO_DATA_DIR"`; if an open menu or sheet ignores SIGTERM, `sleep 1; pkill -9 -f -- "--data-dir $RALLO_DATA_DIR"`) and relaunch the same way with `--demo-appearance dark`.
+  Driving the UI: send clicks and keys to the app's pid only (Accessibility actions such as `AXPress`/`AXValue` on its elements, or `CGEvent.postToPid`), never through the global HID event tap: typing in the terminal leaks into a frontmost scratch app. Window screenshots: copy the `windows.swift` helper from `scripts/screenshots.sh` (the heredoc under "Capture"), `swiftc -O -o "$SCRATCH/windows" "$SCRATCH/windows.swift"`, then `"$SCRATCH/windows" $(pgrep -f -- "--demo-open window" | head -1)` prints `id layer name`; `screencapture -x -l <id> private/docs/folders-3-shots/<task>-<what>-<light|dark>.png` (needs Screen Recording permission for the terminal). `private/` is gitignored.
   Cleanup after the last check of a session: `pkill -f -- "--data-dir $RALLO_DATA_DIR"; /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$APP"; rm -rf "$SCRATCH"`.
   The scratch app keeps the panel's scope and the window's frame in a separate defaults suite (`com.razlio.rallo.scratch`), so the installed app's preferences are never touched; `defaults delete com.razlio.rallo.scratch` clears them.
-- UI: build, launch the scratch build on a temp data dir, click through every behaviour of the task, and screenshot **Light and Dark Mode** before calling a task done.
+- UI: build, launch the scratch build on a temp data dir, click through every behaviour of the task **once, in Light Mode**, then relaunch in **Dark Mode** and screenshot only the states the task changed (no second walk-through). Show one core validation error at most; unit tests cover the rest. Both appearances are screenshotted before a task is called done.
 - **Commits:** conventional (`feat(app): …`, `test(app): …`, `docs: …`), author `eyakubsorkar@gmail.com` (already the repo's git config), **no AI attribution and no Co-Authored-By trailer** (this overrides any default trailer). Stage only the paths each commit step names; the untracked `assets/pet/rallo/launch-kit/` and `marketing/` are not ours.
 - No release, version bump or changelog in this plan. The last task updates the README (the in-app features table); release notes wait for release time.
 - Copy is exact (spec §11/§12): "Open Notes Window" (expand button help and accessibility label), "Notes Window" (status-menu item and Window-menu item), File menu: "New Note", "New Folder", "Close"; window title "Notes", search prompt "Search all notes", "No note selected", "This note changed somewhere else." with **Show Theirs** / **Keep Mine**, "New Folder", "New Note", "N done", "Results", and the delete sheet: **Delete “Work”?** / "It holds 5 notes. Keep them in Notes, or delete them too? Deleted notes stay in Deleted, where you can restore them." / **Keep Notes** (default), **Delete Notes** (destructive), **Cancel**; empty folder: **Delete “Work”?** / "The folder is empty." / **Delete**, **Cancel**.
@@ -87,9 +89,9 @@ New, under `apps/macos/Rallo/NotesWindow/` (the folder is new; pure files are Fo
 | `NoteListColumn.swift` | list column, rows, paging, toast |
 | `NoteEditorColumn.swift`, `NoteTextEditor.swift`, `FolderPrompts.swift` | editor column, the `NSTextView` wrapper, New Folder… glue |
 
-New elsewhere: `Notes/RemindPreset.swift` (moved out of `NotesView.swift`), `Notes/RemindMenuItems.swift` (shared by the panel and the window), `RalloTests/*Tests.swift`.
+New elsewhere: `Notes/RemindMenuItems.swift` (shared by the panel and the window), `RalloTests/*Tests.swift`. (`Notes/RemindPreset.swift` already exists: release 2 moved it.)
 
-Modified: `Core/CoreClient.swift`, `Notes/RalloError+Display.swift`, `Shared/Theme.swift` (`inkNS`/`rustNS`, the `NSColor`s behind `ink`/`rust`), `Notes/NotesView.swift` (`RemindPreset` moved out, `ToastBar` made reusable, expand button), `Notes/NoteRow.swift`, `Notes/CustomRemindPopover.swift`, `Notes/ImageStrip.swift`, `Notes/Thumbnails.swift`, `App/AppCoordinator.swift`, `App/AppDelegate.swift`, `App/StatusMenuController.swift`, `Settings/SettingsWindowController.swift`, `Diagnostics/WindowReport.swift`, `apps/macos/project.yml`, `README.md`.
+Modified: `Core/CoreClient.swift`, `Notes/RalloError+Display.swift`, `Shared/Theme.swift` (`inkNS`/`rustNS`, the `NSColor`s behind `ink`/`rust`), `Notes/NotesView.swift` (`ToastBar` made reusable, expand button), `Notes/NotesViewModel.swift` (`onExpand`), `Notes/FolderNameOverlay.swift` (`.folderNamePrompt(_:)`, Esc on the card), `Notes/NoteRow.swift`, `Notes/CustomRemindPopover.swift`, `Notes/ImageStrip.swift`, `Notes/Thumbnails.swift`, `App/AppCoordinator.swift`, `App/AppDelegate.swift`, `App/StatusMenuController.swift`, `Settings/SettingsWindowController.swift`, `Diagnostics/WindowReport.swift`, `apps/macos/project.yml`, `README.md`.
 
 ---
 
@@ -194,15 +196,18 @@ cd /Users/eyakub/Desktop/Rallo/apps/macos/Rallo
 grep -n "func moveItem(_ item: ItemSnapshot, folderID" Core/CoreClient.swift
 grep -n "func createNote(_ text: String, images: \[Data\], folderID" Core/CoreClient.swift
 grep -n "func folderOverview\|func createFolder" Core/CoreClient.swift
+grep -n "func deleteFolder(_ id: String, keepNotes: Bool)" Core/CoreClient.swift
 grep -n "var folderScope" Notes/NotesScope.swift
-grep -n "static func ask" Notes/FolderNamePrompt.swift
-grep -n "private(set) var scope\|init(core: CoreClient, defaults" Notes/NotesView.swift
-grep -n 'notesModel = NotesViewModel(core: core, defaults: isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard)' App/AppCoordinator.swift
+grep -n "func ask(title: String, initial: String, confirmTitle: String" Notes/FolderNamePrompter.swift
+grep -n "struct FolderNameOverlay: View" Notes/FolderNameOverlay.swift
+grep -n "private(set) var scope\|init(core: CoreClient, defaults" Notes/NotesViewModel.swift
+grep -n 'notesModel = NotesViewModel(core: core, defaults: PanelDefaults.defaults(forDataDir: dataDir))' App/AppCoordinator.swift
 grep -n "^private struct ToastBar: View" Notes/NotesView.swift
-grep -n "NotesScope.swift\|Theme.swift" ../project.yml
+grep -n "enum RemindPreset\|var deadline: Date" Notes/RemindPreset.swift
+grep -n "NotesScope.swift\|FolderNamePrompter.swift\|RemindPreset.swift\|Theme.swift" ../project.yml
 ```
 
-Expected: every command prints at least one line (`createFolder` and `folderOverview` one each). Task 9 anchors on that `AppCoordinator` line and Task 11 on `ToastBar`. An empty result means release 2 differs from its plan: stop and report which.
+Expected: every command prints at least one line (`createFolder` and `folderOverview` one each). Task 9 anchors on that `AppCoordinator` line, Task 11 on `ToastBar` and `FolderNamePrompter`. An empty result means release 2 differs from its plan: stop and report which.
 
 - [ ] **Step 3: Run the test; it must compile and pass**
 
@@ -226,10 +231,10 @@ git commit -m "test(app): pin the folders FFI the notes window builds on"
 - Create: `apps/macos/RalloTests/CoreClientWindowTests.swift`
 
 **Interfaces:**
-- Consumes: Task 1's confirmed FFI; release 2's `CoreClient` wrappers (`createNote(_:images:folderID:)`, `createFolder(_:)`, `folderOverview()`, `moveItem(_:folderID:)`, `openItems(scope:limit:)`); `CoreWorker.perform`.
+- Consumes: Task 1's confirmed FFI; release 2's `CoreClient` wrappers (`createNote(_:images:folderID:)`, `createFolder(_:)`, `deleteFolder(_ id: String, keepNotes:)`, `folderOverview()`, `moveItem(_:folderID:)`, `openItems(scope:limit:)`); `CoreWorker.perform`.
 - Produces (all `async throws` on `CoreClient`; release 2 does not define these):
   `static let pageSize: UInt32 = 100`;
-  `listTags() -> [TagSnapshot]`; `renameFolder(_ folder: FolderSnapshot, to name: String) -> FolderSnapshot`; `deleteFolder(_ folder: FolderSnapshot, keepNotes: Bool) -> FolderDeleteResult`;
+  `listTags() -> [TagSnapshot]`; `renameFolder(_ folder: FolderSnapshot, to name: String) -> FolderSnapshot`;
   `listItems(_ kind: ItemListKind, scope: FolderScope = .all, tag: String? = nil, cursor: String? = nil, limit: UInt32 = CoreClient.pageSize) -> ItemPage`;
   `searchItems(_ query: String, cursor: String? = nil, limit: UInt32 = CoreClient.pageSize) -> ItemPage`;
   `cancelReminder(_ item: ItemSnapshot) -> ItemSnapshot`.
@@ -310,7 +315,7 @@ final class CoreClientWindowTests: XCTestCase {
         XCTAssertEqual(overview.folders.first?.openCount, 0, "the sidebar count is open notes only")
         XCTAssertEqual(overview.folders.first?.noteCount, 1, "the delete sheet must still say the folder holds a note")
 
-        let result = try await core.deleteFolder(try XCTUnwrap(overview.folders.first), keepNotes: true)
+        let result = try await core.deleteFolder(try XCTUnwrap(overview.folders.first).id, keepNotes: true)
         XCTAssertEqual(result.moved, 1)
         let kept = try await core.listItems(.done, scope: .unfiled)
         XCTAssertEqual(kept.items.map(\.text), ["Finished"])
@@ -348,10 +353,6 @@ In `apps/macos/Rallo/Core/CoreClient.swift`, insert before `    // MARK: Export 
         try await worker.perform { try $0.renameFolder(id: folder.id, name: name) }
     }
 
-    func deleteFolder(_ folder: FolderSnapshot, keepNotes: Bool) async throws -> FolderDeleteResult {
-        try await worker.perform { try $0.deleteFolder(id: folder.id, keepNotes: keepNotes) }
-    }
-
     /// One page per call; pass the previous page's `nextCursor` for the next.
     func listItems(
         _ kind: ItemListKind, scope: FolderScope = .all, tag: String? = nil, cursor: String? = nil,
@@ -382,7 +383,7 @@ Expected: `Test Suite 'CoreClientWindowTests' passed`.
 ```bash
 cd /Users/eyakub/Desktop/Rallo
 git add apps/macos/Rallo/Core/CoreClient.swift apps/macos/RalloTests/CoreClientWindowTests.swift
-git commit -m "feat(app): CoreClient paged lists, tags, folder rename and delete, cancel reminder"
+git commit -m "feat(app): CoreClient paged lists, tags, folder rename, cancel reminder"
 ```
 
 ---
@@ -1850,67 +1851,23 @@ git commit -m "feat(app): editor session with debounced saves, conflicts and dra
 **Files:**
 - Create: `apps/macos/Rallo/NotesWindow/NotesWindowModel.swift`
 - Create: `apps/macos/Rallo/NotesWindow/NotesWindowModel+Notes.swift`
-- Create: `apps/macos/Rallo/Notes/RemindPreset.swift` (moved from `NotesView.swift`)
-- Modify: `apps/macos/Rallo/Notes/NotesView.swift` (remove `RemindPreset`)
 - Modify: `apps/macos/Rallo/Notes/RalloError+Display.swift` (add `code`)
 - Create: `apps/macos/RalloTests/NotesWindowModelTests.swift`
 - Modify: `apps/macos/project.yml` (test sources)
 
 **Interfaces:**
-- Consumes: `CoreClient` (Task 2: paged `listItems`/`searchItems`, `pageSize`, `listTags`, `renameFolder`, `deleteFolder`, `cancelReminder`; release 2: `folderOverview`, `createFolder`, `moveItem(_:folderID:)`), `NotesScope.folderScope` (release 2), `NoteEditorSession` (Task 7), `NotesWindowSelection`/`SelectionFallback` (Task 4), `FolderNaming` (Task 4), `RemindPreset`, `ReminderLabel`, `ImageClipboard.check`.
+- Consumes: `CoreClient` (Task 2: paged `listItems`/`searchItems`, `pageSize`, `listTags`, `renameFolder`, `cancelReminder`; release 2: `folderOverview`, `createFolder`, `deleteFolder(_ id:keepNotes:)`, `moveItem(_:folderID:)`), `NotesScope.folderScope` (release 2), `FolderNamePrompter` (release 2), `NoteEditorSession` (Task 7), `NotesWindowSelection`/`SelectionFallback` (Task 4), `FolderNaming` (Task 4), `RemindPreset` (release 2, `Notes/RemindPreset.swift`), `ReminderLabel`, `ImageClipboard.check`.
 - Produces: `@MainActor final class NotesWindowModel: ObservableObject` with `PagedItems { items, nextCursor, totalCount: Int, pages: Int; hasMore }`, `WindowToast`, `PendingFolderDelete { folder; noteCount }`, and
-  state `overview`, `tags`, `open`, `done`, `found` (`PagedItems`), `selection`, `selectedNoteID`, `isDrafting` (`private(set)`), `query`, `doneExpanded`, `toast`, `errorMessage`, `renamingFolderID`, `pendingFolderDelete`, `customRemindOpen`; `let core`, `let editor`, `let pageSize`;
+  state `overview`, `tags`, `open`, `done`, `found` (`PagedItems`), `selection`, `selectedNoteID`, `isDrafting` (`private(set)`), `query`, `doneExpanded`, `toast`, `errorMessage`, `renamingFolderID`, `pendingFolderDelete`, `customRemindOpen`; `let core`, `let editor`, `let pageSize`, `let namePrompter` (the window's New Folder… card, Task 11);
   `init(core:saveDelay:pageSize:)`; derived `items`, `doneItems`, `results` (the loaded rows of `open`, `done`, `found`), `isSearching`, `visibleItems`, `selectedItem`, `folders`, `header: Header`, `listIsGrouped`, `canCreateNote`; `loadedItem(_:)`, `folder(_:)`, `folderName(_:)`, `groupTimestamp(_:)`;
   `opened(selection:noteID:)`, `closed()`, `select(_:)`, `selectNote(_:)`, `reload()`, `loadMore(done:)`, `queryChanged()`, `announce(_:undo:)`, `undo()`, `run(_:)`, `report(_:)`, `fresh(_:)`, `beginNewNote()`, `showTheirs()`, `keepMine()`;
   folders: `newFolderInline()`, `renameFolder(_:to:)`, `requestDelete(_:)` (synchronous: the count is `FolderSnapshot.noteCount`), `confirmDelete(_:keepNotes:)`; moves: `move(_:toFolder:)`, `canDrop(_:)`, `drop(_:onto:)`;
   notes (`+Notes`): `toggleDone`, `delete`, `restore`, `remind(_:_ preset:)`, `remind(_:at:)`, `cancelReminder`, `attachImages(_:to:)`, `removeImage(_:from:)`;
   `RalloError.code: String`.
 
-- [ ] **Step 1: Move `RemindPreset` into its own file**
+- [ ] **Step 1: `RemindPreset` (already done)**
 
-Create `apps/macos/Rallo/Notes/RemindPreset.swift` with exactly the enum and its doc comment now at the top of `NotesView.swift`:
-
-```swift
-import Foundation
-
-/// Quick reminder choices offered by the swipe and the context menu.
-enum RemindPreset: CaseIterable, Identifiable {
-    case inTwentyMinutes, inOneHour, tomorrowMorning
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .inTwentyMinutes: "In 20 Minutes"
-        case .inOneHour: "In 1 Hour"
-        case .tomorrowMorning: "Tomorrow at 9:00"
-        }
-    }
-
-    var shortTitle: String {
-        switch self {
-        case .inTwentyMinutes: "20 min"
-        case .inOneHour: "1 hour"
-        case .tomorrowMorning: "Tomorrow"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .inTwentyMinutes: "bell"
-        case .inOneHour: "clock"
-        case .tomorrowMorning: "sunrise"
-        }
-    }
-
-    static func tomorrowMorning(after now: Date = .now, calendar: Calendar = .current) -> Date {
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
-        return calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow)!
-    }
-}
-```
-
-Then delete the same block from `apps/macos/Rallo/Notes/NotesView.swift` (the lines from `/// Quick reminder choices offered by the swipe and the context menu.` through the closing brace of `enum RemindPreset`; leave `import SwiftUI` and everything from `/// A transient confirmation at the bottom of the panel` on). If release 2 changed that block, move it as it now is.
+Release 2 already moved `RemindPreset` (and `ReminderSnapshot.deadline`) into `apps/macos/Rallo/Notes/RemindPreset.swift` and lists it in the `RalloTests` sources (Task 1 Step 2 checked both). Nothing to do; `NotesView.swift` is not touched by this task.
 
 - [ ] **Step 2: Add `RalloError.code`**
 
@@ -1933,7 +1890,6 @@ extension RalloError {
 In `apps/macos/project.yml` after `      - path: Rallo/Notes/RalloError+Display.swift` add:
 
 ```yaml
-      - path: Rallo/Notes/RemindPreset.swift
       - path: Rallo/NotesWindow/NotesWindowModel.swift
       - path: Rallo/NotesWindow/NotesWindowModel+Notes.swift
 ```
@@ -2459,6 +2415,8 @@ final class NotesWindowModel: ObservableObject {
 
     let core: CoreClient
     let editor: NoteEditorSession
+    /// The window's New Folder… card (0019 §10), drawn over the whole window (Task 11).
+    let namePrompter = FolderNamePrompter()
     /// Rows per page (tests pass 2 to exercise paging).
     let pageSize: UInt32
     private var generation = 0
@@ -2571,6 +2529,7 @@ final class NotesWindowModel: ObservableObject {
     /// The window closed: save typing; an emptied note gets its text back, and
     /// an untouched "New Note" goes (one that got text was already created).
     func closed() async {
+        namePrompter.cancel()
         if let message = await editor.leave() { errorMessage = message }
         if isDrafting {
             isDrafting = false
@@ -2875,7 +2834,7 @@ final class NotesWindowModel: ObservableObject {
     func confirmDelete(_ pending: PendingFolderDelete, keepNotes: Bool) async {
         pendingFolderDelete = nil
         do {
-            _ = try await core.deleteFolder(pending.folder, keepNotes: keepNotes)
+            _ = try await core.deleteFolder(pending.folder.id, keepNotes: keepNotes)
             announce("Deleted “\(pending.folder.name)”")
             await reload()  // a deleted scope folder falls back to Notes
         } catch {
@@ -3034,14 +2993,14 @@ extension NotesWindowModel {
 
 - [ ] **Step 6: Run the tests and see them pass**
 
-Run the **Swift test command** with `-only-testing:RalloTests/NotesWindowModelTests`, and then with `-only-testing:RalloTests/NotePartsTests` (the `RemindPreset` move touched `NotesView.swift`; the whole app target must still build, which the scheme does).
+Run the **Swift test command** with `-only-testing:RalloTests/NotesWindowModelTests` (the scheme builds the whole app target too).
 Expected: `NotesWindowModelTests` passes. If `testRemindAndCancelReminder` fails on `.active`, print `reminded.reminder` first: a one-hour reminder on a scratch store should be `.active`; Cancel Reminder leaves it `.cancelled` (never `.acknowledged`, which is the "I saw the alert" path).
 
 - [ ] **Step 7: Commit**
 
 ```bash
 cd /Users/eyakub/Desktop/Rallo
-git add apps/macos/Rallo/NotesWindow/NotesWindowModel.swift apps/macos/Rallo/NotesWindow/NotesWindowModel+Notes.swift apps/macos/Rallo/Notes/RemindPreset.swift apps/macos/Rallo/Notes/NotesView.swift apps/macos/Rallo/Notes/RalloError+Display.swift apps/macos/RalloTests/NotesWindowModelTests.swift apps/macos/project.yml
+git add apps/macos/Rallo/NotesWindow/NotesWindowModel.swift apps/macos/Rallo/NotesWindow/NotesWindowModel+Notes.swift apps/macos/Rallo/Notes/RalloError+Display.swift apps/macos/RalloTests/NotesWindowModelTests.swift apps/macos/project.yml
 git commit -m "feat(app): notes window model for selection, reload, folders and note changes"
 ```
 
@@ -3053,13 +3012,13 @@ git commit -m "feat(app): notes window model for selection, reload, folders and 
 - Create: `apps/macos/Rallo/NotesWindow/NotesWindowController.swift`
 - Create: `apps/macos/Rallo/NotesWindow/NotesWindowView.swift`
 - Modify: `apps/macos/Rallo/App/AppDelegate.swift`, `apps/macos/Rallo/App/AppCoordinator.swift`, `apps/macos/Rallo/App/StatusMenuController.swift`
-- Modify: `apps/macos/Rallo/Settings/SettingsWindowController.swift`, `apps/macos/Rallo/Notes/NotesView.swift`, `apps/macos/Rallo/Diagnostics/WindowReport.swift`
+- Modify: `apps/macos/Rallo/Settings/SettingsWindowController.swift`, `apps/macos/Rallo/Notes/NotesView.swift`, `apps/macos/Rallo/Notes/NotesViewModel.swift`, `apps/macos/Rallo/Diagnostics/WindowReport.swift`
 
 **Interfaces:**
-- Consumes: `NotesWindowModel` (Task 8), `NotesWindowSelection` (Task 4), `NotesViewModel.scope` and `.expandedID` (release 2 / existing), `NotesPanelController.window/isOpen/close()`, release 2's scratch-aware defaults expression in `AppCoordinator.init`.
+- Consumes: `NotesWindowModel` (Task 8, including `namePrompter`), `NotesWindowSelection` (Task 4), `NotesViewModel.scope`, `.expandedID`, `.namePromptShown`, `.scopeMenuOpen` (release 2 / existing), `NotesPanelController.window/isOpen/close()`, release 2's `PanelDefaults.defaults(forDataDir:)` line in `AppCoordinator.init`.
 - Produces:
   `@MainActor final class NotesWindowController: NSObject, NSWindowDelegate { init(model:defaults:); var onPresenceChange: (Bool) -> Void; var isOpen: Bool; var isKey: Bool; var nsWindow: NSWindow?; func show(selection: NotesWindowSelection? = nil, noteID: String? = nil); func focusSearch() }` (the frame is saved under `RalloNotesWindow` in the injected defaults, never AppKit autosave);
-  `NotesWindowView(model:)`; `NotesViewModel.onExpand: () -> Void`; `SettingsWindowController.isOpen`, `.bringForward()`; `AppCoordinator`: `openNotesWindow()`, `notesWindowIsKey`, `notesWindowCanCreateNote`, `notesWindowHasUnsavedText`, `newNoteInNotesWindow()`, `newFolderInNotesWindow()`, `focusNotesWindowSearch()`, `flushNotesWindow() async`; `StatusMenuController.Actions.openNotesWindow`; main menu File (New Note ⌘N, New Folder ⇧⌘N, Close ⌘W), Edit gains Find ⌘F, Window (Minimize ⌘M, Notes Window).
+  `NotesWindowView(model:)`; `NotesViewModel.onExpand: () -> Void`; `SettingsWindowController.isOpen`, `.bringForward()`; `AppCoordinator`: `openNotesWindow()`, `notesWindowAcceptsCommands`, `notesWindowCanCreateNote`, `notesWindowHasUnsavedText`, `newNoteInNotesWindow()`, `newFolderInNotesWindow()`, `focusNotesWindowSearch()`, `flushNotesWindow() async`; `StatusMenuController.Actions.openNotesWindow`; main menu File (New Note ⌘N, New Folder ⇧⌘N, Close ⌘W), Edit gains Find ⌘F, Window (Minimize ⌘M, Notes Window).
 
 - [ ] **Step 1: Write the window controller and the shell view**
 
@@ -3267,9 +3226,7 @@ new
     @objc private func openNotesWindow() { actions.openNotesWindow() }
 ```
 
-`apps/macos/Rallo/Notes/NotesView.swift`, two Edits:
-
-1. In `NotesViewModel`, old
+`apps/macos/Rallo/Notes/NotesViewModel.swift`, Edit: old
 ```swift
     /// Asks for permission (never asked yet) or opens System Settings (denied).
     var onEnableNotifications: () -> Void = {}
@@ -3281,15 +3238,17 @@ new
     /// The title bar's expand button: close the panel, open the Notes window (0019 §11).
     var onExpand: () -> Void = {}
 ```
-2. In `NotesView.body`, old
+
+`apps/macos/Rallo/Notes/NotesView.swift`, Edit in `NotesView.body`. The button sits before the scope dropdown's overlay and the New Folder dialog, so both draw over it, and it is fenced like the rest of the panel while either is up. Old
 ```swift
+        .foregroundStyle(Theme.ink)
         .frame(width: 360, height: 460)
-        .background(Theme.surface)
+        .overlayPreferenceValue(FolderChipAnchorKey.self) { anchor in
 ```
 new
 ```swift
+        .foregroundStyle(Theme.ink)
         .frame(width: 360, height: 460)
-        .background(Theme.surface)
         .overlay(alignment: .topTrailing) {
             Button {
                 model.onExpand()
@@ -3305,7 +3264,11 @@ new
             .accessibilityLabel("Open Notes Window")
             .padding(.top, 1)
             .padding(.trailing, 8)
+            .disabled(model.namePromptShown || model.scopeMenuOpen)
+            .accessibilityHidden(model.namePromptShown || model.scopeMenuOpen)
+            .blur(radius: model.namePromptShown ? 4 : 0)
         }
+        .overlayPreferenceValue(FolderChipAnchorKey.self) { anchor in
 ```
 
 `apps/macos/Rallo/Diagnostics/WindowReport.swift`, two Edits: old `    static func make(pet: PetController, notesWindow: NSWindow?) -> [String: Any] {` → new `    static func make(pet: PetController, notesWindow: NSWindow?, notesAppWindow: NSWindow? = nil) -> [String: Any] {`; old `        if let notesWindow { report["notes"] = describe(notesWindow) }` → new
@@ -3327,28 +3290,28 @@ new
     private let notes: NotesPanelController
     private let notesWindowModel: NotesWindowModel
     private let notesWindow: NotesWindowController
-    /// `.standard`, or the scratch suite for a scratch instance (the panel's scope, the window's frame).
+    /// `.standard` for the real data dir, else the scratch suite (`PanelDefaults`):
+    /// the panel's scope and the window's frame.
     private let defaults: UserDefaults
 ```
-2. Release 2 (Task 5 Step 6) wrote the panel model's line; Task 1 Step 2 checked it is there. Hoist its defaults so the window shares them. Old
+2. Release 2 wrote the panel model's line (`PanelDefaults`, picked by data-dir path); Task 1 Step 2 checked it is there. Hoist its defaults so the window shares them. Old
 ```swift
         // The panel's folder choice (0019) lives in UserDefaults, which is per
-        // bundle id: a scratch instance must not overwrite the real app's.
-        notesModel = NotesViewModel(core: core, defaults: isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard)
+        // bundle id: any data dir but the real one must not overwrite the real app's.
+        notesModel = NotesViewModel(core: core, defaults: PanelDefaults.defaults(forDataDir: dataDir))
         notes = NotesPanelController(model: notesModel)
 ```
 new
 ```swift
         // The panel's folder choice and the Notes window's frame (0019) live in
-        // UserDefaults, which is per bundle id: a scratch instance must not
-        // overwrite the real app's.
-        defaults = isScratch ? UserDefaults(suiteName: "com.razlio.rallo.scratch")! : .standard
+        // UserDefaults, which is per bundle id: any data dir but the real one
+        // must not overwrite the real app's.
+        defaults = PanelDefaults.defaults(forDataDir: dataDir)
         notesModel = NotesViewModel(core: core, defaults: defaults)
         notes = NotesPanelController(model: notesModel)
         notesWindowModel = NotesWindowModel(core: core)
         notesWindow = NotesWindowController(model: notesWindowModel, defaults: defaults)
 ```
-If release 2's comment lines differ, anchor on the single `notesModel = NotesViewModel(core: core, defaults: isScratch …)` line plus the `notes = …` line under it, and keep whatever comment is there.
 3. old `                openNotes: { [weak self] in self?.openNotes(highlighting: nil) },` → new
 ```swift
                 openNotes: { [weak self] in self?.openNotes(highlighting: nil) },
@@ -3445,8 +3408,9 @@ new
         }
     }
 
-    var notesWindowIsKey: Bool { notesWindow.isKey }
-    var notesWindowCanCreateNote: Bool { notesWindow.isKey && notesWindowModel.canCreateNote }
+    /// ⌘N, ⇧⌘N and ⌘F act only while the window is key and its New Folder card is not up.
+    var notesWindowAcceptsCommands: Bool { notesWindow.isKey && notesWindowModel.namePrompter.request == nil }
+    var notesWindowCanCreateNote: Bool { notesWindowAcceptsCommands && notesWindowModel.canCreateNote }
     var notesWindowHasUnsavedText: Bool { notesWindowModel.editor.hasUnsavedText }
     func newNoteInNotesWindow() { Task { await notesWindowModel.beginNewNote() } }
     func newFolderInNotesWindow() { Task { await notesWindowModel.newFolderInline() } }
@@ -3533,11 +3497,12 @@ new
     @objc private func find() { coordinator?.focusNotesWindowSearch() }
 
     /// ⌘N, ⇧⌘N and ⌘F belong to the Notes window: they are dimmed (and do
-    /// nothing) anywhere else, so they never fire from the panel or Settings.
+    /// nothing) anywhere else, so they never fire from the panel or Settings,
+    /// nor behind the window's New Folder card.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(newNote) { return coordinator?.notesWindowCanCreateNote ?? false }
         if menuItem.action == #selector(newFolder) || menuItem.action == #selector(find) {
-            return coordinator?.notesWindowIsKey ?? false
+            return coordinator?.notesWindowAcceptsCommands ?? false
         }
         return true
     }
@@ -3587,7 +3552,7 @@ Run the **Cleanup** from the Scratch run section afterwards.
 
 ```bash
 cd /Users/eyakub/Desktop/Rallo
-git add apps/macos/Rallo/NotesWindow/NotesWindowController.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/Rallo/App/AppDelegate.swift apps/macos/Rallo/App/AppCoordinator.swift apps/macos/Rallo/App/StatusMenuController.swift apps/macos/Rallo/Settings/SettingsWindowController.swift apps/macos/Rallo/Notes/NotesView.swift apps/macos/Rallo/Diagnostics/WindowReport.swift
+git add apps/macos/Rallo/NotesWindow/NotesWindowController.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/Rallo/App/AppDelegate.swift apps/macos/Rallo/App/AppCoordinator.swift apps/macos/Rallo/App/StatusMenuController.swift apps/macos/Rallo/Settings/SettingsWindowController.swift apps/macos/Rallo/Notes/NotesView.swift apps/macos/Rallo/Notes/NotesViewModel.swift apps/macos/Rallo/Diagnostics/WindowReport.swift
 git commit -m "feat(app): notes window shell, Dock presence and the panel's expand button"
 ```
 
@@ -3826,7 +3791,12 @@ private struct FolderRow: View {
                     }
                     .onAppear {
                         name = folder.name
-                        fieldFocused = true  // a text field selects its text when it takes focus
+                        fieldFocused = true
+                    }
+                    // Select the name once the field really has focus (selecting from
+                    // onAppear races the focus change and can land nowhere).
+                    .onChange(of: fieldFocused) { _, focused in
+                        if focused { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
                     }
                     .accessibilityLabel("Folder name")
             } else {
@@ -3951,7 +3921,7 @@ Expected: both pass.
 
 Run `scripts/build-macos.sh`, then **Scratch run**. Verify:
 - Sidebar sections: **Folders** (header with a `+`), **Notes** first then **Ideas**, **Work** alphabetical, each with its open count (Work 2, Ideas 0, Notes 2); **Views**: All Notes 4, Due, Done, Deleted with counts; **Tags**: `# bug`, `# release`, `# كلمة` with counts (the Bangla/Arabic-script tag renders right-to-left inside its own row without breaking the count column). Selecting any row highlights it (the columns to the right are still the temporary texts).
-- `+` in the header, the footer "New Folder" and ⇧⌘N each create **New Folder** (then **New Folder 2**, …), select it, and start an inline rename with the name selected. Typing a name and Return renames it (the list re-sorts alphabetically); Esc cancels; clicking elsewhere leaves it **New Folder**. Rename to `notes`, to an existing name (any case), to an empty name, and to 51 characters: each shows the core's own message in the banner at the top of the window and the field stays editable; renaming `work` to `Work` is accepted.
+- `+` in the header, the footer "New Folder" and ⇧⌘N each create **New Folder** (then **New Folder 2**, …), select it, and start an inline rename with the name selected. Typing a name and Return renames it (the list re-sorts alphabetically); Esc cancels; clicking elsewhere leaves it **New Folder**. Rename to an existing name (any case): the core's own message shows in the banner at the top of the window and the field stays editable (one refusal is enough; `testARefusedRenameStaysInTheFieldWithTheCoresReason` covers the rest); renaming `work` to `Work` is accepted.
 - Right-click a folder: **Rename** (inline) and **Delete Folder…** only; Notes has no menu.
 - Delete Folder… on **Work** (2 open notes; also mark one done with `"$CLI" done <id>` first so it holds 1 open + 1 done): the sheet reads **Delete “Work”?** / "It holds 2 notes. Keep them in Notes, or delete them too? Deleted notes stay in Deleted, where you can restore them." with **Keep Notes** (highlighted, Return), **Delete Notes** (red text) and **Cancel** (Esc). Cancel changes nothing. Keep Notes: Work disappears, the notes' count moves to Notes, the toast does not appear yet (Task 11), the selection falls to Notes if Work was selected. Repeat with a folder holding **only a done note**: it must say "It holds 1 note." (review focus 4). Delete Notes on a third folder: Deleted's count rises by its notes. An empty folder shows **Delete “Ideas”?** / "The folder is empty." with **Delete** / **Cancel**.
 - `"$CLI" folder delete Ideas` from a terminal while Ideas is selected: within a second the selection falls to Notes (review focus 5).
@@ -3977,11 +3947,12 @@ git commit -m "feat(app): notes window sidebar, inline folder rename and the del
 - Create: `apps/macos/Rallo/Notes/RemindMenuItems.swift`
 - Modify: `apps/macos/Rallo/Notes/NoteRow.swift` (use `RemindMenuItems`)
 - Modify: `apps/macos/Rallo/Notes/Thumbnails.swift` (`ThumbnailCache.image(for:points:)`)
+- Modify: `apps/macos/Rallo/Notes/FolderNameOverlay.swift` (`.folderNamePrompt(_:)`, Esc on the card)
 - Modify: `apps/macos/Rallo/NotesWindow/NotesWindowView.swift`
 
 **Interfaces:**
-- Consumes: `NotesWindowModel` (Task 8: `header`, `visibleItems`, `doneItems`, `open`/`done`/`found` (`totalCount`, `hasMore`, `items`), `loadMore(done:)`, `doneExpanded`, `listIsGrouped`, `groupTimestamp`, `selectedNoteID`, `selectedItem`, `isDrafting`, `isSearching`, `canCreateNote`, `selectNote`, `toggleDone`, `delete`, `restore`, `remind`, `move`, `beginNewNote`, `undo`, `toast`, `folders`), `DateGrouping`, `RowTimeLabel`, `RowText` (Tasks 3 and 6), `FolderMoveMenu` and `FolderNamePrompt` (release 2), `NotesWindowModel.core`, `CompletionButton` and `ReminderSnapshot.deadline` (existing, `NoteRow.swift`), `ReminderLabel`, `ThumbnailCache`.
-- Produces: `NoteListColumn(model:)`; `ToastBar(message:undoable:undoShortcut:undo:)` (the panel's, made shared); `RemindMenuItems(onPreset:onCustom:)` (the Remind Me choices, shared with the panel row); `WindowFolderPrompt.newFolder(for:model:)`; `ThumbnailCache.shared.image(for: String, points: CGFloat)`.
+- Consumes: `NotesWindowModel` (Task 8: `header`, `visibleItems`, `doneItems`, `open`/`done`/`found` (`totalCount`, `hasMore`, `items`), `loadMore(done:)`, `doneExpanded`, `listIsGrouped`, `groupTimestamp`, `selectedNoteID`, `selectedItem`, `isDrafting`, `isSearching`, `canCreateNote`, `selectNote`, `toggleDone`, `delete`, `restore`, `remind`, `move`, `beginNewNote`, `undo`, `toast`, `folders`, `namePrompter`), `DateGrouping`, `RowTimeLabel`, `RowText` (Tasks 3 and 6), `FolderMoveMenu`, `FolderNamePrompter` and `FolderNameOverlay` (release 2), `NotesWindowModel.core`, `CompletionButton` (existing, `NoteRow.swift`), `ReminderSnapshot.deadline` (release 2, `RemindPreset.swift`), `ReminderLabel`, `ThumbnailCache`.
+- Produces: `NoteListColumn(model:)`; `ToastBar(message:undoable:undoShortcut:undo:)` (the panel's, made shared); `RemindMenuItems(onPreset:onCustom:)` (the Remind Me choices, shared with the panel row); `WindowFolderPrompt.newFolder(for:model:)`; `View.folderNamePrompt(_ prompter: FolderNamePrompter)`; `ThumbnailCache.shared.image(for: String, points: CGFloat)`.
 
 - [ ] **Step 1: Share the Remind Me menu and decode thumbnails at any size**
 
@@ -4123,24 +4094,85 @@ and old `                ToastBar(toast: toast) { Task { await model.undo() } }`
 Create `apps/macos/Rallo/NotesWindow/FolderPrompts.swift`:
 
 ```swift
-import AppKit
+import Foundation
 
-/// "New Folder…" in a note's Move menu (§10): the alert's `validate` is the
-/// real create call, so the core's own message shows in the alert, which stays
-/// up until the folder exists or the user cancels. Then the note moves into it.
+/// "New Folder…" in a note's Move menu (§10): the window's `FolderNamePrompter`
+/// card, whose `validate` is the real create call, so the core's own message
+/// shows under the field and the card stays up until the folder exists or the
+/// user cancels. Then the note moves into it.
 @MainActor
 enum WindowFolderPrompt {
     static func newFolder(for item: ItemSnapshot, model: NotesWindowModel) async {
         var created: FolderSnapshot?
-        let name = await FolderNamePrompt.ask(title: "New Folder", initial: "") { name in
-            created = try await model.core.createFolder(name)
+        _ = await model.namePrompter.ask(title: "New Folder", initial: "", confirmTitle: "Create") { [core = model.core] name in
+            created = try await core.createFolder(name)
         }
-        guard name != nil, let folder = created else { return }
+        guard let folder = created else { return }
         await model.reload()  // the toast names the folder: the overview must know it
         await model.move(item, toFolder: folder.id)
     }
 }
 ```
+
+Make the card self-contained for a host that isn't the panel. In `apps/macos/Rallo/Notes/FolderNameOverlay.swift`, two Edits.
+
+1. Esc cancels from the card itself (the panel also routes Esc through its model; a second `cancel()` is a no-op). Old
+```swift
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityLabel(request.title)
+```
+new
+```swift
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityLabel(request.title)
+        .onExitCommand { prompter.cancel() }
+```
+2. Append at the end of the file:
+```swift
+extension View {
+    /// Draws `prompter`'s card over this view (0019 §10). While it shows, the
+    /// view behind is blurred, disabled and hidden from VoiceOver, so nothing
+    /// there (an Undo toast, a toolbar button) reacts; when it goes, the
+    /// keyboard returns to whatever had it. The panel wires the same fence
+    /// itself, because its scope dropdown shares it.
+    func folderNamePrompt(_ prompter: FolderNamePrompter) -> some View {
+        modifier(FolderNamePromptModifier(prompter: prompter))
+    }
+}
+
+private struct FolderNamePromptModifier: ViewModifier {
+    @ObservedObject var prompter: FolderNamePrompter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The first responder when the card appeared (the list, the text view, …).
+    @State private var returnFocus: WeakResponder?
+
+    func body(content: Content) -> some View {
+        let shown = prompter.request != nil
+        content
+            .disabled(shown)
+            .accessibilityHidden(shown)
+            .blur(radius: shown ? 4 : 0)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: shown)
+            .overlay { FolderNameOverlay(prompter: prompter) }
+            .onChange(of: shown) { _, isShown in
+                if isShown {
+                    returnFocus = NSApp.keyWindow.map { WeakResponder(window: $0, responder: $0.firstResponder) }
+                } else if let saved = returnFocus {
+                    returnFocus = nil
+                    if let window = saved.window, let responder = saved.responder { window.makeFirstResponder(responder) }
+                }
+            }
+    }
+}
+
+private struct WeakResponder {
+    weak var window: NSWindow?
+    weak var responder: NSResponder?
+}
+```
+(`FolderNameOverlay.swift` imports only SwiftUI, which brings AppKit on macOS; add `import AppKit` if the compiler disagrees.)
 
 - [ ] **Step 3: Write the list column**
 
@@ -4539,7 +4571,7 @@ private struct ListThumbnail: View {
 }
 ```
 
-In `apps/macos/Rallo/NotesWindow/NotesWindowView.swift`, Edit: old
+In `apps/macos/Rallo/NotesWindow/NotesWindowView.swift`, two Edits: old
 
 ```swift
             Text("List")  // replaced in Task 11
@@ -4551,6 +4583,13 @@ new
 ```swift
             NoteListColumn(model: model)
                 .navigationSplitViewColumnWidth(min: 280, ideal: 330, max: 440)
+```
+
+and old `        .overlay(alignment: .top) { errorBanner }` new
+
+```swift
+        .overlay(alignment: .top) { errorBanner }
+        .folderNamePrompt(model.namePrompter)
 ```
 
 - [ ] **Step 4: Build and run the suite**
@@ -4572,7 +4611,7 @@ sqlite3 "$RALLO_DATA_DIR/rallo.sqlite3" "UPDATE items SET created_at_ms = create
 - The list header reads the scope's name and `N open · M done`; selecting each sidebar row changes the list: a folder shows only its notes, **All Notes** all open notes, **Due** the reminder note (no date groups), **Done** the done note under a completion-date group, **Deleted** empty ("Nothing deleted"), a tag its tagged notes across folders (`#bug` shows two).
 - Groups read **Today**, **Yesterday**, **Previous 7 Days**, and a month header for the 40-day-old note; the Today group has a time like `10:42`, the 3-day-old note its weekday, the reminder row a rust bell with "Today at …", the photo note a 38 pt thumbnail on the right. A note with a title shows the title on line one and the time + preview on line two.
 - Click a row: it takes the highlight colour; ↑/↓ move the selection; ⌫ deletes the selected note and the toast "Deleted “…”" appears at the bottom with **Undo**, which brings it back (⌘Z does not press the window's Undo; the panel's toast still takes ⌘Z). The completion circle marks a note done (toast with Undo, and the row moves into the collapsed **N done** row); expanding that row shows the note dimmed, and its green check reopens it.
-- Right-click a row: **Mark as Done**, **Remind Me** (20 minutes, 1 hour, tomorrow; "Custom…" is wired in Task 12), **Move to** (Notes, folders with the current one checked and disabled, New Folder…), Copy Text, Copy ID, Delete. **Move to → Work** shows the toast "Moved to Work" with **Undo** (moves it back); in a folder scope the moved row leaves the list. **New Folder…** opens the alert, refuses `notes`/duplicates with the reason while staying up, then creates the folder and moves the note into it.
+- Right-click a row: **Mark as Done**, **Remind Me** (20 minutes, 1 hour, tomorrow; "Custom…" is wired in Task 12), **Move to** (Notes, folders with the current one checked and disabled, New Folder…), Copy Text, Copy ID, Delete. **Move to → Work** shows the toast "Moved to Work" with **Undo** (moves it back); in a folder scope the moved row leaves the list. **New Folder…** opens the card over the whole window (blurred behind; nothing behind it clicks, toolbar and toast included; ⌘N/⇧⌘N/⌘F dimmed; Esc and Cancel close it and the keyboard goes back to the list), refuses a duplicate name with the core's reason under the field while staying up, then creates the folder and moves the note into it.
 - In **Deleted**, a row's context menu offers **Restore** only, the toolbar shows **Restore** instead of the trash, and ⌫ does nothing.
 - Drag a row onto **Work** in the sidebar: the folder row highlights, the note moves, the toast shows. Dragging onto **All Notes**, Views or Tags does nothing; dropping text from another app on a folder row is ignored.
 - ⌘F (Edit → Find) focuses the toolbar search field, whose placeholder reads "Search all notes". If it does nothing, log `window.toolbar?.items` in `NotesWindowController.focusSearch()`: when SwiftUI built no `NSSearchToolbarItem`, find the `NSSearchField` in the toolbar items' views and `window.makeFirstResponder` it instead. Typing `plan` lists matches across all folders under **Results** (flat), including done notes; the New Note toolbar button is disabled; clearing the field returns to the scope. The empty states read "No results", "Nothing done yet", etc.
@@ -4584,7 +4623,7 @@ sqlite3 "$RALLO_DATA_DIR/rallo.sqlite3" "UPDATE items SET created_at_ms = create
 
 ```bash
 cd /Users/eyakub/Desktop/Rallo
-git add apps/macos/Rallo/NotesWindow/NoteListColumn.swift apps/macos/Rallo/NotesWindow/FolderPrompts.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/Rallo/Notes/NotesView.swift apps/macos/Rallo/Notes/RemindMenuItems.swift apps/macos/Rallo/Notes/NoteRow.swift apps/macos/Rallo/Notes/Thumbnails.swift
+git add apps/macos/Rallo/NotesWindow/NoteListColumn.swift apps/macos/Rallo/NotesWindow/FolderPrompts.swift apps/macos/Rallo/NotesWindow/NotesWindowView.swift apps/macos/Rallo/Notes/NotesView.swift apps/macos/Rallo/Notes/RemindMenuItems.swift apps/macos/Rallo/Notes/NoteRow.swift apps/macos/Rallo/Notes/Thumbnails.swift apps/macos/Rallo/Notes/FolderNameOverlay.swift
 git commit -m "feat(app): notes window list with date groups, search, drag to folders and Undo"
 ```
 
@@ -5247,7 +5286,7 @@ Follow **Scratch run**. Verify, ticking only what you saw:
 - With a note selected the toolbar (right of the list's buttons, before the search field) shows **Mark as Done**, **Remind Me**, **Add Image**, and the **Move chip** (`[folder] Work ⌄`, or `Notes ⌄`); with no note, or a note in Deleted, all four are dimmed. If the toolbar items sit in one group instead of over their own column, accept it and note it in the commit body.
 - Mark as Done: the toast "Marked “…” as done" with **Undo**; the button becomes **Reopen** and reopens it. Remind Me: **In 20 Minutes** sets a reminder and the pill `Today at …` (rust bell on the highlight capsule) appears under the date; the list row shows the bell label too. Clicking the pill offers the choices again and **Cancel Reminder** (the pill disappears, the note stays open). **Custom…** (toolbar, pill and the list's context menu) opens the popover under the date: type `fri 5pm`, it previews, **Set** sets it; Esc closes it. The panel's own Custom… popover still works (open the panel, Remind Me → Custom…).
 - Add Image: the open panel offers images only, multiple selection; the tiles appear (210×140) and the list row gets a thumbnail; 11 images total refuses with "A note can hold 10 images."; a text file cannot be chosen.
-- Move chip: lists Notes, then folders alphabetically with the current one checked and disabled, then **New Folder…** (alert, then creates and moves; toast "Moved to …" with **Undo**). Moving inside a folder scope makes the note leave the list and the editor clear.
+- Move chip: lists Notes, then folders alphabetically with the current one checked and disabled, then **New Folder…** (the card, then creates and moves; toast "Moved to …" with **Undo**). Moving inside a folder scope makes the note leave the list and the editor clear.
 - Typing then clicking Mark as Done/Move at once never shows "That note changed elsewhere" (our own save does not conflict).
 - Screenshots Light and Dark: toolbar with the Move menu open, the pill, the Custom popover: `private/docs/folders-3-shots/t13-*.png`. Run the **Cleanup**.
 
@@ -5316,6 +5355,6 @@ git commit -m "docs: the notes window in the README"
 
 **Placeholder scan.** The only temporary content is Task 9's three `Text` column bodies, each replaced by an explicit Edit in Tasks 10, 11 and 12 (named in the code comments). No "TBD"/"add handling" steps; every code step has complete code; every test step has complete test code and an exact command.
 
-**Type consistency.** `NotesWindowModel` members used by the views (`header`, `visibleItems`, `doneItems`, `open`, `done`, `found`, `loadMore(done:)`, `doneExpanded`, `listIsGrouped`, `groupTimestamp`, `selectedNoteID`, `selectedItem`, `isDrafting`, `isSearching`, `canCreateNote`, `customRemindOpen`, `renamingFolderID`, `pendingFolderDelete`, `toast`, `errorMessage`, `folders`, `folderName`, `overview`, `tags`, `editor`) are all defined in Task 8; `NoteEditorSession` members used by `NoteTextEditor`/`NoteEditorColumn` (`text`, `showCount`, `focusToken`, `isDraft`, `isEditable`, `note`, `conflict`, `error`, `isComposing`, `textChanged`) in Task 7; `CoreClient` calls from release 2 (`createNote(_:images:folderID:)`, `createFolder(_:)`, `folderOverview()`, `moveItem(_:folderID:)`) and Task 2 (`pageSize`, paged `listItems`/`searchItems` returning `ItemPage`, `listTags`, `renameFolder(_:to:)`, `deleteFolder(_:keepNotes:)`, `cancelReminder(_:)`), with no name defined twice; `NotesScope.folderScope` from release 2 only; `FolderNaming.newFolderName(existing:)` in Tasks 4 and 8; `WindowFolderPrompt.newFolder(for:model:) async` in Tasks 11 and 13; `FolderDeleteCopy(folderName:noteCount:)` in Task 10; `DateGrouping.sections(_:timestampMs:now:calendar:locale:)` in Tasks 3 and 11; `ToastBar(message:undoable:undoShortcut:undo:)` in Task 11 and the panel; `Theme.inkNS`/`rustNS` in Task 12; `RemindMenuItems(onPreset:onCustom:)` in Tasks 11 and 13; `CustomRemindPopover(onSet:onCancel:)` in Task 13 and the panel row; `ImageStrip(item:tile:onRemove:onFocusChange:)` in Tasks 12 and the panel's convenience init.
+**Type consistency.** `NotesWindowModel` members used by the views (`header`, `visibleItems`, `doneItems`, `open`, `done`, `found`, `loadMore(done:)`, `doneExpanded`, `listIsGrouped`, `groupTimestamp`, `selectedNoteID`, `selectedItem`, `isDrafting`, `isSearching`, `canCreateNote`, `customRemindOpen`, `renamingFolderID`, `pendingFolderDelete`, `toast`, `errorMessage`, `folders`, `folderName`, `overview`, `tags`, `editor`) are all defined in Task 8; `NoteEditorSession` members used by `NoteTextEditor`/`NoteEditorColumn` (`text`, `showCount`, `focusToken`, `isDraft`, `isEditable`, `note`, `conflict`, `error`, `isComposing`, `textChanged`) in Task 7; `CoreClient` calls from release 2 (`createNote(_:images:folderID:)`, `createFolder(_:)`, `deleteFolder(_ id:keepNotes:)`, `folderOverview()`, `moveItem(_:folderID:)`) and Task 2 (`pageSize`, paged `listItems`/`searchItems` returning `ItemPage`, `listTags`, `renameFolder(_:to:)`, `cancelReminder(_:)`), with no name defined twice; `NotesScope.folderScope` from release 2 only; `FolderNaming.newFolderName(existing:)` in Tasks 4 and 8; `WindowFolderPrompt.newFolder(for:model:) async` in Tasks 11 and 13; `FolderDeleteCopy(folderName:noteCount:)` in Task 10; `DateGrouping.sections(_:timestampMs:now:calendar:locale:)` in Tasks 3 and 11; `ToastBar(message:undoable:undoShortcut:undo:)` in Task 11 and the panel; `Theme.inkNS`/`rustNS` in Task 12; `RemindMenuItems(onPreset:onCustom:)` in Tasks 11 and 13; `CustomRemindPopover(onSet:onCancel:)` in Task 13 and the panel row; `ImageStrip(item:tile:onRemove:onFocusChange:)` in Tasks 12 and the panel's convenience init.
 
 **Review Focus.** Each of the five lines names its tests in the owning tasks (6, 7, 2, 8, 10, 4). The two checks that are manual by nature (IME with a real input method, quit while typing) are Task 12's click-through.
