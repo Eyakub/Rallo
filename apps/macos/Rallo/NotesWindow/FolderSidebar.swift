@@ -70,6 +70,7 @@ struct FolderSidebar: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
                 .focusable()
                 .focused($focused)
                 .focusEffectDisabled()
@@ -78,6 +79,18 @@ struct FolderSidebar: View {
                 }
             // Stacked, not an inset: the list ends where the footer starts, so no row scrolls under it.
             footer
+        }
+        // One material for the whole column, so the list and footer read as one surface.
+        .background(SidebarMaterial().ignoresSafeArea())
+        // The titlebar is transparent, so rows would scroll under the traffic lights; this
+        // band of the same material (as tall as the safe-area inset) keeps that strip clean.
+        .overlay(alignment: .top) {
+            GeometryReader { proxy in
+                SidebarMaterial()
+                    .frame(height: proxy.safeAreaInsets.top)
+                    .offset(y: -proxy.safeAreaInsets.top)
+            }
+            .allowsHitTesting(false)
         }
     }
 
@@ -93,13 +106,12 @@ struct FolderSidebar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .background(SidebarMaterial())
         .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1) }
         .help("New Folder (⇧⌘N)")
     }
 }
 
-/// The same material the sidebar list draws, so the footer doesn't read as a separate opaque slab.
+/// The sidebar's material, drawn once behind the whole column.
 private struct SidebarMaterial: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         NSVisualEffectView(frame: .zero).configured()
