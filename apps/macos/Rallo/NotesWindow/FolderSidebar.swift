@@ -90,6 +90,8 @@ struct FolderSidebar: View {
                     .frame(height: proxy.safeAreaInsets.top)
                     .offset(y: -proxy.safeAreaInsets.top)
             }
+            // Drawn above its own bounds on purpose; clicks pass through to the
+            // sidebar toggle and the window's drag area.
             .allowsHitTesting(false)
         }
     }
@@ -310,6 +312,8 @@ private extension View {
     func sidebarRowChrome(tag: NotesWindowSelection) -> some View {
         listRowBackground(Color.clear)
             .id(tag)
+            // Negative: undoes the sidebar style's built-in ~12 pt indent, so with
+            // `sidebarRow`'s padding the icons line up with the section headers.
             .listRowInsets(EdgeInsets(top: 1, leading: -8, bottom: 1, trailing: -4))
     }
 }
