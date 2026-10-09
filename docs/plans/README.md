@@ -1,16 +1,164 @@
 # Folders and tags: plans and their status
 
-## Handover (2026-10-09)
+## Handover (2026-10-10)
 
 | Plan | Execution |
 |---|---|
 | 1 core + CLI | **Done** (`8011e33..b11789f`). |
-| 2 panel | **Done** (`b11789f..HEAD`). Swift 216/0, Rust 454/0. Every task had a review and a Light/Dark click-through. A final whole-branch review followed, and its fixes are applied. |
-| 3 window | **Not started.** Fix the drift list below in the plan text first, then execute it the same way, when the user asks. |
+| 2 panel | **Done** (`b11789f..a1f52cd`). |
+| 3 window | **Code complete, UI pass pending** (`a1f52cd..HEAD`). Every task had a review and fix rounds; a final whole-branch review followed and its fixes are applied. Rust 455/0 (fmt, clippy clean), Swift 328/0. **Not done until the GUI pass below runs.** |
 
-Execution notes, rulings and per-task reports lived in the gitignored
-`.superpowers/sdd/2026-10-08-folders-2-panel/` on the first Mac. This
-section is what travels.
+Plan 3 ran over SSH, which has no Screen Recording or Accessibility, and the
+cmux socket refuses outside processes. So no task got its click-through or
+Light/Dark screenshots. Each UI task instead got a headless launch smoke:
+- the app comes up;
+- `activation_policy` goes `regular`;
+- `windows.json` shows the window "Notes" at 1140×690, level 0;
+- it survives CLI edits.
+
+Run the GUI pass from Claude inside cmux on the Mac (it holds the grants).
+Drive behaviour once in Light, screenshot changed states in Dark.
+
+### Plan 3 GUI pass (do this next)
+
+Launch the scratch build per plan 3's **Scratch run**. It now resolves the
+scratch dir with `pwd -P`: a CLI-started instance reports `/private/var/…`,
+and a `pkill` on the `/var` spelling missed it, so it kept `app.lock`.
+
+1. **Window and Dock.**
+   - On first open from the status menu, the Dock icon appears and the menu bar shows Rallo/File/Edit/Window.
+   - The menu bar repaints on close.
+   - Settings or the panel stays key after ⌘W.
+   - Minimise, then the Dock icon brings it back.
+   - The minimum size clamps.
+   - The frame restores after relaunch and after full screen.
+   - ⌘N/⇧⌘N/⌘F are dimmed off-window.
+   - ⌘Q and the status-menu Quit work.
+2. **Expand button.**
+   - It sits in the panel's title bar, top right, clear of the panda's ear.
+   - It clicks rather than drags.
+   - It is disabled under the panel's New Folder card and scope menu.
+   - It opens the window on the panel's scope with the expanded note.
+   - With a fresh conflict in the window, it must not drop the typing.
+3. **Sidebar.**
+   - Counts are right.
+   - New Folder (+, footer, ⇧⌘N) starts with the caret in the field and the name selected.
+   - Return renames; click-away **commits** a changed name (a refusal shows in the banner); Esc cancels.
+   - The context menu offers only Rename and Delete Folder….
+   - Drag a list row onto a folder: the target highlights and the move toast appears. Text dropped from another app is ignored.
+   - With a fresh conflict, clicking another folder snaps the highlight back.
+4. **Delete sheet.**
+   - With notes: "It holds N notes", Keep Notes is the default, Delete Notes is red.
+   - A folder holding only done notes says "It holds 1 note".
+   - An empty folder: "The folder is empty." Delete is rust, not red; check it reads right.
+   - `rallo folder delete` while that folder is selected → the window falls back to Notes.
+5. **List.**
+   - Headers and counts are correct.
+   - Groups show Today, Yesterday, Previous 7 Days and month.
+   - Row time labels and the bell show.
+   - The 38 pt thumbnail shows.
+   - The selection highlight shows.
+   - The N done row works.
+   - ↑/↓ scroll the selection into view and page past 100.
+   - ⌫ deletes only in the list.
+   - Undo works in the toast, and ⌘Z belongs to the text.
+   - Deleted rows offer Restore only.
+   - Search covers every folder.
+   - Paging past 250 shows exact counts.
+   - VoiceOver opens a note from a row.
+6. **Editor.**
+   - The title is 24 pt rounded semibold.
+   - Body text is 14.5 pt.
+   - `#tags` are rust, `#كلمة` included.
+   - Text wraps after a resize.
+   - The caret stays visible at the end of a long note.
+   - Saving: 0.6 s after typing, and at once on switch, ⌘W and ⌘Q.
+   - Select all and delete, then leave: the text comes back.
+   - Conflict bar: test Show Theirs and Keep Mine. A switch is declined once, then works.
+   - A paste over 70 KB shows its error.
+   - Pasting from Safari gives plain text.
+   - Toggling Light/Dark live with a note open recolours the text.
+   - Deleted notes are read-only.
+   - Image tiles: Quick Look, drag-out, and Remove followed by Undo.
+   - ⌘N focuses the editor, both from the empty state and with a note open.
+   - Switching folders and then clicking a note doesn't steal focus.
+7. **IME (Japanese and Bangla).**
+   - Compose across the 0.6 s timer: nothing saves mid-word.
+   - Switch notes mid-word using a click, toolbar New Note, Show Theirs, Delete, ⌘W and ⌘Q. Each time the word lands in the old note, never in the new one.
+8. **Toolbar and reminder pill.**
+   - Items sit over their own column.
+   - Mark as Done and Reopen work.
+   - Remind Me presets, the pill, Cancel Reminder and the Custom… popover work. Check the panel's popover too.
+   - Add Image: images only, and an 11th image is refused.
+   - Move chip, and New Folder… on the in-window card. With the card up, nothing behind it reacts. Esc cancels and focus returns.
+9. **Panel regressions.**
+   - Esc on the panel's New Folder card closes only the card.
+   - Remind Me shows 3 presets and Custom….
+   - The panel toast still takes ⌘Z.
+   - Thumbnails are 56 pt.
+10. **Pet (user's request this session).**
+    - It is 112×92.
+    - Curled poses (sleep, drowsy, content) sit at 85% on the same ground line.
+    - Badges show "9+".
+    - `windows.json` level is 25 and collection behaviour is 337.
+    - While the window is open (Dock app), Hide from another app must not hide the pet (ADR 0002).
+11. **Screenshots.** Take Light and Dark of every changed state into `private/docs/folders-3-shots/`. Then `lsregister -u` the scratch build.
+
+### Plan 3 rulings (decided while executing; the spec is binding)
+
+- **R1–R9:** fixed plan drift against plan 2 as built.
+  - Release 2's `deleteFolder(id)` is reused.
+  - `RemindPreset.swift` already existed.
+  - `onExpand` lives in `NotesViewModel.swift`.
+  - The expand button is fenced like the rest of the panel.
+  - One scratch-aware `defaults` is shared by the panel and the window.
+  - Move-menu New Folder… uses a window-owned `FolderNamePrompter` behind a `.folderNamePrompt` modifier, and Esc works on the card.
+  - Rename stays inline (spec §11).
+- **R11.** When leaving a note hits a new conflict or refusal, the selection change is declined. The bar or the error shows and the typing stays. A bar the user already saw doesn't block. Close and quit keep the "weren't saved" message.
+- **R13.** A late save never lands on the next note (`showCount` guard plus a running-save token).
+- **R14.** New FFI `getItem(id:)` (`369a9b0`). An open note whose row leaves the list stays open; it is cleared only when it's deleted or gone. So a user's own move out of a folder scope keeps the note open.
+- **R15.** Undo resolves the note's latest revision through `fresh()`.
+- **R16.** The expand button sits in the panel's title-bar strip.
+- **R17.** Before any save, leave or switch, the input method's word is committed into the current note, as AppKit does on focus loss.
+- **R19.** A focus request is keyed to the shown target (`focusShow`).
+- **R20.** Click-away commits a changed folder name; Esc cancels.
+
+### Plan 3 deferred minors worth a look later
+
+- **Paging.**
+  - The sentinel now carries the reload generation.
+  - Search paging during the 200 ms debounce can briefly append rows from the old cursor.
+- **Undo manager.** `removeAllActions` clears the window-wide undo manager, which field editors share.
+- **Image tiles.**
+  - The 210 pt and 38 pt decodes look soft for portrait and panorama images.
+  - Deleted notes still offer Remove Image; the core refuses.
+- **Add Image.**
+  - It uses `runModal`.
+  - Partial read failures are silent.
+- **Quit.**
+  - A conflict or refusal at quit drops the typing silently.
+  - ⌘Q from the panel drops the panel's unsent draft.
+- **Tests.** A few tests would also pass on the code they replaced; each task report names them.
+- **Final-review residuals.**
+  - `opened()` skips the panel's note when the requested scope fell back during the reload.
+  - `keepMine`'s fallback isn't guarded against a switch mid-await.
+  - The list row's VoiceOver label: check in the pass, and add `.accessibilityLabel(item.name)` if it reads a bare "button".
+  - `loadMore` can overwrite a reload that started earlier.
+  - `fresh()` doesn't consult `lastSaved` (a stale-revision toast, no data loss).
+  - A stale rename banner remains after an unchanged-name click-away.
+
+### Side task: smaller pet (`54ac961`)
+
+- The user asked for this mid-plan.
+- The pet is now 112×92 pt (was 143×118).
+- Curled poses (sleep, drowsy, content) are drawn in an 85% bottom-centred frame. Grumpy stays full size, because it uses the sitting body.
+- Badge offsets are scaled. The badge diameter is 18 pt and its text 10 pt.
+- ADR 0002's Size row is updated to match.
+
+## Plan 2 notes
+
+Plan 2 and 3 execution ledgers live in the gitignored `.superpowers/sdd/`
+on the first Mac; this file is what travels.
 
 ### Plan 2 as built: where the code differs from its plan text
 
@@ -58,9 +206,9 @@ win over the plan text, and spec 0019 §10 was updated to match (`c207a57`).
 - **CoreClient.** Added `deleteFolder(_ id: String, keepNotes:)`. Only the tests
   use it so far.
 
-### Plan 3: drift to fix before executing
+### Plan 3: drift fixed before executing (`9edaef7`)
 
-Its Task 1 preflight greps fail at HEAD.
+Kept for the record; the plan text now reflects all of it.
 
 - **:198.** It greps `static func ask` in `FolderNamePrompt.swift`. Use a
   window-owned `FolderNamePrompter` + `FolderNameOverlay` instead, with
