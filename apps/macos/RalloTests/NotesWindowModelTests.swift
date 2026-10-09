@@ -454,6 +454,78 @@ final class NotesWindowModelTests: XCTestCase {
         XCTAssertEqual(model.selectedNoteID, order[0])
     }
 
+    func testDeletingDuringSearchOpensTheNextResult() async throws {
+        try note("alpha one")
+        try note("alpha two")
+        try note("beta")
+        model.query = "alpha"
+        await model.reload()
+        let results = model.results.map(\.id)
+        XCTAssertEqual(results.count, 2)
+        await model.selectNote(results[0])
+        await model.delete(try XCTUnwrap(model.selectedItem))
+        XCTAssertEqual(model.selectedNoteID, results[1])
+        await model.delete(try XCTUnwrap(model.selectedItem))
+        XCTAssertNil(model.selectedNoteID, "the last result left nothing to open")
+    }
+
+    func testUndoAfterAnAdvanceRestoresTheNoteAndKeepsTheNewOneOpen() async throws {
+        try note("First")
+        try note("Second")
+        try note("Third")
+        await model.reload()
+        let order = model.items.map(\.id)
+        await model.selectNote(order[1])
+        let deletedText = try XCTUnwrap(model.selectedItem).text
+        await model.delete(try XCTUnwrap(model.selectedItem))
+        XCTAssertEqual(model.selectedNoteID, order[2])
+        await model.undo()
+        XCTAssertEqual(model.selectedNoteID, order[2])
+        XCTAssertEqual(model.editor.note?.id, order[2])
+        XCTAssertEqual(model.loadedItem(order[1])?.text, deletedText)
+        XCTAssertNil(model.loadedItem(order[1])?.deletedAtMs)
+    }
+
+    func testDeletingANoteOpenedFromTheDoneListOpensTheNextDoneNote() async throws {
+        let first = try note("One")
+        let second = try note("Two")
+        await model.reload()
+        await model.toggleDone(first)
+        await model.toggleDone(try XCTUnwrap(model.loadedItem(second.id)))
+        let done = model.doneItems.map(\.id)
+        XCTAssertEqual(done.count, 2)
+        await model.selectNote(done[0])
+        await model.delete(try XCTUnwrap(model.selectedItem))
+        XCTAssertEqual(model.selectedNoteID, done[1])
+    }
+
+    // MARK: Error messages
+
+    private func quickModel() -> NotesWindowModel {
+        NotesWindowModel(core: core, saveDelay: 0.05, errorTimeout: 0.05)
+    }
+
+    func testAnInformationalErrorClearsItself() async throws {
+        let quick = quickModel()
+        quick.errorMessage = "Couldn’t read that image."
+        await eventually { quick.errorMessage == nil }
+        XCTAssertNil(quick.errorMessage)
+    }
+
+    func testADataLossErrorOutlivesTheTimeout() async throws {
+        let quick = quickModel()
+        quick.showError("Your last changes to “X” weren’t saved.", sticky: true)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNotNil(quick.errorMessage)
+    }
+
+    func testADataLossErrorClearsOnTheNextSuccessfulSelect() async throws {
+        let quick = quickModel()
+        quick.showError("Your last changes to “X” weren’t saved.", sticky: true)
+        await quick.select(.done)
+        XCTAssertNil(quick.errorMessage)
+    }
+
     func testMarkAsDoneAndReopen() async throws {
         let item = try note("Finish")
         await model.reload()
