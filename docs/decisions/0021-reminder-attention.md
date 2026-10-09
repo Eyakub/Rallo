@@ -158,7 +158,7 @@ the bubble closes after the last.
 - **Nag sound:** `NSSound` with the same file; System default plays
   `NSSound.beep()`; None plays nothing.
 - **Sticky banner:** `Info.plist` gets `NSUserNotificationAlertStyle =
-  alert` (through `apps/macos/project.yml`), which makes Alerts the default
+  alert` (`apps/macos/Rallo/Resources/Info.plist`), which makes Alerts the default
   for new installs. macOS doesn't let an app change an existing user's
   choice, so Settings has a "Keep banner on screen" row with **Open…**,
   which opens System Settings › Notifications › Rallo.
@@ -266,9 +266,9 @@ Changes elsewhere:
 - `PetStateDriver` / `AppCoordinator`: forward the due boundary and the
   agent post to the coordinator.
 - `Settings/SettingsView.swift`, `SettingsModel.swift`: the Alerts group.
-- `apps/macos/project.yml`: `NSUserNotificationAlertStyle`,
-  `NSFocusStatusUsageDescription`, the chime resources, and new sources in
-  the test target.
+- `apps/macos/Rallo/Resources/Info.plist`: `NSUserNotificationAlertStyle`,
+  `NSFocusStatusUsageDescription`. `apps/macos/project.yml`: the chime
+  resources and new sources in the test target.
 
 The pet window's level, collection behaviour, and size stay as 0002 fixes
 them; only its origin moves, as dragging already does. The pet's stored

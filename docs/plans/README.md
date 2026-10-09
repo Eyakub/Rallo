@@ -357,3 +357,16 @@ Beyond the review, while applying it:
 Absolute paths in the plans and reviews (`/Users/eyakub/Desktop/Rallo`, the
 `/private/tmp/...scratchpad` dirs) are from the Mac they were written on:
 use your clone and any temp dir.
+
+# Reminder attention and eye breaks: plans and their status
+
+Branch `feat/attention-breaks`, which also carries the update badge (0020,
+`2d4d0e1`) so both ship in one release.
+
+| Plan | Spec | Execution |
+|---|---|---|
+| [1 alerts](2026-10-10-attention-1-alerts.md) | 0021 | Not started. Task 1 runs spikes S1–S5 first. |
+| [2 eye breaks](2026-10-10-attention-2-eye-breaks.md) | 0022 | Not started. Needs plan 1 merged; Task 1 checks plan 1's API, Task 2 runs spike S6. |
+
+The two plans share a frozen API ("API this plan produces for plan 2" in
+plan 1). Plan 2 compile-checks it before anything else.
