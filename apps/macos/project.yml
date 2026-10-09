@@ -83,6 +83,7 @@ targets:
       - path: Rallo/NotesWindow/NoteEditorSession.swift
       - path: Rallo/NotesWindow/NotesWindowModel.swift
       - path: Rallo/NotesWindow/NotesWindowModel+Notes.swift
+      - path: Rallo/NotesWindow/FolderDeleteCopy.swift
       - path: Rallo/Notes/NotesScope.swift
       - path: Rallo/Notes/PanelDefaults.swift
       - path: Rallo/Notes/FolderMenuItems.swift

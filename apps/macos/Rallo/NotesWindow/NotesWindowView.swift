@@ -6,7 +6,7 @@ struct NotesWindowView: View {
 
     var body: some View {
         NavigationSplitView {
-            Text("Sidebar")  // replaced in Task 10
+            FolderSidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 300)
         } content: {
             Text("List")  // replaced in Task 11
@@ -17,6 +17,9 @@ struct NotesWindowView: View {
         .tint(Theme.rust)
         .searchable(text: $model.query, placement: .toolbar, prompt: "Search all notes")
         .onChange(of: model.query) { _, _ in model.queryChanged() }
+        .sheet(item: $model.pendingFolderDelete) { pending in
+            DeleteFolderSheet(pending: pending, model: model)
+        }
         .overlay(alignment: .top) { errorBanner }
     }
 
