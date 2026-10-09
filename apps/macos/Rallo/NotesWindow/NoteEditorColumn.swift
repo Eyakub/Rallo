@@ -1,8 +1,10 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// The right column (0019 §11): the open note's date, text and images, with
-/// the "changed somewhere else" bar above. The toolbar and the reminder pill
-/// come in the next task.
+/// The right column (0019 §11): the open note's date, reminder, text and
+/// images, with the "changed somewhere else" bar above and the note's actions
+/// in the toolbar.
 struct NoteEditorColumn: View {
     @ObservedObject var model: NotesWindowModel
     @ObservedObject var editor: NoteEditorSession
@@ -23,6 +25,82 @@ struct NoteEditorColumn: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.surface)
+        .toolbar { toolbar }
+    }
+
+    /// A note that can be acted on: saved, and not in Deleted.
+    private var actionable: ItemSnapshot? {
+        guard let note, note.deletedAtMs == nil else { return nil }
+        return note
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItemGroup {
+            let done = actionable?.status == .done
+            Button {
+                if let note = actionable { Task { await model.toggleDone(note) } }
+            } label: {
+                Label(done ? "Reopen" : "Mark as Done", systemImage: done ? "arrow.uturn.backward.circle" : "checkmark.circle")
+            }
+            .disabled(actionable == nil)
+            .help(done ? "Reopen" : "Mark as Done")
+
+            Menu {
+                if let note = actionable {
+                    RemindMenuItems(
+                        onPreset: { preset in Task { await model.remind(note, preset) } },
+                        onCustom: { model.customRemindOpen = true }
+                    )
+                }
+            } label: {
+                Label("Remind Me", systemImage: "bell")
+            }
+            .disabled(actionable == nil)
+            .help("Remind Me")
+
+            Button(action: addImage) {
+                Label("Add Image", systemImage: "photo.badge.plus")
+            }
+            .disabled(actionable == nil)
+            .help("Add Image")
+
+            Menu {
+                if let note = actionable {
+                    FolderMoveMenu(
+                        currentFolderID: note.folderId,
+                        folders: model.folders,
+                        onMove: { id in Task { await model.move(note, toFolder: id) } },
+                        onNewFolder: { Task { await WindowFolderPrompt.newFolder(for: note, model: model) } }
+                    )
+                }
+            } label: {
+                Label(model.folderName(actionable?.folderId), systemImage: "folder")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(actionable == nil)
+            .help("Move to Folder")
+        }
+    }
+
+    /// Add Image: an open panel for images, normalised like pasted ones, then `attach_images`.
+    private func addImage() {
+        guard let note = actionable else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = "Choose images to add to this note"
+        guard panel.runModal() == .OK else { return }
+        let urls = panel.urls
+        Task { @MainActor in
+            let images = await Task.detached { urls.compactMap { try? Data(contentsOf: $0) }.compactMap(ImageClipboard.storable) }.value
+            if images.isEmpty {
+                model.errorMessage = "Couldn’t read that image."
+            } else {
+                await model.attachImages(images, to: note)
+            }
+        }
     }
 
     private var content: some View {
@@ -39,6 +117,23 @@ struct NoteEditorColumn: View {
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.bark)
                         .frame(maxWidth: .infinity)
+                        .popover(isPresented: $model.customRemindOpen, arrowEdge: .bottom) {
+                            CustomRemindPopover(
+                                onSet: { date in
+                                    model.customRemindOpen = false
+                                    if let note = actionable { Task { await model.remind(note, at: date) } }
+                                },
+                                onCancel: { model.customRemindOpen = false }
+                            )
+                        }
+                    if let note = actionable, let reminder = note.reminder, reminder.state == .active {
+                        ReminderPill(
+                            reminder: reminder,
+                            onPreset: { preset in Task { await model.remind(note, preset) } },
+                            onCustom: { model.customRemindOpen = true },
+                            onCancel: { Task { await model.cancelReminder(note) } }
+                        )
+                    }
                     NoteTextEditor(session: editor)
                     if let message = editor.error {
                         Text(message)
@@ -67,6 +162,41 @@ struct NoteEditorColumn: View {
     private var createdText: String {
         let created = note.map { Date(timeIntervalSince1970: TimeInterval($0.createdAtMs) / 1000) } ?? .now
         return created.formatted(date: .long, time: .shortened)
+    }
+}
+
+/// The note's reminder (a bell, `Theme.rust`); clicking it offers the Remind Me
+/// choices again, and Cancel Reminder.
+private struct ReminderPill: View {
+    let reminder: ReminderSnapshot
+    let onPreset: (RemindPreset) -> Void
+    let onCustom: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        let when = ReminderLabel.text(for: reminder.deadline)
+        Menu {
+            RemindMenuItems(onPreset: onPreset, onCustom: onCustom)
+            Divider()
+            Button("Cancel Reminder", role: .destructive, action: onCancel)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: reminder.alertBlocked ? "bell.slash" : "bell")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(when.prefix(1).uppercased() + when.dropFirst())
+            }
+            .font(Theme.rounded(12.5, .semibold))
+            .foregroundStyle(Theme.rust)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Theme.highlight))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(reminder.statusNote?.help ?? "Reminder \(when)")
+        .accessibilityLabel("Reminder \(when)")
     }
 }
 

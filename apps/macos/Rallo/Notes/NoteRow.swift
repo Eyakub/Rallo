@@ -107,7 +107,13 @@ struct NoteRow: View {
             ),
             arrowEdge: .bottom
         ) {
-            CustomRemindPopover(item: item, model: model)
+            CustomRemindPopover(
+                onSet: { date in
+                    model.customRemindID = nil
+                    Task { await model.remind(item, at: date) }
+                },
+                onCancel: { model.customRemindID = nil }
+            )
         }
         .accessibilityElement(children: .contain)
     }

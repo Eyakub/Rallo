@@ -1,8 +1,11 @@
 import SwiftUI
 
+/// "Remind Me → Custom…" (0016): type a time, see when it lands, set it.
+/// Shared by the panel's rows and the notes window; the caller says what
+/// setting and cancelling do.
 struct CustomRemindPopover: View {
-    let item: ItemSnapshot
-    @ObservedObject var model: NotesViewModel
+    let onSet: (Date) -> Void
+    let onCancel: () -> Void
     @State private var text = ""
     @FocusState private var focused: Bool
 
@@ -28,13 +31,12 @@ struct CustomRemindPopover: View {
         .padding(12)
         .frame(width: 260)
         .onAppear { focused = true }
-        .onExitCommand { model.customRemindID = nil }
+        .onExitCommand(perform: onCancel)
     }
 
     private func set() {
         // Recomputed now, so a preview left open still sets the time it says.
         guard let date = CustomRemindPreview(text: text).date else { return }
-        model.customRemindID = nil
-        Task { await model.remind(item, at: date) }
+        onSet(date)
     }
 }
