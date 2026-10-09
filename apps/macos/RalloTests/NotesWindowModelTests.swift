@@ -442,4 +442,20 @@ final class NotesWindowModelTests: XCTestCase {
         try await eventually { try other.listOpenItems(limit: 50).first?.text == "mine 2" }
         XCTAssertEqual(try other.listOpenItems(limit: 50).first?.text, "mine 2")
     }
+
+    func testSwitchingNotesRightAfterAChangeElsewhereStaysOnTheBar() async throws {
+        let first = try note("First")
+        let second = try note("Second")
+        await model.reload()
+        await model.selectNote(first.id)
+        _ = try other.editItemText(id: first.id, text: "theirs", ifRevision: nil)
+        model.editor.textChanged("mine")
+        await model.selectNote(second.id)
+        XCTAssertEqual(model.selectedNoteID, first.id)
+        XCTAssertTrue(model.editor.conflict)
+        XCTAssertEqual(model.editor.text, "mine")
+        await model.showTheirs()
+        await model.selectNote(second.id)
+        XCTAssertEqual(model.selectedNoteID, second.id)
+    }
 }

@@ -33,11 +33,12 @@ final class NoteEditorSessionTests: XCTestCase {
     }
 
     /// Waits for the debounced save to land (at most 2 s) instead of sleeping a fixed time.
-    private func settle(_ session: NoteEditorSession) async {
+    private func settle(_ session: NoteEditorSession, file: StaticString = #filePath, line: UInt = #line) async {
         let deadline = Date().addingTimeInterval(2)
         while session.hasUnsavedText, Date() < deadline {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
+        XCTAssertFalse(session.hasUnsavedText, "the debounce timer never saved", file: file, line: line)
         await session.flush()  // a save that is still running finishes
     }
 
@@ -229,5 +230,62 @@ final class NoteEditorSessionTests: XCTestCase {
         XCTAssertFalse(session.isEditable)
         session.show(.note(note))
         XCTAssertTrue(session.isEditable)
+    }
+
+    func testLeavingRightAfterAChangeElsewhereKeepsTheNoteAndTheBar() async throws {
+        let note = try await core.createNote("v1")
+        let session = session(delay: 60)
+        session.show(.note(note))
+        _ = try other.editItemText(id: note.id, text: "theirs", ifRevision: nil)
+        session.textChanged("mine")
+        let ready = await session.readyToLeave()
+        XCTAssertFalse(ready)
+        XCTAssertTrue(session.conflict)
+        XCTAssertEqual(session.text, "mine")
+        XCTAssertEqual(try stored(note.id).text, "theirs")
+        let again = await session.readyToLeave()
+        XCTAssertTrue(again, "a bar already seen doesn't hold the user back")
+    }
+
+    func testReadyToLeaveForACleanOrEmptiedNote() async throws {
+        let note = try await core.createNote("v1")
+        let session = session(delay: 60)
+        session.show(.note(note))
+        let clean = await session.readyToLeave()
+        XCTAssertTrue(clean)
+        session.textChanged("  ")
+        let emptied = await session.readyToLeave()
+        XCTAssertTrue(emptied)
+    }
+
+    func testATooLongTextHoldsTheUserBackOnce() async throws {
+        let note = try await core.createNote("v1")
+        let session = session(delay: 60)
+        session.show(.note(note))
+        let tooLong = String(repeating: "a", count: 70_000)
+        session.textChanged(tooLong)
+        let ready = await session.readyToLeave()
+        XCTAssertFalse(ready)
+        XCTAssertNotNil(session.error)
+        XCTAssertEqual(session.text, tooLong)
+    }
+
+    /// Different yield counts put `show` at different points of A's save; the
+    /// ones that land while the core call is in flight are the ones that matter.
+    func testASaveFinishingAfterShowingAnotherNoteDoesNotTakeItOver() async throws {
+        for yields in 0..<8 {
+            let a = try await core.createNote("A")
+            let b = try await core.createNote("B")
+            let session = session(delay: 60)
+            session.show(.note(a))
+            session.textChanged("A edited")
+            let flushing = Task { await session.flush() }
+            for _ in 0..<yields { await Task.yield() }
+            session.show(.note(b))
+            await flushing.value
+            XCTAssertEqual(session.note?.id, b.id, "yields: \(yields)")
+            XCTAssertEqual(session.text, "B", "yields: \(yields)")
+            XCTAssertFalse(session.hasUnsavedText, "yields: \(yields)")
+        }
     }
 }

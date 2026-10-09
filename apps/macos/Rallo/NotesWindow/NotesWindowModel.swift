@@ -183,7 +183,7 @@ final class NotesWindowModel: ObservableObject {
 
     func select(_ new: NotesWindowSelection) async {
         guard new != selection else { return }
-        await letGoOfNote()
+        guard await letGoOfNote() else { return }
         selection = new
         query = ""
         open = PagedItems()
@@ -195,17 +195,22 @@ final class NotesWindowModel: ObservableObject {
 
     func selectNote(_ id: String?) async {
         guard id != selectedNoteID || isDrafting else { return }
-        await letGoOfNote()
+        guard await letGoOfNote() else { return }
         selectedNoteID = id
         if let item = selectedItem { editor.show(.note(item)) } else { editor.show(.none) }
     }
 
     /// Saves typing and closes the editor's note; what couldn't be saved is said once.
-    private func letGoOfNote() async {
+    /// False (nothing changed) when the save hit a conflict or was refused: the
+    /// bar or message shows and the note stays open. `force` is for a note that's gone.
+    @discardableResult
+    private func letGoOfNote(force: Bool = false) async -> Bool {
+        if !force, !(await editor.readyToLeave()) { return false }
         if let message = await editor.leave() { errorMessage = message }
         isDrafting = false
         selectedNoteID = nil
         editor.show(.none)
+        return true
     }
 
     // MARK: Reload
@@ -324,7 +329,7 @@ final class NotesWindowModel: ObservableObject {
         if SelectionFallback.noteID(id, loaded: ids) != nil {
             if let item = loadedItem(id) { editor.sync(item) }
         } else {
-            await letGoOfNote()
+            await letGoOfNote(force: true)
         }
     }
 
@@ -402,7 +407,7 @@ final class NotesWindowModel: ObservableObject {
     /// ⌘N: a "New Note" draft at the top of the list, selected, editor focused.
     func beginNewNote() async {
         guard canCreateNote else { return }
-        await letGoOfNote()
+        guard await letGoOfNote() else { return }
         isDrafting = true
         let folderID: String? = if case let .scope(.folder(id)) = selection { id } else { nil }
         let seed = if case let .tag(name) = selection { "#\(name) " } else { "" }
