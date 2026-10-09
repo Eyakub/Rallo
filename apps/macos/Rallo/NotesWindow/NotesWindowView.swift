@@ -3,6 +3,12 @@ import SwiftUI
 /// The Notes window's content: sidebar, list, editor (0019 §11).
 struct NotesWindowView: View {
     @ObservedObject var model: NotesWindowModel
+    @ObservedObject private var prompter: FolderNamePrompter
+
+    init(model: NotesWindowModel) {
+        self.model = model
+        prompter = model.namePrompter
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -16,6 +22,9 @@ struct NotesWindowView: View {
         }
         .tint(Theme.rust)
         .searchable(text: $model.query, placement: .toolbar, prompt: "Search all notes")
+        // The `.folderNamePrompt` fence below doesn't reach the toolbar, so rest it (and the search
+        // field, which is a toolbar item) by the same flag.
+        .disabled(prompter.request != nil)
         .onChange(of: model.query) { _, _ in model.queryChanged() }
         .sheet(item: $model.pendingFolderDelete) { pending in
             DeleteFolderSheet(pending: pending, model: model)
