@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (M0). Changes require a new decision record.
 - **Date:** 2026-09-30
-- **Owner files:** `apps/macos/Rallo/Pet/PetPanel.swift`
+- **Owner files:** `apps/macos/Rallo/Pet/PetWindow.swift` (`PetPanel` lives there)
 
 The pet window's behaviour is decided once, here. Features must not adjust
 its level or collection behaviour ad hoc.

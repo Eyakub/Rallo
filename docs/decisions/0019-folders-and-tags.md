@@ -374,7 +374,10 @@ deleted, tag(String) }`.
     the first line), then one line with the time (today `10:42`, this week
     the weekday, else the date) or the reminder (bell, `Theme.rust`)
     followed by the body preview; the first image as a 38 pt thumbnail on
-    the right. The selected row uses the highlight colour.
+    the right. Selection everywhere is the soft rust wash (`Theme.selection`
+    focused, `selectionSoft` unfocused) with ink text and a semibold sidebar
+    label; never system blue, and the app accent is rust. The sidebar's ↑/↓
+    moves the selection.
   - Done notes of the scope sit in a collapsed `N done` row at the bottom;
     expanding it shows them dimmed.
   - Deleted view rows offer Restore (context menu and toolbar), no delete.
