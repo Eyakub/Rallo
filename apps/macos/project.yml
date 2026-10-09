@@ -78,6 +78,8 @@ targets:
       - path: Rallo/NotesWindow/FolderNaming.swift
       - path: Rallo/NotesWindow/NotesWindowSelection.swift
       - path: Rallo/NotesWindow/SaveScheduler.swift
+      - path: Rallo/NotesWindow/EditorStyling.swift
+      - path: Rallo/NotesWindow/NoteTextStyler.swift
       - path: Rallo/Notes/NotesScope.swift
       - path: Rallo/Notes/PanelDefaults.swift
       - path: Rallo/Notes/FolderMenuItems.swift
