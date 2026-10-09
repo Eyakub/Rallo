@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rallo Reminder Attention Mockup</title>
+<style>
+:root {
+  --bg-primary: #f5f5f7; --bg-secondary: #ffffff; --bg-tertiary: #e5e5e7; --border: #d1d1d6;
+  --text-primary: #1d1d1f; --text-secondary: #6e6e73; --accent: #0071e3;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1d1d1f; --bg-secondary: #2d2d2f; --bg-tertiary: #3d3d3f; --border: #424245;
+    --text-primary: #f5f5f7; --text-secondary: #a1a1a6; --accent: #0a84ff;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg-primary); color: var(--text-primary);
+       font: 14px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; }
+main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 48px; }
+h2 { font-size: 22px; margin: 0 0 4px; }
+h3 { font-size: 15px; margin: 0 0 8px; }
+.subtitle { color: var(--text-secondary); margin: 0 0 20px; }
+.section { margin-bottom: 28px; }
+</style>
+</head>
+<body>
+<main>
+<style>
+  .rl { --rust:#B4501F; --rust2:#F08A4B; --ink:#2B1A13; --cream:#F5E8DC; --card:#FCF8F5; --bark:#7D5F50; }
+  .desk { position:relative; aspect-ratio:16/10; border-radius:10px; overflow:hidden;
+          background:linear-gradient(135deg,#3a4a63 0%,#6b7d99 45%,#c9a98f 100%); }
+  .desk .menubar { position:absolute; inset:0 0 auto 0; height:22px; background:rgba(255,255,255,.55);
+          backdrop-filter:blur(8px); font:600 11px -apple-system,sans-serif; color:#222;
+          display:flex; align-items:center; gap:14px; padding:0 10px; }
+  .desk .menubar .r { margin-left:auto; display:flex; gap:10px; }
+  .win { position:absolute; background:rgba(255,255,255,.9); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.25); }
+  .win .bar { height:18px; border-bottom:1px solid #ddd; display:flex; gap:5px; align-items:center; padding-left:7px; }
+  .win .bar i { width:7px; height:7px; border-radius:50%; background:#ccc; display:block; }
+  .pet { position:absolute; width:110px; }
+  .pet img { width:100%; display:block; filter:drop-shadow(0 6px 10px rgba(0,0,0,.35)); }
+  .ghost { opacity:.35; right:14px; bottom:10px; width:58px; }
+  .path { position:absolute; right:60px; bottom:58px; width:34%; height:30%;
+          border-top:2px dashed rgba(255,255,255,.8); border-right:2px dashed rgba(255,255,255,.8);
+          border-top-right-radius:60px; }
+  .summon { left:50%; top:50%; transform:translate(-50%,-22%); animation:hop 2.4s ease-in-out infinite; }
+  @keyframes hop { 0%,100%{transform:translate(-50%,-22%)} 12%{transform:translate(-50%,-32%)} 24%{transform:translate(-50%,-22%)} }
+  .bubble { position:absolute; left:50%; top:9%; transform:translateX(-50%); width:270px;
+            background:var(--card); color:var(--ink); border-radius:16px; padding:12px 14px 12px;
+            box-shadow:0 14px 34px rgba(0,0,0,.35); font:13px -apple-system,sans-serif; }
+  .bubble:after { content:""; position:absolute; left:50%; bottom:-8px; margin-left:-8px;
+            border:8px solid transparent; border-top-color:var(--card); border-bottom:0; }
+  .bubble .k { font:600 10.5px -apple-system,sans-serif; letter-spacing:.04em; text-transform:uppercase; color:var(--rust); }
+  .bubble .t { font:600 15px ui-rounded,-apple-system,sans-serif; margin:3px 0 10px; }
+  .btns { display:flex; gap:6px; }
+  .btn { border-radius:8px; padding:5px 10px; font:600 12px -apple-system,sans-serif; border:1px solid #E8D6C8; background:#fff; color:var(--ink); }
+  .btn.p { background:var(--rust); color:#fff; border-color:var(--rust); }
+  .dark .bubble { --card:#2A211C; --ink:#F5E8DC; }
+  .dark .bubble .k { color:var(--rust2); }
+  .dark .btn { background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.14); color:#F5E8DC; }
+  .dark .btn.p { background:var(--rust2); border-color:var(--rust2); color:#1A1411; }
+  .dark.desk { background:linear-gradient(135deg,#0f1622 0%,#1d2738 50%,#3b2e28 100%); }
+  .dark .menubar { background:rgba(30,30,30,.6); color:#eee; }
+  .dark .win { background:rgba(40,40,44,.92); }
+  .dark .win .bar { border-color:#444; }
+  .scrim { position:absolute; inset:0; background:rgba(0,0,0,.18); }
+  .tag { display:inline-block; font:600 10px -apple-system,sans-serif; padding:2px 7px; border-radius:99px;
+         background:rgba(180,80,31,.12); color:#B4501F; margin-left:6px; vertical-align:middle; }
+  .banner { position:absolute; right:10px; top:30px; width:300px; border-radius:14px; padding:10px 12px;
+            background:rgba(246,246,246,.92); backdrop-filter:blur(10px); box-shadow:0 8px 24px rgba(0,0,0,.25);
+            font:12px -apple-system,sans-serif; color:#111; display:flex; gap:10px; }
+  .banner .ic { width:30px; height:30px; border-radius:7px; background:#F8EDE4 url(../../assets/pet/rallo/pet-idle@2x.png) center/120% no-repeat; flex:none; }
+  .banner b { display:block; font-size:12.5px; }
+  .banner .acts { display:flex; flex-direction:column; gap:4px; margin-left:auto; }
+  .banner .acts span { border:1px solid #ccc; border-radius:6px; padding:2px 8px; font-size:11px; text-align:center; background:#fff; }
+  .wave { position:absolute; right:150px; top:34px; color:#fff; font:700 22px -apple-system; letter-spacing:2px; animation:pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:1} }
+  .glow { position:absolute; inset:0; border-radius:10px; pointer-events:none; animation:glow 1.6s ease-in-out infinite; }
+  @keyframes glow { 0%,100%{ box-shadow:inset 0 0 0 0 rgba(240,138,75,0), inset 0 0 0 rgba(240,138,75,0);} 50%{ box-shadow:inset 0 0 0 3px rgba(240,138,75,.95), inset 0 0 46px 10px rgba(240,138,75,.6);} }
+  .tl { display:flex; align-items:flex-start; gap:0; margin:8px 0 4px; }
+  .tl .s { flex:1; text-align:center; position:relative; font:12px -apple-system,sans-serif; }
+  .tl .s:before { content:""; position:absolute; top:13px; left:0; right:0; height:2px; background:var(--border); z-index:0; }
+  .tl .s:first-child:before { left:50%; } .tl .s:last-child:before { right:50%; }
+  .tl .dot { position:relative; z-index:1; width:28px; height:28px; border-radius:50%; margin:0 auto 6px; display:flex;
+             align-items:center; justify-content:center; background:#B4501F; color:#fff; font-size:14px; }
+  .tl .dot.ok { background:#5E8C4A; }
+  .tl .dot.off { background:var(--bg-tertiary); color:var(--text-secondary); }
+  .tl small { color:var(--text-secondary); display:block; }
+  .set { background:var(--bg-secondary); border:1px solid var(--border); border-radius:10px; padding:4px 14px; font:13px -apple-system,sans-serif; }
+  .set .row { display:flex; align-items:center; padding:9px 0; border-bottom:1px solid var(--border); gap:10px; }
+  .set .row:last-child { border-bottom:0; }
+  .set .row .d { color:var(--text-secondary); font-size:11.5px; }
+  .set .row .ctl { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .sw { width:30px; height:18px; border-radius:99px; background:#B4501F; position:relative; }
+  .sw:after { content:""; position:absolute; right:2px; top:2px; width:14px; height:14px; border-radius:50%; background:#fff; }
+  .sw.off { background:var(--bg-tertiary); } .sw.off:after { left:2px; right:auto; }
+  .pop { border:1px solid var(--border); border-radius:6px; padding:2px 8px; background:var(--bg-primary); font-size:12px; }
+  .sub { padding-left:18px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:760px){ .grid2{ grid-template-columns:1fr; } }
+  .cap { font:12px -apple-system,sans-serif; color:var(--text-secondary); margin-top:6px; }
+</style>
+
+<div class="rl">
+<h2>Reminder attention: the four parts</h2>
+<p class="subtitle">One trigger (a note reminder or a long-waiting agent comes due) and four effects you can turn on or off.</p>
+
+<div class="section">
+<h3>1 · Pet summon <span class="tag">recommended</span></h3>
+<div class="grid2">
+  <div>
+    <div class="desk">
+      <div class="menubar"><span></span><span>Xcode</span><span>File</span><span>Edit</span><div class="r"><span>🐾</span><span>4:30 PM</span></div></div>
+      <div class="win" style="left:6%;top:14%;width:58%;height:70%"><div class="bar"><i></i><i></i><i></i></div></div>
+      <div class="scrim"></div>
+      <div class="path"></div>
+      <div class="pet ghost"><img src="../../assets/pet/rallo/pet-idle@2x.png"></div>
+      <div class="bubble">
+        <div class="k">⏰ Reminder · 4:30 PM</div>
+        <div class="t">Send the invoice to Acme</div>
+        <div class="btns"><span class="btn p">Done</span><span class="btn">Snooze 10 min ▾</span><span class="btn">Open</span></div>
+      </div>
+      <div class="pet summon"><img src="../../assets/pet/rallo/pet-wave2@2x.png"></div>
+    </div>
+    <p class="cap">Note reminder, Light Mode. The pet hops from its corner (faded) to the centre and waves. The screen dims slightly. After Done or Snooze it hops back. If nobody answers, it goes back after about 60 s and the banner stays.</p>
+  </div>
+  <div>
+    <div class="desk dark">
+      <div class="menubar"><span></span><span>Terminal</span><span>Shell</span><div class="r"><span>🐾</span><span>4:47 PM</span></div></div>
+      <div class="win" style="left:30%;top:20%;width:64%;height:66%"><div class="bar"><i></i><i></i><i></i></div></div>
+      <div class="scrim"></div>
+      <div class="bubble">
+        <div class="k">🤖 Agent waiting · 12 min</div>
+        <div class="t">Claude needs you in <span style="font-family:ui-monospace,monospace;font-size:13px">rallo</span></div>
+        <div class="btns"><span class="btn p">Jump to it</span><span class="btn">Later</span></div>
+      </div>
+      <div class="pet summon"><img src="../../assets/pet/rallo/pet-nudge@2x.png"></div>
+    </div>
+    <p class="cap">Agent long-wait, Dark Mode. Same summon with different buttons. With Reduce Motion or Pause Animations on, the pet fades in at the centre instead of hopping.</p>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h3>2 · Louder sound + sticky banner</h3>
+<div class="grid2">
+  <div>
+    <div class="desk">
+      <div class="menubar"><span></span><span>Safari</span><div class="r"><span>🐾</span><span>4:30 PM</span></div></div>
+      <div class="win" style="left:5%;top:16%;width:60%;height:70%"><div class="bar"><i></i><i></i><i></i></div></div>
+      <div class="wave">🔊 ♪ ♫</div>
+      <div class="banner"><div class="ic"></div><div><b>Rallo reminder</b>Open Rallo to see it.<br><span style="color:#888">now</span></div>
+        <div class="acts"><span>Done</span><span>Snooze</span></div></div>
+    </div>
+    <p class="cap">macOS <b>Alert</b> style: the banner stays until you click it (today it slides away after ~5 s). It plays a longer Rallo chime, and still rings when Rallo is the front app (today that case is silent).</p>
+  </div>
+  <div>
+    <div class="set">
+      <div class="row"><div>Alert sound<div class="d">Plays with every reminder banner</div></div><div class="ctl"><span class="pop">Rallo Chime ▾</span><span class="pop">▶</span></div></div>
+      <div class="row sub"><div class="d">Choices: Rallo Chime · Bamboo Knock · Gentle Bell · System default · None</div></div>
+      <div class="row"><div>Keep banner on screen<div class="d">Opens System Settings › Notifications › Rallo to choose “Alerts”</div></div><div class="ctl"><span class="pop">Open…</span></div></div>
+    </div>
+    <p class="cap">macOS lets the user choose Banner or Alert, and an app cannot force it. Rallo can make Alert the default for new installs and add a shortcut to that setting.</p>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h3>3 · Nag until handled</h3>
+<div class="tl">
+  <div class="s"><div class="dot">🔔</div>4:30<small>ring + pet summon</small></div>
+  <div class="s"><div class="dot">🔔</div>4:32<small>ring again</small></div>
+  <div class="s"><div class="dot">🔔</div>4:34<small>ring again</small></div>
+  <div class="s"><div class="dot ok">✓</div>4:35<small>Done / Snooze stops it</small></div>
+  <div class="s"><div class="dot off">·</div>4:40<small>gives up after N rings</small></div>
+</div>
+<p class="cap">Setting: “Repeat every <span class="pop">2 min ▾</span> up to <span class="pop">5 times ▾</span>”. Each repeat re-plays the sound and the summon. Clicking the banner body, opening the note, or Done / Snooze counts as handled.</p>
+</div>
+
+<div class="section">
+<h3>4 · Screen edge glow</h3>
+<div class="grid2">
+  <div>
+    <div class="desk">
+      <div class="menubar"><span></span><span>Figma</span><div class="r"><span>🐾</span><span>4:30 PM</span></div></div>
+      <div class="win" style="left:4%;top:12%;width:92%;height:82%"><div class="bar"><i></i><i></i><i></i></div></div>
+      <div class="glow"></div>
+    </div>
+    <p class="cap">A soft rust glow pulses around the edges of every display 3 times (~5 s). Clicks pass through it. It catches peripheral vision even in a full-screen app.</p>
+  </div>
+  <div>
+    <div class="desk dark">
+      <div class="menubar"><span></span><span>Keynote</span><div class="r"><span>🐾</span><span>4:30 PM</span></div></div>
+      <div class="win" style="left:4%;top:12%;width:92%;height:82%"><div class="bar"><i></i><i></i><i></i></div></div>
+      <div class="glow"></div>
+    </div>
+    <p class="cap">Dark Mode, same effect. With Reduce Motion on it shows one steady glow, then fades.</p>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h3>Settings › Notifications (new “Alerts” group)</h3>
+<div class="set">
+  <div class="row"><div>Pet comes to the centre</div><div class="ctl"><div class="sw"></div></div></div>
+  <div class="row"><div>Alert sound</div><div class="ctl"><span class="pop">Rallo Chime ▾</span><span class="pop">▶</span></div></div>
+  <div class="row"><div>Repeat until handled</div><div class="ctl"><span class="pop">every 2 min ▾</span><span class="pop">5× ▾</span><div class="sw"></div></div></div>
+  <div class="row"><div>Glow screen edges</div><div class="ctl"><div class="sw off"></div></div></div>
+  <div class="row"><div>Use for agent long-waits too<div class="d">Only when “Notify on long waits” is on</div></div><div class="ctl"><div class="sw"></div></div></div>
+</div>
+</div>
+
+</div>
+</main>
+</body>
+</html>

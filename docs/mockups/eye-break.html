@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rallo Eye Break Mockup</title>
+<style>
+:root {
+  --bg-primary: #f5f5f7; --bg-secondary: #ffffff; --bg-tertiary: #e5e5e7; --border: #d1d1d6;
+  --text-primary: #1d1d1f; --text-secondary: #6e6e73; --accent: #0071e3;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1d1d1f; --bg-secondary: #2d2d2f; --bg-tertiary: #3d3d3f; --border: #424245;
+    --text-primary: #f5f5f7; --text-secondary: #a1a1a6; --accent: #0a84ff;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg-primary); color: var(--text-primary);
+       font: 14px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; }
+main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 48px; }
+h2 { font-size: 22px; margin: 0 0 4px; }
+h3 { font-size: 15px; margin: 0 0 8px; }
+.subtitle { color: var(--text-secondary); margin: 0 0 20px; }
+.section { margin-bottom: 28px; }
+</style>
+</head>
+<body>
+<main>
+<style>
+  .eb { --rust:#B4501F; --rust2:#F08A4B; }
+  .desk { position:relative; aspect-ratio:16/10; border-radius:10px; overflow:hidden;
+          background:linear-gradient(135deg,#3a4a63 0%,#6b7d99 45%,#c9a98f 100%); }
+  .desk .menubar { position:absolute; inset:0 0 auto 0; height:22px; background:rgba(255,255,255,.55);
+          font:600 11px -apple-system,sans-serif; color:#222; display:flex; align-items:center; gap:14px; padding:0 10px; }
+  .desk .menubar .r { margin-left:auto; display:flex; gap:10px; }
+  .win { position:absolute; background:rgba(255,255,255,.9); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.25); }
+  .win .bar { height:18px; border-bottom:1px solid #ddd; display:flex; gap:5px; align-items:center; padding-left:7px; }
+  .win .bar i { width:7px; height:7px; border-radius:50%; background:#ccc; display:block; }
+  .pet { position:absolute; }
+  .pet img { width:100%; display:block; filter:drop-shadow(0 6px 10px rgba(0,0,0,.35)); }
+  .pill { position:absolute; left:50%; top:30px; transform:translateX(-50%); display:flex; align-items:center; gap:10px;
+          background:rgba(43,26,19,.92); color:#F5E8DC; border-radius:99px; padding:6px 8px 6px 8px;
+          font:600 12.5px -apple-system,sans-serif; box-shadow:0 8px 22px rgba(0,0,0,.3); white-space:nowrap; }
+  .ring { width:24px; height:24px; border-radius:50%; background:conic-gradient(#F08A4B 70%, rgba(255,255,255,.15) 0);
+          display:flex; align-items:center; justify-content:center; }
+  .ring b { width:18px; height:18px; border-radius:50%; background:#2B1A13; font:700 10px -apple-system; display:flex; align-items:center; justify-content:center; }
+  .pill .b { border-radius:99px; padding:3px 9px; background:rgba(255,255,255,.1); font-weight:600; }
+  .black { position:absolute; inset:0; background:#000; color:#d8d0ca; display:flex; flex-direction:column;
+           align-items:center; justify-content:center; font-family:-apple-system,sans-serif; }
+  .big { width:120px; height:120px; border-radius:50%; position:relative;
+         background:conic-gradient(rgba(240,138,75,.85) var(--p,65%), rgba(255,255,255,.08) 0); display:flex; align-items:center; justify-content:center; }
+  .big:after { content:""; position:absolute; inset:5px; border-radius:50%; background:#000; }
+  .big span { position:relative; z-index:1; font:300 44px ui-rounded,-apple-system,sans-serif; color:#F5E8DC; }
+  .black .msg { margin-top:16px; font:500 14px ui-rounded,-apple-system,sans-serif; color:#cfc5bd; }
+  .black .acts { position:absolute; bottom:14px; display:flex; gap:8px; }
+  .black .acts span { font:12px -apple-system,sans-serif; color:#8a817b; border:1px solid #2a2a2a; border-radius:7px; padding:3px 9px; }
+  .black .tiny { position:absolute; bottom:14px; font:11px -apple-system,sans-serif; color:#555; }
+  .tick { animation:tick 1s steps(1) infinite; }
+  .pair { display:flex; gap:10px; align-items:flex-end; }
+  .pair .desk { flex:1; }
+  .pair .desk.small { flex:.62; }
+  .toast { position:absolute; right:12px; bottom:12px; background:rgba(43,26,19,.92); color:#F5E8DC; border-radius:12px;
+           padding:7px 12px; font:600 12px -apple-system,sans-serif; display:flex; gap:8px; align-items:center; }
+  .toast img { width:26px; }
+  .menu { width:270px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:9px; padding:5px; font:13px -apple-system,sans-serif;
+          box-shadow:0 10px 30px rgba(0,0,0,.18); }
+  .menu .i { padding:4px 10px; border-radius:5px; display:flex; }
+  .menu .i .k { margin-left:auto; color:var(--text-secondary); }
+  .menu .i.dim { color:var(--text-secondary); font-size:12px; }
+  .menu .i.hl { background:var(--accent); color:#fff; } .menu .i.hl .k { color:#fff; }
+  .menu hr { border:0; border-top:1px solid var(--border); margin:5px 8px; }
+  .sm { margin-left:24px; width:170px; position:relative; top:-58px; }
+  .set { background:var(--bg-secondary); border:1px solid var(--border); border-radius:10px; padding:4px 14px; font:13px -apple-system,sans-serif; }
+  .set .row { display:flex; align-items:center; padding:9px 0; border-bottom:1px solid var(--border); gap:10px; }
+  .set .row:last-child { border-bottom:0; }
+  .set .row .d { color:var(--text-secondary); font-size:11.5px; }
+  .set .row .ctl { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .set .h { font:600 11px -apple-system,sans-serif; text-transform:uppercase; letter-spacing:.05em; color:var(--text-secondary); padding:12px 0 2px; }
+  .sw { width:30px; height:18px; border-radius:99px; background:#B4501F; position:relative; flex:none; }
+  .sw:after { content:""; position:absolute; right:2px; top:2px; width:14px; height:14px; border-radius:50%; background:#fff; }
+  .sw.off { background:var(--bg-tertiary); } .sw.off:after { left:2px; right:auto; }
+  .pop { border:1px solid var(--border); border-radius:6px; padding:2px 8px; background:var(--bg-primary); font-size:12px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+  @media (max-width:760px){ .grid2,.grid3{ grid-template-columns:1fr; } .sm{ top:0; margin:8px 0 0; } }
+  .cap { font:12px -apple-system,sans-serif; color:var(--text-secondary); margin-top:6px; }
+  .tag { display:inline-block; font:600 10px -apple-system,sans-serif; padding:2px 7px; border-radius:99px;
+         background:rgba(180,80,31,.12); color:#B4501F; margin-left:6px; vertical-align:middle; }
+  .flow { display:flex; gap:6px; align-items:center; flex-wrap:wrap; font:12.5px -apple-system,sans-serif; margin:6px 0 2px; }
+  .flow span { border:1px solid var(--border); border-radius:8px; padding:5px 9px; background:var(--bg-secondary); }
+  .flow em { color:var(--text-secondary); font-style:normal; }
+</style>
+
+<div class="eb">
+<h2>Eye break (20-20-20)</h2>
+<p class="subtitle">Every 20 min of screen time, look at something 20 ft (6 m) away for 20 s.</p>
+
+<div class="section">
+<h3>The cycle</h3>
+<div class="flow">
+  <span>20 min of use</span><em>→</em><span>10 s warning pill</span><em>→</em><span>black screen, 20 s countdown</span><em>→</em><span>fades back + “next in 20 min”</span><em>→</em><span>timer restarts</span>
+</div>
+<p class="cap">Being idle 5+ min, locking the screen or sleeping counts as a break and restarts the 20 min. A break that comes due while you're idle waits until you're back.</p>
+</div>
+
+<div class="section">
+<h3>1 · Warning, 10 s before</h3>
+<div class="desk" style="max-width:640px">
+  <div class="menubar"><span></span><span>Xcode</span><span>File</span><div class="r"><span>🐾 0:10</span><span>4:50 PM</span></div></div>
+  <div class="win" style="left:6%;top:14%;width:70%;height:76%"><div class="bar"><i></i><i></i><i></i></div></div>
+  <div class="pill"><div class="ring"><b>8</b></div>Eye break in 8 s<span class="b">Start now</span><span class="b">+5 min</span><span class="b">Skip</span></div>
+  <div class="pet" style="right:12px;bottom:8px;width:70px"><img src="../../assets/pet/rallo/pet-nudge@2x.png"></div>
+</div>
+<p class="cap">A small pill at the top centre counts down, and the pet nudges in its corner. Gives you time to finish a sentence. It never takes keyboard focus.</p>
+</div>
+
+<div class="section">
+<h3>2 · The black screen: three styles</h3>
+<div class="grid3">
+  <div>
+    <div class="desk"><div class="black">
+      <div class="big" style="--p:60%"><span>12</span></div>
+      <div class="tiny">esc to skip</div>
+    </div></div>
+    <p class="cap"><b>A · Minimal.</b> Pure black, countdown ring only. Nothing to read.</p>
+  </div>
+  <div>
+    <div class="desk"><div class="black">
+      <div class="pet" style="width:84px;position:relative;margin-bottom:6px"><img src="../../assets/pet/rallo/pet-content@2x.png" style="filter:brightness(.85) drop-shadow(0 0 18px rgba(240,138,75,.25))"></div>
+      <div style="font:300 34px ui-rounded,-apple-system,sans-serif;color:#F5E8DC">0:12</div>
+      <div class="msg">Look at something far away</div>
+      <div class="acts"><span>+5 min</span><span>Skip · esc</span></div>
+    </div></div>
+    <p class="cap"><b>B · With Rallo</b> <span class="tag">chosen</span> The pet sits calmly, with one short tip and a dim countdown. Friendlier, and still dark.</p>
+  </div>
+  <div>
+    <div class="desk"><div class="black">
+      <div class="big" style="--p:60%;width:96px;height:96px"><span style="font-size:34px">12</span></div>
+      <div class="msg" style="font-size:13px">Blink slowly · look out the window</div>
+      <div class="tiny" style="color:#3a3a3a">strict mode · can't skip</div>
+    </div></div>
+    <p class="cap"><b>C · Strict.</b> No buttons. Esc does nothing until the 20 s are up. A setting, not the default.</p>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h3>3 · Multiple displays, and after</h3>
+<div class="grid2">
+  <div>
+    <div class="pair">
+      <div class="desk"><div class="black">
+        <div class="pet" style="width:70px;position:relative"><img src="../../assets/pet/rallo/pet-content@2x.png" style="filter:brightness(.85)"></div>
+        <div style="font:300 28px ui-rounded,-apple-system,sans-serif;color:#F5E8DC">0:12</div>
+        <div class="msg" style="font-size:12px">Look at something far away</div></div></div>
+      <div class="desk small"><div class="black"></div></div>
+    </div>
+    <p class="cap">Every display goes black, including Spaces with full-screen apps. Only the main display shows the countdown.</p>
+  </div>
+  <div>
+    <div class="desk">
+      <div class="menubar"><span></span><span>Xcode</span><div class="r"><span>🐾</span><span>4:51 PM</span></div></div>
+      <div class="win" style="left:6%;top:14%;width:70%;height:76%"><div class="bar"><i></i><i></i><i></i></div></div>
+      <div class="toast"><img src="../../assets/pet/rallo/pet-happy@2x.png">Eyes rested · next in 20 min</div>
+    </div>
+    <p class="cap">The screen fades back over about 1 s. A small toast confirms the break, then goes away.</p>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h3>4 · Menu bar and Settings</h3>
+<div class="grid2">
+  <div style="display:flex;align-items:flex-start;flex-wrap:wrap">
+    <div class="menu">
+      <div class="i">Open Notes…<span class="k">⌥Space</span></div>
+      <div class="i">Notes Window</div>
+      <div class="i">Hide Pet</div>
+      <hr>
+      <div class="i dim">👁 Eye break in 12:34</div>
+      <div class="i">Take a Break Now</div>
+      <div class="i hl">Pause Eye Breaks<span class="k">▸</span></div>
+      <hr>
+      <div class="i">Settings…<span class="k">⌘,</span></div>
+      <div class="i">Quit Rallo<span class="k">⌘Q</span></div>
+    </div>
+    <div class="menu sm">
+      <div class="i">For 30 Minutes</div>
+      <div class="i">For 1 Hour</div>
+      <div class="i">Until Tomorrow</div>
+    </div>
+  </div>
+  <div>
+    <div class="set">
+      <div class="h">Eye breaks</div>
+      <div class="row"><div>Remind me to rest my eyes</div><div class="ctl"><div class="sw"></div></div></div>
+      <div class="row"><div>Every</div><div class="ctl"><span class="pop">20 min ▾</span></div></div>
+      <div class="row"><div>Break length</div><div class="ctl"><span class="pop">20 s ▾</span></div></div>
+      <div class="row"><div>Warn before</div><div class="ctl"><span class="pop">10 s ▾</span></div></div>
+      <div class="row"><div>Allow skipping<div class="d">Off = strict mode</div></div><div class="ctl"><div class="sw"></div></div></div>
+      <div class="row"><div>Hold while camera or mic is in use<div class="d">Doesn't black out a video call; the break runs after the call</div></div><div class="ctl"><div class="sw"></div></div></div>
+    </div>
+    <p class="cap">A new “Breaks” tab in Settings, which opens from the menu bar's Settings… item.</p>
+  </div>
+</div>
+</div>
+
+</div>
+</main>
+</body>
+</html>
