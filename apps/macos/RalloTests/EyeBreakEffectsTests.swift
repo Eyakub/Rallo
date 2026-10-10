@@ -141,6 +141,7 @@ final class EyeBreakEffectsTests: XCTestCase {
         let screens = [CGRect(x: 0, y: 0, width: 1728, height: 1117), CGRect(x: 1728, y: 0, width: 2560, height: 1440)]
         XCTAssertEqual(EyeBreakLayout.mainIndex(screens: screens, mouse: CGPoint(x: 2000, y: 500)), 1)
         XCTAssertEqual(EyeBreakLayout.mainIndex(screens: screens, mouse: CGPoint(x: 100, y: 100)), 0)
+        XCTAssertEqual(EyeBreakLayout.mainIndex(screens: screens, mouse: CGPoint(x: 2000, y: 1440)), 1, "the top edge belongs to the screen, like the pill")
         XCTAssertEqual(EyeBreakLayout.mainIndex(screens: screens, mouse: CGPoint(x: -500, y: 9000)), 0, "off every screen: the first")
         XCTAssertEqual(EyeBreakLayout.mainIndex(screens: [screens[1]], mouse: CGPoint(x: 100, y: 100)), 0, "a display unplugged mid-break")
     }

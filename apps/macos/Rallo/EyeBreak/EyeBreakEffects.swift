@@ -113,6 +113,7 @@ enum EyeBreakPause: Int, CaseIterable {
 enum EyeBreakLayout {
     /// The screen under the mouse gets the countdown (§4); off every screen, the first.
     static func mainIndex(screens: [CGRect], mouse: CGPoint) -> Int {
-        screens.firstIndex { $0.contains(mouse) } ?? 0
+        // Inclusive: AppKit reports a pointer at a display's top edge as y == maxY (the pill uses NSMouseInRect).
+        screens.firstIndex { mouse.x >= $0.minX && mouse.x <= $0.maxX && mouse.y >= $0.minY && mouse.y <= $0.maxY } ?? 0
     }
 }
