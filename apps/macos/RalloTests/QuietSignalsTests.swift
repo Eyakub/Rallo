@@ -38,6 +38,19 @@ final class QuietSignalsTests: XCTestCase {
         XCTAssertTrue(DeviceActivity.microphoneInUse(processes, excluding: rallo))
     }
 
+    /// Measured 2026-10-10: corespeechd also runs input with two input devices for a few seconds at a time.
+    func testTheVoiceTriggerWithInputDevicesIsNotACall() {
+        let processes = [DeviceActivity.AudioProcess(pid: 1014, runningInput: true, inputDevices: 2,
+                                                     bundleID: "com.apple.CoreSpeech")]
+        XCTAssertFalse(DeviceActivity.microphoneInUse(processes, excluding: rallo))
+    }
+
+    func testAnUnknownBundleWithTheSameInputIsACall() {
+        let processes = [DeviceActivity.AudioProcess(pid: 1014, runningInput: true, inputDevices: 2,
+                                                     bundleID: "us.zoom.xos")]
+        XCTAssertTrue(DeviceActivity.microphoneInUse(processes, excluding: rallo))
+    }
+
     func testRallosOwnRecordingIsNotACall() {
         let processes = [DeviceActivity.AudioProcess(pid: rallo, runningInput: true, inputDevices: 1)]
         XCTAssertFalse(DeviceActivity.microphoneInUse(processes, excluding: rallo))

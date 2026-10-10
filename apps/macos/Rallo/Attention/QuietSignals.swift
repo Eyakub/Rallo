@@ -40,6 +40,7 @@ enum DeviceActivity {
         var runningInput: Bool
         /// The devices it uses for input.
         var inputDevices: Int
+        var bundleID: String? = nil
     }
 
     /// Another process recording from an audio device. Asked per process: a
@@ -49,10 +50,19 @@ enum DeviceActivity {
         microphoneInUse(audioProcesses(), excluding: ProcessInfo.processInfo.processIdentifier)
     }
 
+    /// System processes that listen on their own and aren't a call: the
+    /// voice-trigger daemon (corespeechd) runs input with input devices for a
+    /// few seconds at a time (0021 Verified, S4b).
+    static let systemListeners: Set<String> = ["com.apple.CoreSpeech"]
+
     /// The voice trigger (corespeechd) runs input with no device; playback on
-    /// a device with an input lists the device but runs no input. Neither counts.
+    /// a device with an input lists the device but runs no input. Neither
+    /// counts, nor do `systemListeners`.
     static func microphoneInUse(_ processes: [AudioProcess], excluding ownPID: pid_t) -> Bool {
-        processes.contains { $0.pid != ownPID && $0.runningInput && $0.inputDevices > 0 }
+        processes.contains {
+            $0.pid != ownPID && $0.runningInput && $0.inputDevices > 0
+                && !($0.bundleID.map(systemListeners.contains) ?? false)
+        }
     }
 
     /// Any camera running in any process.
@@ -65,8 +75,19 @@ enum DeviceActivity {
             guard let pid: pid_t = scalar(id, kAudioProcessPropertyPID),
                   let running: UInt32 = scalar(id, kAudioProcessPropertyIsRunningInput) else { return nil }
             return AudioProcess(pid: pid, runningInput: running != 0,
-                                inputDevices: objectIDs(id, kAudioProcessPropertyDevices, scope: kAudioObjectPropertyScopeInput).count)
+                                inputDevices: objectIDs(id, kAudioProcessPropertyDevices, scope: kAudioObjectPropertyScopeInput).count,
+                                bundleID: bundleID(id))
         }
+    }
+
+    private static func bundleID(_ object: AudioObjectID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyBundleID, mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr else { return nil }
+        return value?.takeRetainedValue() as String?
     }
 
     private static func objectIDs(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector,
