@@ -122,11 +122,11 @@ final class EyeBreakController {
         case let .showOverlay(until):
             if !overlay.isVisible {
                 let front = NSWorkspace.shared.frontmostApplication
-                // Rallo frontmost (panel or notes window open): it simply stays active.
+                // Rallo frontmost (panel or notes window open): nothing to restore.
                 recordedApp = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
             }
             overlay.show(until: until, tip: planner.tip, allowSkip: planner.settings.allowSkip, animate: motionAllowed)
-            NSApp.activate()
+            // The non-activating overlay takes the keyboard at once, without activating Rallo.
             overlay.makeMainKey()
             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
                 .announcement: EyeBreakText.announcement(length: planner.settings.length),
@@ -135,7 +135,7 @@ final class EyeBreakController {
         case .closeOverlay:
             overlay.close(animate: motionAllowed)
         case .restoreFocus:
-            // Even if Rallo never became active: the recorded app is then still in front.
+            // Rallo never activates, so the recorded app is normally still in front; harmless then.
             recordedApp?.activate()
             recordedApp = nil
         case let .toast(nextIn):

@@ -100,14 +100,17 @@ final class EyeBreakOverlay {
 
 /// Black, above full-screen apps, the menu bar and the Dock. Only the
 /// countdown's window becomes key, so Esc reaches it and typing goes nowhere.
-private final class OverlayWindow: NSWindow {
+/// A non-activating panel: it takes key focus at once without activating Rallo.
+private final class OverlayWindow: NSPanel {
     let holdsCountdown: Bool
     var onEsc: (Bool) -> Void = { _ in }
 
     init(screen: NSScreen, holdsCountdown: Bool) {
         self.holdsCountdown = holdsCountdown
-        super.init(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         setFrame(screen.frame, display: false)
+        hidesOnDeactivate = false
+        becomesKeyOnlyIfNeeded = false
         level = EyeBreakOverlay.windowLevel
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         backgroundColor = .black
