@@ -60,6 +60,9 @@ struct EyeBreakPlanner: Equatable {
     /// Idle for `naturalBreak` was seen; the cycle restarts when the user is back.
     private(set) var awaitingReturn = false
     private(set) var breaksTaken = 0
+    /// False while locked or asleep, whatever the phase: a pause that runs out or
+    /// turning on must not start counting on an unavailable screen.
+    private(set) var screenAvailable = true
 
     init(settings: Settings, now: Date) {
         self.settings = settings
@@ -81,12 +84,13 @@ struct EyeBreakPlanner: Equatable {
         if !new.enabled {
             phase = .off
         } else if phase == .off || isActive {
-            phase = .counting
+            phase = screenAvailable ? .counting : .away
         }
     }
 
     /// Lock, display sleep or system sleep (false), and the way back (true) (§2).
     mutating func setScreenAvailable(_ available: Bool, now: Date) {
+        screenAvailable = available
         guard settings.enabled else { return }
         if !available {
             if case .paused = phase { return }
@@ -106,7 +110,7 @@ struct EyeBreakPlanner: Equatable {
         case let .paused(until):
             guard now >= until else { return }
             restartCycle(now)
-            phase = .counting
+            phase = screenAvailable ? .counting : .away
         case .counting, .held:
             if idle >= Self.naturalBreak {
                 awaitingReturn = true

@@ -303,4 +303,41 @@ final class EyeBreakPlannerTests: XCTestCase {
         XCTAssertNil(EyeBreakPlanner.Settings.intervalOverride(environment: ["RALLO_EYE_BREAK_SECONDS": "5"], isScratch: true))
         XCTAssertNil(EyeBreakPlanner.Settings.intervalOverride(environment: [:], isScratch: true))
     }
+
+    // MARK: Screen availability outlives the phase
+
+    func testAPauseThatExpiresWhileLockedGoesAwayThenUnlockStartsAFreshCycle() {
+        var p = planner()
+        p.pause(until: at(600), now: at(10))
+        p.setScreenAvailable(false, now: at(100))
+        XCTAssertEqual(p.phase, .paused(until: at(600)), "the pause still runs while locked")
+        p.tick(now: at(600), idle: 0, hold: free)
+        XCTAssertEqual(p.phase, .away, "nothing counts while locked")
+        XCTAssertNil(p.nextCheck(now: at(600)))
+        p.setScreenAvailable(true, now: at(900))
+        XCTAssertEqual(p.phase, .counting)
+        XCTAssertEqual(p.cycleStart, at(900))
+    }
+
+    func testUnlockDuringAPauseKeepsThePause() {
+        var p = planner()
+        p.pause(until: at(600), now: at(10))
+        p.setScreenAvailable(false, now: at(100))
+        p.setScreenAvailable(true, now: at(200))
+        XCTAssertEqual(p.phase, .paused(until: at(600)))
+        p.tick(now: at(600), idle: 0, hold: free)
+        XCTAssertEqual(p.phase, .counting)
+    }
+
+    func testTurningOnWhileLockedWaitsAwayUntilUnlock() {
+        var p = EyeBreakPlanner(settings: .init(), now: t0)
+        p.setScreenAvailable(false, now: at(5))
+        var on = p.settings
+        on.enabled = true
+        p.apply(on, now: at(10))
+        XCTAssertEqual(p.phase, .away)
+        p.setScreenAvailable(true, now: at(50))
+        XCTAssertEqual(p.phase, .counting)
+        XCTAssertEqual(p.cycleStart, at(50))
+    }
 }
