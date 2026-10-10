@@ -16,6 +16,33 @@ final class QuietSignalsTests: XCTestCase {
         XCTAssertTrue(idle.isFinite && idle >= 0, "\(idle)")
     }
 
+    // MARK: Mic in use: another process recording from a device (S4 addendum)
+
+    private let rallo: pid_t = 500
+
+    /// Measured: corespeechd (the voice trigger) runs input with no input device, all the time.
+    func testTheVoiceTriggerIsNotACall() {
+        let processes = [DeviceActivity.AudioProcess(pid: 1014, runningInput: true, inputDevices: 0)]
+        XCTAssertFalse(DeviceActivity.microphoneInUse(processes, excluding: rallo))
+    }
+
+    /// Measured: `say` into BlackHole 64ch lists the device (it has an input) but runs no input.
+    func testPlaybackOnADeviceWithAnInputIsNotACall() {
+        let processes = [DeviceActivity.AudioProcess(pid: 61570, runningInput: false, inputDevices: 1)]
+        XCTAssertFalse(DeviceActivity.microphoneInUse(processes, excluding: rallo))
+    }
+
+    func testAnotherProcessRecordingFromADeviceIsACall() {
+        let processes = [DeviceActivity.AudioProcess(pid: 1014, runningInput: true, inputDevices: 0),
+                         DeviceActivity.AudioProcess(pid: 700, runningInput: true, inputDevices: 1)]
+        XCTAssertTrue(DeviceActivity.microphoneInUse(processes, excluding: rallo))
+    }
+
+    func testRallosOwnRecordingIsNotACall() {
+        let processes = [DeviceActivity.AudioProcess(pid: rallo, runningInput: true, inputDevices: 1)]
+        XCTAssertFalse(DeviceActivity.microphoneInUse(processes, excluding: rallo))
+    }
+
     /// The device queries need no permission (spike S4) and never crash on a Mac without a camera.
     func testDeviceQueriesAnswer() {
         _ = DeviceActivity.microphoneInUse()

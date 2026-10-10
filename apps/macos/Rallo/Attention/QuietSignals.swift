@@ -13,8 +13,9 @@ import CoreMediaIO
     /// Always false: see `requestFocusAuthorization()`.
     var focusOn: Bool { false }
 
-    /// A camera, or an input device, running in any process, ignoring
-    /// Rallo's own voice typing. False if detection is unavailable (S4).
+    /// A camera running in any process, or another process recording from an
+    /// audio device, ignoring Rallo's own voice typing. False if detection
+    /// is unavailable (S4).
     var cameraOrMicInUse: Bool {
         Self.inUse(camera: DeviceActivity.cameraInUse(), microphone: DeviceActivity.microphoneInUse(),
                    voiceTyping: isVoiceTypingListening())
@@ -33,9 +34,25 @@ import CoreMediaIO
 
 /// Camera and microphone in use by any process (0021 §9; spike S4).
 enum DeviceActivity {
-    /// Any audio device with an input stream running in any process.
+    /// One CoreAudio client process, as the mic check reads it.
+    struct AudioProcess: Equatable {
+        var pid: pid_t
+        var runningInput: Bool
+        /// The devices it uses for input.
+        var inputDevices: Int
+    }
+
+    /// Another process recording from an audio device. Asked per process: a
+    /// device's own running flag also counts output on a device that has an
+    /// input too, such as a headset (0021 Verified, S4 addendum).
     static func microphoneInUse() -> Bool {
-        audioDevices().contains { hasInput($0) && audioRunning($0) }
+        microphoneInUse(audioProcesses(), excluding: ProcessInfo.processInfo.processIdentifier)
+    }
+
+    /// The voice trigger (corespeechd) runs input with no device; playback on
+    /// a device with an input lists the device but runs no input. Neither counts.
+    static func microphoneInUse(_ processes: [AudioProcess], excluding ownPID: pid_t) -> Bool {
+        processes.contains { $0.pid != ownPID && $0.runningInput && $0.inputDevices > 0 }
     }
 
     /// Any camera running in any process.
@@ -43,33 +60,31 @@ enum DeviceActivity {
         cameraDevices().contains(where: cameraRunning)
     }
 
-    private static func audioDevices() -> [AudioObjectID] {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
+    private static func audioProcesses() -> [AudioProcess] {
+        objectIDs(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyProcessObjectList).compactMap { id in
+            guard let pid: pid_t = scalar(id, kAudioProcessPropertyPID),
+                  let running: UInt32 = scalar(id, kAudioProcessPropertyIsRunningInput) else { return nil }
+            return AudioProcess(pid: pid, runningInput: running != 0,
+                                inputDevices: objectIDs(id, kAudioProcessPropertyDevices, scope: kAudioObjectPropertyScopeInput).count)
+        }
+    }
+
+    private static func objectIDs(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector,
+                                  scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> [AudioObjectID] {
+        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
         var size: UInt32 = 0
-        let system = AudioObjectID(kAudioObjectSystemObject)
-        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return [] }
+        guard AudioObjectGetPropertyDataSize(object, &address, 0, nil, &size) == noErr else { return [] }
         var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &ids) == noErr else { return [] }
+        guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &ids) == noErr else { return [] }
         return ids
     }
 
-    private static func hasInput(_ id: AudioObjectID) -> Bool {
+    private static func scalar<Value: FixedWidthInteger>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> Value? {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreams, mScope: kAudioObjectPropertyScopeInput,
-            mElement: kAudioObjectPropertyElementMain)
-        var size: UInt32 = 0
-        return AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size) == noErr && size > 0
-    }
-
-    private static func audioRunning(_ id: AudioObjectID) -> Bool {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere, mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        var running: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        return AudioObjectGetPropertyData(id, &address, 0, nil, &size, &running) == noErr && running != 0
+            mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var value: Value = 0
+        var size = UInt32(MemoryLayout<Value>.size)
+        return AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr ? value : nil
     }
 
     private static func cameraDevices() -> [CMIOObjectID] {
