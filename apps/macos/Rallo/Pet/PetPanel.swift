@@ -10,6 +10,10 @@ final class PetController {
     private var savedOrigin: NSPoint?
     private var summon = PetSummonState()
     private var hopTimer: Timer?
+    /// Bumped by every show, hide, hop and fade so a stale completion does nothing.
+    private var animation = 0
+    /// A post-summon hide fade is pending: the panel is visible but the user wants it hidden.
+    private var hidingAfterSummon = false
 
     var onClick: () -> Void = {}
     var onMoved: (NSPoint) -> Void = { _ in }
@@ -36,6 +40,7 @@ final class PetController {
     func show(savedOrigin: NSPoint?) {
         self.savedOrigin = savedOrigin
         guard !summon.isActive else { return summon.userSetVisible(true) }
+        cancelAnimation()
         panel.setFrameOrigin(PetPlacementPolicy.resolve(saved: savedOrigin, size: PetPanel.spriteSize))
         panel.orderFrontRegardless()
         updateCanAnimate()
@@ -44,6 +49,7 @@ final class PetController {
     /// Hidden means zero animation frames, not merely an invisible window.
     func hide() {
         guard !summon.isActive else { return summon.userSetVisible(false) }
+        cancelAnimation()
         hidePanel()
     }
 
@@ -56,7 +62,7 @@ final class PetController {
     /// 0021 §3: the pet comes to `origin` for an alert, hopping (or fading,
     /// under Reduce Motion). Its saved placement and Show/Hide stay untouched.
     func beginSummon(at origin: NSPoint, fades: Bool) {
-        let showing = panel.isVisible
+        let showing = panel.isVisible && !hidingAfterSummon
         summon.begin(panelVisible: showing)
         if showing && !fades { hop(to: origin) } else { fade(to: origin) }
     }
@@ -74,6 +80,14 @@ final class PetController {
         }
     }
 
+    /// Supersedes any hop or fade in flight and leaves the pet fully opaque.
+    private func cancelAnimation() {
+        animation += 1
+        hopTimer?.invalidate()
+        hidingAfterSummon = false
+        panel.alphaValue = 1
+    }
+
     private func hidePanel() {
         petView.stopAll()
         petView.canAnimate = false
@@ -82,12 +96,13 @@ final class PetController {
 
     /// A short hop along an arc, about 0.6 s (0021 §3).
     private func hop(to target: NSPoint, duration: TimeInterval = 0.6) {
-        hopTimer?.invalidate()
+        cancelAnimation()
+        let token = animation
         let start = panel.frame.origin
         let began = CACurrentMediaTime()
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
             MainActor.assumeIsolated {
-                guard let self else { return timer.invalidate() }
+                guard let self, self.animation == token else { return timer.invalidate() }
                 let t = min(1, (CACurrentMediaTime() - began) / duration)
                 let eased = t * t * (3 - 2 * t)
                 let lift = 320 * t * (1 - t)  // peaks 80 pt above the straight line
@@ -102,14 +117,17 @@ final class PetController {
 
     /// Reduce Motion (0021 §8): fade out where it is, fade in where it goes.
     private func fade(to origin: NSPoint, thenHide: Bool = false) {
-        hopTimer?.invalidate()
+        cancelAnimation()
+        let token = animation
+        hidingAfterSummon = thenHide
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = panel.isVisible ? 0.2 : 0
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated {
-                guard let self else { return }
+                guard let self, self.animation == token else { return }
                 if thenHide {
+                    self.hidingAfterSummon = false
                     self.hidePanel()
                     self.panel.alphaValue = 1
                     return
