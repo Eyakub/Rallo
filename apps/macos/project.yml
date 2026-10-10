@@ -115,6 +115,7 @@ targets:
       - path: Rallo/App/UpdateChecker.swift
       - path: Rallo/App/StatusMenuController.swift
       - path: Rallo/EyeBreak/EyeBreakPlanner.swift
+      - path: Rallo/EyeBreak/EyeBreakEffects.swift
       - path: Rallo/Voice/VoiceText.swift
       - path: Rallo/Voice/WhisperText.swift
       - path: Rallo/Voice/SpeechSegmenter.swift
