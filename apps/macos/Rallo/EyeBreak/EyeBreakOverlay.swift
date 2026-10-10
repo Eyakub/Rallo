@@ -32,6 +32,21 @@ final class EyeBreakOverlay {
         makeMainKey()
     }
 
+    /// The key-up of a pending hold would go elsewhere; and Esc must stay with the
+    /// overlay if another Rallo window (the notes panel) took key. Not while Rallo
+    /// is inactive, or this would fight whatever the user switched to.
+    private func lostKey() {
+        escHold?.cancel()
+        escHold = nil
+        guard isVisible, NSApp.isActive else { return }
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.isVisible, NSApp.isActive else { return }
+                self.makeMainKey()
+            }
+        }
+    }
+
     func makeMainKey() {
         windows.first(where: \.holdsCountdown)?.makeKeyAndOrderFront(nil)
     }
@@ -70,6 +85,7 @@ final class EyeBreakOverlay {
                 until: shown.until, tip: shown.tip, allowSkip: shown.allowSkip, holdsCountdown: index == main,
                 onSkip: { [weak self] in self?.onSkip() }, onPostpone: { [weak self] in self?.onPostpone() }))
             window.onEsc = { [weak self] down, isRepeat in self?.esc(down: down, isRepeat: isRepeat, allowSkip: shown.allowSkip) }
+            window.onResignKey = { [weak self] in self?.lostKey() }
             window.alphaValue = animate ? 0 : 1
             window.orderFrontRegardless()
             return window
@@ -108,6 +124,7 @@ final class EyeBreakOverlay {
 private final class OverlayWindow: NSWindow {
     let holdsCountdown: Bool
     var onEsc: (_ down: Bool, _ isRepeat: Bool) -> Void = { _, _ in }
+    var onResignKey: () -> Void = {}
 
     init(screen: NSScreen, holdsCountdown: Bool) {
         self.holdsCountdown = holdsCountdown
@@ -124,6 +141,11 @@ private final class OverlayWindow: NSWindow {
 
     override var canBecomeKey: Bool { holdsCountdown }
     override var canBecomeMain: Bool { false }
+
+    override func resignKey() {
+        super.resignKey()
+        onResignKey()
+    }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { onEsc(true, event.isARepeat) }
