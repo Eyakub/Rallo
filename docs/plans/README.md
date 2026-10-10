@@ -365,8 +365,8 @@ Branch `feat/attention-breaks`, which also carries the update badge (0020,
 
 | Plan | Spec | Execution |
 |---|---|---|
-| [1 alerts](2026-10-10-attention-1-alerts.md) | 0021 | Not started. Task 1 runs spikes S1–S5 first. |
-| [2 eye breaks](2026-10-10-attention-2-eye-breaks.md) | 0022 | Not started. Needs plan 1 merged; Task 1 checks plan 1's API, Task 2 runs spike S6. |
+| [1 alerts](2026-10-10-attention-1-alerts.md) | 0021 | Done (`0ab9050`..`d9e04b5`), final review fixed. S1 failed (no Focus status; repeat chimes go through the banner), S2 failed (Temporary by default; Settings opens Rallo's page), S4b: mic check per process. Open by hand: Reduce Motion, banner chime by ear, VoiceOver, Light Mode. |
+| [2 eye breaks](2026-10-10-attention-2-eye-breaks.md) | 0022 | In progress. Task 1 (`8479771`) and S6 (`2f863dc`: overlay at `.popUpMenu`, Force Quit stays reachable) done. |
 
 Start here on a new machine: [handoff](2026-10-10-attention-handoff.md).
 
