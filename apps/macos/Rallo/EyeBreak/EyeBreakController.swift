@@ -171,10 +171,10 @@ final class EyeBreakController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 // An unlock implies awake displays, even if a wake notification was missed.
-                locked = false
-                displaysAsleep = false
-                systemAsleep = false
-                screenAvailabilityChanged()
+                self.locked = false
+                self.displaysAsleep = false
+                self.systemAsleep = false
+                self.screenAvailabilityChanged()
             }
         })
         let workspace = NSWorkspace.shared.notificationCenter
