@@ -67,7 +67,7 @@ final class EyeBreakOverlay {
             window.contentView = NSHostingView(rootView: BreakView(
                 until: shown.until, tip: shown.tip, allowSkip: shown.allowSkip, holdsCountdown: index == main,
                 onSkip: { [weak self] in self?.onSkip() }, onPostpone: { [weak self] in self?.onPostpone() }))
-            window.onEsc = { [weak self] down in self?.esc(down: down, allowSkip: shown.allowSkip) }
+            window.onEsc = { [weak self] down, isRepeat in self?.esc(down: down, isRepeat: isRepeat, allowSkip: shown.allowSkip) }
             window.alphaValue = animate ? 0 : 1
             window.orderFrontRegardless()
             return window
@@ -80,18 +80,21 @@ final class EyeBreakOverlay {
         }
     }
 
-    /// Esc skips at once; in strict mode only a 3 s hold ends the break (§4).
-    private func esc(down: Bool, allowSkip: Bool) {
+    /// Esc skips at once (key repeats ignored); in strict mode only a 3 s hold
+    /// ends the break (§4). A repeat also starts the strict hold: activation can
+    /// land late, so the first key-down may go to the app behind and the overlay
+    /// then only sees repeats of a key that is already held.
+    private func esc(down: Bool, isRepeat: Bool, allowSkip: Bool) {
         guard down else {
             escHold?.cancel()
             escHold = nil
             return
         }
         if allowSkip {
-            onSkip()
+            if !isRepeat { onSkip() }
             return
         }
-        escHold?.cancel()
+        guard escHold == nil else { return }
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.onEscHeld() } }
         escHold = work
         DispatchQueue.main.asyncAfter(deadline: .now() + EyeBreakPlanner.escHold, execute: work)
@@ -102,7 +105,7 @@ final class EyeBreakOverlay {
 /// countdown's window becomes key, so Esc reaches it and typing goes nowhere.
 private final class OverlayWindow: NSWindow {
     let holdsCountdown: Bool
-    var onEsc: (Bool) -> Void = { _ in }
+    var onEsc: (_ down: Bool, _ isRepeat: Bool) -> Void = { _, _ in }
 
     init(screen: NSScreen, holdsCountdown: Bool) {
         self.holdsCountdown = holdsCountdown
@@ -121,11 +124,11 @@ private final class OverlayWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53, !event.isARepeat { onEsc(true) }
+        if event.keyCode == 53 { onEsc(true, event.isARepeat) }
     }
 
     override func keyUp(with event: NSEvent) {
-        if event.keyCode == 53 { onEsc(false) }
+        if event.keyCode == 53 { onEsc(false, false) }
     }
 
     /// ⌘-shortcuts go nowhere during a break either.
