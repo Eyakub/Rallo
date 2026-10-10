@@ -589,6 +589,14 @@ impl RalloStore {
         Ok(self.store().set_alert_settings(settings.into())?)
     }
 
+    pub fn eye_break_settings(&self) -> Result<EyeBreakSettings, RalloError> {
+        Ok(self.store().eye_break_settings()?.into())
+    }
+
+    pub fn set_eye_break_settings(&self, settings: EyeBreakSettings) -> Result<bool, RalloError> {
+        Ok(self.store().set_eye_break_settings(settings.into())?)
+    }
+
     pub fn onboarding_completed(&self) -> Result<bool, RalloError> {
         Ok(self.store().onboarding_completed()?)
     }

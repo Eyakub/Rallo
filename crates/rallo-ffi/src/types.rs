@@ -394,6 +394,43 @@ impl From<AlertSettings> for preferences::AlertSettings {
     }
 }
 
+/// 0022 §9, mirrored for Swift.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EyeBreakSettings {
+    pub enabled: bool,
+    pub interval_minutes: u8,
+    pub length_seconds: u8,
+    pub warn_seconds: u8,
+    pub allow_skip: bool,
+    pub hold_on_call: bool,
+}
+
+impl From<preferences::EyeBreakSettings> for EyeBreakSettings {
+    fn from(value: preferences::EyeBreakSettings) -> Self {
+        Self {
+            enabled: value.enabled,
+            interval_minutes: value.interval_minutes,
+            length_seconds: value.length_seconds,
+            warn_seconds: value.warn_seconds,
+            allow_skip: value.allow_skip,
+            hold_on_call: value.hold_on_call,
+        }
+    }
+}
+
+impl From<EyeBreakSettings> for preferences::EyeBreakSettings {
+    fn from(value: EyeBreakSettings) -> Self {
+        Self {
+            enabled: value.enabled,
+            interval_minutes: value.interval_minutes,
+            length_seconds: value.length_seconds,
+            warn_seconds: value.warn_seconds,
+            allow_skip: value.allow_skip,
+            hold_on_call: value.hold_on_call,
+        }
+    }
+}
+
 // --- 0005 notification protocol -------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]

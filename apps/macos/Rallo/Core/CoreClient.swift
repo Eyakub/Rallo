@@ -285,6 +285,15 @@ final class CoreClient {
         try await worker.perform { try $0.setAlertSettings(settings: settings) }
     }
 
+    func eyeBreakSettings() async throws -> EyeBreakSettings {
+        try await worker.perform { try $0.eyeBreakSettings() }
+    }
+
+    @discardableResult
+    func setEyeBreakSettings(_ settings: EyeBreakSettings) async throws -> Bool {
+        try await worker.perform { try $0.setEyeBreakSettings(settings: settings) }
+    }
+
     /// Every due reminder (0021 §2), paging to the end so a short page can
     /// never make a due reminder look handled.
     func allDueItems(pageSize: UInt32 = CoreClient.pageSize) async throws -> [ItemSnapshot] {
