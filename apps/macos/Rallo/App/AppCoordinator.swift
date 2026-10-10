@@ -32,6 +32,12 @@ final class AppCoordinator {
     private let voiceKey = VoiceKeyMonitor()
     private var animationsPaused = false
     private var statusMenu: StatusMenuController?
+    /// 0022. Lazy: it needs `quietSignals` and `pet`, which exist once `init` is done.
+    private lazy var eyeBreaks = EyeBreakController(
+        quiet: quietSignals, pet: pet, log: log,
+        intervalOverride: EyeBreakPlanner.Settings.intervalOverride(
+            environment: ProcessInfo.processInfo.environment, isScratch: isScratch))
+    private var eyeBreakSettings: EyeBreakSettings?
     private var systemObservers: [NSObjectProtocol] = []
 
     private var storageReady = false
@@ -146,6 +152,10 @@ final class AppCoordinator {
         petState.onRecompute = { [weak self] in self?.attention.dueMayHaveChanged() }
         quietSignals.isVoiceTypingListening = { [weak self] in self?.voice.isListening ?? false }
         attention.animationsPaused = { [weak self] in self?.animationsPaused ?? false }
+        eyeBreaks.animationsPaused = { [weak self] in self?.animationsPaused ?? false }
+        eyeBreaks.onBreakEnded = { [weak self] in self?.attention.eyeBreakEnded() }
+        attention.eyeBreakActive = { [weak self] in self?.eyeBreaks.isBreaking ?? false }
+        attention.onBubbleVisibilityChanged = { [weak self] visible in self?.eyeBreaks.setBubbleVisible(visible) }
         attention.openNotes = { [weak self] itemID in self?.openNotes(highlighting: itemID) }
         attention.activateAgent = { [weak self] session in self?.activateAgent(session) }
         // 0021 §9 fallback: re-add the alert's delivered banner (same identifier, so
@@ -237,6 +247,7 @@ final class AppCoordinator {
             return
         }
         observer.start()
+        eyeBreaks.start()
         await applyLaunchVisibility()
         CaptureService.shared.attach(core: core)
         await refreshNotificationSummary()
@@ -386,6 +397,10 @@ final class AppCoordinator {
         if let reminderPrefix = try? await core.notificationIdentifierPrefix() {
             // ClickUp sends its own banners (0010); the long wait is for agents.
             agentWaitNotifier.reload(sessions: agentSessions.filter { !$0.isClickUp }, reminderPrefix: reminderPrefix)
+        }
+        if let stored = try? await core.eyeBreakSettings() {
+            eyeBreakSettings = stored
+            eyeBreaks.apply(stored)
         }
         petState.refresh()
         settingsModel.refresh()
