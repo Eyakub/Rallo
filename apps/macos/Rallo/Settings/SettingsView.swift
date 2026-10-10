@@ -185,6 +185,7 @@ private struct NotificationsTab: View {
                 .fixedSize()
                 .disabled(!model.alertSettings.nag)
             }
+            caption("A Focus doesn’t pause the pet or the glow on this Mac; it mutes repeat chimes.")
             Toggle("Glow screen edges", isOn: alertBinding(\.glow))
             Toggle("Use for agent long-waits too", isOn: alertBinding(\.agents))
                 .disabled(!model.notifyLongWait)

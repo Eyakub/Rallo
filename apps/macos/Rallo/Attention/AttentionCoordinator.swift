@@ -7,7 +7,7 @@ import AppKit
 final class AttentionCoordinator {
     /// How a nag round sounds. Spike S1 decides; Task 11a changes only this.
     enum NagSoundRoute { case inApp, renotify, silent }
-    static let nagSoundRoute = NagSoundRoute.inApp
+    static let nagSoundRoute = NagSoundRoute.renotify
 
     private let core: CoreClient
     private let quietSignals: QuietSignals
