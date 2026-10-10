@@ -168,7 +168,14 @@ final class EyeBreakController {
             MainActor.assumeIsolated { self?.locked = true; self?.screenAvailabilityChanged() }
         })
         observers.append(distributed.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.locked = false; self?.screenAvailabilityChanged() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // An unlock implies awake displays, even if a wake notification was missed.
+                locked = false
+                displaysAsleep = false
+                systemAsleep = false
+                screenAvailabilityChanged()
+            }
         })
         let workspace = NSWorkspace.shared.notificationCenter
         let pairs: [(Notification.Name, @MainActor (EyeBreakController) -> Void)] = [
