@@ -356,12 +356,12 @@ final class AppCoordinator {
         armLivenessTimer()
         notifyLongWaitEnabled = (try? await core.agentsNotifyLongWait()) ?? false
         statusMenu?.refreshAgents(agentSessions)
+        alertSettings = (try? await core.alertSettings()) ?? alertSettings
+        attention.settingsChanged(alertSettings)
         if let reminderPrefix = try? await core.notificationIdentifierPrefix() {
             // ClickUp sends its own banners (0010); the long wait is for agents.
             agentWaitNotifier.reload(sessions: agentSessions.filter { !$0.isClickUp }, reminderPrefix: reminderPrefix)
         }
-        alertSettings = (try? await core.alertSettings()) ?? alertSettings
-        attention.settingsChanged(alertSettings)
         petState.refresh()
         settingsModel.refresh()
     }

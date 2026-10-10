@@ -21,6 +21,8 @@ final class AttentionCoordinator {
     private var agentSessions: [String: AgentSessionSnapshot] = [:]
     private var seeded = false
     private var sleptAt: Date?
+    /// A grouping cutoff whose refresh failed, carried to the next one.
+    private var pendingCutoff: Date?
     private var refreshTask: Task<Void, Never>?
     private var lastRoundAt: Date?
     private var lastRound: AttentionRound?
@@ -73,7 +75,13 @@ final class AttentionCoordinator {
 
     func settingsChanged(_ settings: AlertSettings) {
         self.settings = settings
-        if heldRound == nil { armNag() }
+        if !settings.agents {
+            for alert in queue.alerts { if case .agent = alert.kind { queue.handle(alert.id) } }
+            agentSessions = [:]
+            queueChanged()
+        } else if heldRound == nil {
+            armNag()
+        }
     }
 
     /// Every `PetStateDriver` recompute: diff the due list. The first one
@@ -81,7 +89,9 @@ final class AttentionCoordinator {
     /// may reach here before the didWake observer, so `sleptAt` is consumed by
     /// whichever trigger comes first.
     func dueMayHaveChanged() {
-        let cutoff = seeded ? sleptAt : Date().addingTimeInterval(-AttentionPlanner.launchWindow)
+        var cutoff = seeded ? sleptAt : Date().addingTimeInterval(-AttentionPlanner.launchWindow)
+        if let pendingCutoff { cutoff = min(cutoff ?? pendingCutoff, pendingCutoff) }
+        pendingCutoff = nil
         seeded = true
         sleptAt = nil
         let previous = refreshTask
@@ -136,6 +146,8 @@ final class AttentionCoordinator {
             items = try await core.allDueItems()
         } catch {
             log.record("attention_due_failed", ["error": "\(error)"])
+            // Keep the grouping cutoff for the next refresh (§2): a failed read must not turn old reminders into nags.
+            if let cutoff { pendingCutoff = min(pendingCutoff ?? cutoff, cutoff) }
             return
         }
         dueItems = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
@@ -165,6 +177,8 @@ final class AttentionCoordinator {
         switch AttentionPlanner.decide(kind, settings: settings, signals: signals, alerts: queue.alerts) {
         case .nothing:
             heldRound = nil
+            holdTimer?.invalidate()
+            holdTimer = nil
         case .hold:
             heldRound = .resumed
             log.record("attention_held", ["alerts": queue.alerts.count, "focus": signals.focusOn,
@@ -212,8 +226,10 @@ final class AttentionCoordinator {
             summon.dismiss()
             return
         }
-        if summon.isPresented, var round = lastRound {
-            round.alertIDs = queue.alerts.reversed().map(\.id)
+        // Re-show only when the list changed: presenting restarts the 60 s timeout.
+        let ids = queue.alerts.reversed().map(\.id)
+        if summon.isPresented, var round = lastRound, round.alertIDs != ids {
+            round.alertIDs = ids
             lastRound = round
             showBubble(for: round)
         }
