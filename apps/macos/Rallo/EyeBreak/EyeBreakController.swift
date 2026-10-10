@@ -78,7 +78,9 @@ final class EyeBreakController {
     private func tick() {
         guard started else { return }
         let hold = EyeBreakPlanner.Hold(
-            callActive: planner.settings.holdOnCall && quiet.cameraOrMicInUse, bubbleVisible: bubbleVisible)
+            callActive: planner.settings.holdOnCall && quiet.cameraOrMicInUse,
+            // An app-modal panel (Add Image) leaves the overlay deaf to keys and clicks: treat it like a bubble.
+            bubbleVisible: bubbleVisible || NSApp.modalWindow != nil)
         let idle = QuietSignals.idleSeconds()
         change { $0.tick(now: Date(), idle: idle, hold: hold) }
     }
