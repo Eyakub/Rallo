@@ -89,15 +89,18 @@ final class AttentionCoordinator {
     /// may reach here before the didWake observer, so `sleptAt` is consumed by
     /// whichever trigger comes first.
     func dueMayHaveChanged() {
-        var cutoff = seeded ? sleptAt : Date().addingTimeInterval(-AttentionPlanner.launchWindow)
-        if let pendingCutoff { cutoff = min(cutoff ?? pendingCutoff, pendingCutoff) }
-        pendingCutoff = nil
+        let triggerCutoff = seeded ? sleptAt : Date().addingTimeInterval(-AttentionPlanner.launchWindow)
         seeded = true
         sleptAt = nil
         let previous = refreshTask
         refreshTask = Task { [weak self] in
             await previous?.value
-            await self?.refreshDue(groupFrom: cutoff)
+            guard let self else { return }
+            // Resolved after the previous refresh: it may have failed and left its cutoff.
+            var cutoff = triggerCutoff
+            if let pendingCutoff { cutoff = min(cutoff ?? pendingCutoff, pendingCutoff) }
+            pendingCutoff = nil
+            await refreshDue(groupFrom: cutoff)
         }
     }
 
