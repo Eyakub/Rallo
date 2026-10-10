@@ -151,7 +151,8 @@ final class SummonBubblePanel: NSPanel {
     }
 }
 
-/// A click in a panel that never becomes key still reaches the buttons.
-private final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+/// A click in a window that isn't key still reaches the buttons: the summon bubble and the
+/// eye-break pill never become key, and the eye-break overlay isn't key until activation lands.
+final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

@@ -86,7 +86,7 @@ final class EyeBreakPill {
 
     private let model = PillModel()
     private let panel = makePanel(clickable: true)
-    private lazy var host = NSHostingView(rootView: PillView(
+    private lazy var host = FirstClickHostingView(rootView: PillView(
         model: model,
         onStartNow: { [weak self] in self?.onStartNow() },
         onPostpone: { [weak self] in self?.onPostpone() },

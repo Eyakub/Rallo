@@ -81,7 +81,7 @@ final class EyeBreakOverlay {
         let main = EyeBreakLayout.mainIndex(screens: screens.map(\.frame), mouse: NSEvent.mouseLocation)
         windows = screens.enumerated().map { index, screen in
             let window = OverlayWindow(screen: screen, holdsCountdown: index == main)
-            window.contentView = NSHostingView(rootView: BreakView(
+            window.contentView = FirstClickHostingView(rootView: BreakView(
                 until: shown.until, tip: shown.tip, allowSkip: shown.allowSkip, holdsCountdown: index == main,
                 onSkip: { [weak self] in self?.onSkip() }, onPostpone: { [weak self] in self?.onPostpone() }))
             window.onEsc = { [weak self] down, isRepeat in self?.esc(down: down, isRepeat: isRepeat, allowSkip: shown.allowSkip) }
