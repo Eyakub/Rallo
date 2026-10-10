@@ -52,20 +52,24 @@ struct SummonBubbleView: View {
                 } else {
                     Button("Done") { actions.done(alertID) }
                         .buttonStyle(BubbleButtonStyle(primary: true))
-                    Menu {
-                        ForEach(RemindPreset.allCases) { preset in
-                            Button(preset.title) { actions.snooze(alertID, preset) }
+                    // Two controls, one chip: a Menu with a primary action opens only on a
+                    // long press, so the presets get their own ▾ (0021 §3).
+                    HStack(spacing: -1) {
+                        Button("Snooze 10 min") { actions.snooze(alertID, nil) }
+                            .buttonStyle(BubbleButtonStyle(primary: false, joined: .trailing))
+                        Menu {
+                            ForEach(RemindPreset.allCases) { preset in
+                                Button(preset.title) { actions.snooze(alertID, preset) }
+                            }
+                        } label: {
+                            Text("\u{25BE}").bubbleChrome(primary: false, joined: .leading)
                         }
-                    } label: {
-                        Text("Snooze 10 min \u{25BE}").bubbleChrome(primary: false)
-                    } primaryAction: {
-                        actions.snooze(alertID, nil)
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
+                        .menuIndicator(.hidden)
+                        .accessibilityLabel("More snooze options")
+                        .fixedSize()
                     }
-                    .menuStyle(.button)
-                    .buttonStyle(.plain)
-                    .menuIndicator(.hidden)
-                    .accessibilityLabel("Snooze 10 min")
-                    .fixedSize()
                     Button("Open") { actions.open(alertID) }
                         .buttonStyle(BubbleButtonStyle(primary: false))
                 }
@@ -82,26 +86,32 @@ struct SummonBubbleView: View {
 /// system prominent button renders grey in a panel that never becomes key.
 private struct BubbleButtonStyle: ButtonStyle {
     let primary: Bool
+    var joined: HorizontalEdge?
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .bubbleChrome(primary: primary)
+            .bubbleChrome(primary: primary, joined: joined)
             .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 
 private extension View {
-    func bubbleChrome(primary: Bool) -> some View {
-        font(.system(size: 12, weight: .semibold))
+    /// `joined`: the side that sits flush against its neighbour, squared off.
+    func bubbleChrome(primary: Bool, joined: HorizontalEdge? = nil) -> some View {
+        let leading: CGFloat = joined == .leading ? 0 : 8
+        let trailing: CGFloat = joined == .trailing ? 0 : 8
+        let shape = UnevenRoundedRectangle(topLeadingRadius: leading, bottomLeadingRadius: leading,
+                                           bottomTrailingRadius: trailing, topTrailingRadius: trailing,
+                                           style: .continuous)
+        return font(.system(size: 12, weight: .semibold))
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(primary ? Theme.onRust : Theme.ink)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(primary ? Theme.rust : Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(primary ? Theme.rust : Theme.fieldStroke, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(shape.fill(primary ? Theme.rust : Theme.field))
+            .overlay(shape.strokeBorder(primary ? Theme.rust : Theme.fieldStroke, lineWidth: 1))
+            .contentShape(shape)
     }
 }
 
