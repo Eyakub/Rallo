@@ -14,6 +14,9 @@ final class EyeBreakController {
     private let pill = EyeBreakPill()
     private let toast = EyeBreakToast()
     private var timer: Timer?
+    private var started = false
+    /// Lets go of the toast's happy pose; cancelled when a nudge or a newer toast takes over.
+    private var toastRelease: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
     private var locked = false
     private var displaysAsleep = false
@@ -46,6 +49,8 @@ final class EyeBreakController {
     }
 
     func start() {
+        guard !started else { return }
+        started = true
         observe()
         arm()
     }
@@ -71,6 +76,7 @@ final class EyeBreakController {
     // MARK: Driving the planner
 
     private func tick() {
+        guard started else { return }
         let hold = EyeBreakPlanner.Hold(
             callActive: planner.settings.holdOnCall && quiet.cameraOrMicInUse, bubbleVisible: bubbleVisible)
         let idle = QuietSignals.idleSeconds()
@@ -90,7 +96,7 @@ final class EyeBreakController {
     private func arm() {
         timer?.invalidate()
         timer = nil
-        guard let next = planner.nextCheck(now: Date()) else { return }
+        guard started, let next = planner.nextCheck(now: Date()) else { return }
         let timer = Timer(fire: next, interval: 0, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -110,6 +116,8 @@ final class EyeBreakController {
         case .hidePill:
             pill.hide()
         case let .nudgePet(on):
+            toastRelease?.cancel()
+            toastRelease = nil
             pet.hold(on ? .nudge : nil)
         case let .showOverlay(until):
             if !overlay.isVisible {
@@ -133,9 +141,15 @@ final class EyeBreakController {
         case let .toast(nextIn):
             toast.show(EyeBreakText.toast(nextIn: nextIn), near: pet.isVisible ? pet.frame : nil)
             pet.hold(.happy)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                MainActor.assumeIsolated { self?.pet.hold(nil) }
+            toastRelease?.cancel()
+            let release = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.pet.hold(nil)
+                    self?.toastRelease = nil
+                }
             }
+            toastRelease = release
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: release)
         case .resumeAlerts:
             onBreakEnded()
         }
