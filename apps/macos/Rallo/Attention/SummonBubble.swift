@@ -19,9 +19,23 @@ struct SummonBubbleView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(content.kindLine)
-                .font(Theme.rounded(11, .semibold))
-                .foregroundStyle(Theme.rust)
+            HStack {
+                Text(content.kindLine)
+                    .font(Theme.rounded(11, .semibold))
+                    .foregroundStyle(Theme.rust)
+                Spacer(minLength: 8)
+                if content.moreCount > 0 {
+                    Button(action: actions.more) {
+                        Text("+\(content.moreCount) more")
+                            .font(Theme.rounded(11, .semibold))
+                            .foregroundStyle(Theme.rust)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(content.moreCount) more alerts")
+                }
+            }
             if let text = content.text {
                 Text(text)
                     .font(Theme.rounded(15, .semibold))
@@ -47,16 +61,13 @@ struct SummonBubbleView: View {
                     } primaryAction: {
                         actions.snooze(alertID, nil)
                     }
-                    .menuStyle(.borderlessButton)
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
                     .menuIndicator(.hidden)
                     .accessibilityLabel("Snooze 10 min")
                     .fixedSize()
                     Button("Open") { actions.open(alertID) }
                         .buttonStyle(BubbleButtonStyle(primary: false))
-                }
-                if content.moreCount > 0 {
-                    Button("+\(content.moreCount) more", action: actions.more)
-                        .buttonStyle(.link)
                 }
             }
         }
@@ -82,8 +93,10 @@ private struct BubbleButtonStyle: ButtonStyle {
 private extension View {
     func bubbleChrome(primary: Bool) -> some View {
         font(.system(size: 12, weight: .semibold))
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(primary ? Theme.onRust : Theme.ink)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(primary ? Theme.rust : Theme.field))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
