@@ -68,6 +68,7 @@ targets:
       - path: Rallo/Pet/Stroke.swift
       - path: Rallo/Attention/AlertSound.swift
       - path: Rallo/Pet/PetWindow.swift
+      - path: Rallo/Pet/PetSummonState.swift
       - path: Rallo/Voice/VoiceKeyGesture.swift
       - path: Rallo/Pet/PetWatermarks.swift
       - path: Rallo/Notes/AgentSessionFormatting.swift
