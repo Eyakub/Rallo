@@ -18,6 +18,8 @@ final class PetStateDriver {
 
     /// Called when a reminder becomes due, so open views can show it.
     var onDueBoundary: () -> Void = {}
+    /// After every successful recompute (0021 §2): the due list may have changed.
+    var onRecompute: () -> Void = {}
 
     init(core: CoreClient, pet: PetController, log: DiagnosticsLog) {
         self.core = core
@@ -66,6 +68,7 @@ final class PetStateDriver {
             armDueTimer(snapshot.nextDueAtMs)
             if becameDue { onDueBoundary() }
             render(decision, dueCount: Int(snapshot.dueCount), agentsWaiting: Int(snapshot.agentsWaiting))
+            onRecompute()
         } catch {
             log.record("pet_state_failed", ["error": "\(error)"])
         }

@@ -21,6 +21,8 @@ final class AppCoordinator {
     private let terminalSetup: TerminalSetupController
     private let petState: PetStateDriver
     private let agentWaitNotifier: AgentWaitNotifier
+    let quietSignals = QuietSignals()
+    let attention: AttentionCoordinator
     private let clickUp: ClickUpWatcher
     private let updateChecker: UpdateChecker
     private let settingsModel = SettingsModel()
@@ -42,6 +44,7 @@ final class AppCoordinator {
     private var notificationsAuthorized = false
     private var agentSessions: [AgentSessionSnapshot] = []
     private var notifyLongWaitEnabled = false
+    private var alertSettings = AlertSettings.initial
     private var agentJumpState = AgentJumpState()
     private var livenessTimer: Timer?
     private var sweepTimer: Timer?
@@ -72,6 +75,7 @@ final class AppCoordinator {
         transfer = TransferController(core: core, log: log)
         terminalSetup = TerminalSetupController(log: log)
         petState = PetStateDriver(core: core, pet: pet, log: log)
+        attention = AttentionCoordinator(core: core, pet: pet, quietSignals: quietSignals, log: log)
         clickUp = ClickUpWatcher(core: core, log: log)
         updateChecker = UpdateChecker(log: log)
         voice = VoiceTyping(log: log)
@@ -139,13 +143,26 @@ final class AppCoordinator {
             if notes.isOpen { Task { await self.notesModel.reload() } }
             if notesWindow.isOpen { Task { await self.notesWindowModel.reload() } }
         }
+        petState.onRecompute = { [weak self] in self?.attention.dueMayHaveChanged() }
+        quietSignals.isVoiceTypingListening = { [weak self] in self?.voice.isListening ?? false }
+        attention.animationsPaused = { [weak self] in self?.animationsPaused ?? false }
+        attention.openNotes = { [weak self] itemID in self?.openNotes(highlighting: itemID) }
+        attention.activateAgent = { [weak self] session in self?.activateAgent(session) }
+        drainer.alertSound = { [weak self] in self?.alertSettings.sound ?? .ralloChime }
+        agentWaitNotifier.alertSound = { [weak self] in self?.alertSettings.sound ?? .ralloChime }
+        agentWaitNotifier.onPost = { [weak self] session, identifier in self?.attention.agentPosted(session, identifier: identifier) }
+        agentWaitNotifier.onWithdraw = { [weak self] identifiers in self?.attention.agentsWithdrawn(identifiers) }
         pet.onMoved = { [weak self] origin in Task { await self?.petMoved(to: origin) } }
         pet.contextMenu = { [weak self] in self?.statusMenu?.makeMenu() }
-        notifications.onOpenItem = { [weak self] itemID in self?.openNotes(highlighting: itemID) }
+        notifications.onOpenItem = { [weak self] itemID in
+            self?.attention.bannerOpened(itemID: itemID)
+            self?.openNotes(highlighting: itemID)
+        }
         notifications.onAction = { [weak self] reminderID, generation, action, itemID in
             Task { await self?.handleNotificationAction(reminderID, generation, action, itemID) }
         }
         notifications.onActivateAgent = { [weak self] agent, sessionId in
+            self?.attention.bannerActivatedAgent(agent: agent, sessionId: sessionId)
             Task { await self?.activateAgentFromNotification(agent: agent, sessionId: sessionId) }
         }
         NotificationDrainer.registerCategories(on: UNUserNotificationCenter.current())
@@ -199,6 +216,8 @@ final class AppCoordinator {
         CaptureService.shared.attach(core: core)
         await refreshNotificationSummary()
         observeSystemEvents()
+        // 0021 §9: asked until answered, on every launch mode (user, 2026-10-10).
+        quietSignals.requestFocusAuthorization()
         drainer.requestDrain("launch")
         openForDemo()
     }
@@ -341,6 +360,8 @@ final class AppCoordinator {
             // ClickUp sends its own banners (0010); the long wait is for agents.
             agentWaitNotifier.reload(sessions: agentSessions.filter { !$0.isClickUp }, reminderPrefix: reminderPrefix)
         }
+        alertSettings = (try? await core.alertSettings()) ?? alertSettings
+        attention.settingsChanged(alertSettings)
         petState.refresh()
         settingsModel.refresh()
     }

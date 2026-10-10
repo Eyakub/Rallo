@@ -28,6 +28,9 @@ final class AgentWaitNotifier {
     var isAuthorized: () -> Bool = { false }
     /// The chosen chime (0021 §6), read at each post.
     var alertSound: () -> AlertSound = { .ralloChime }
+    /// 0021 §2, §4: every post and withdrawal also reaches the attention coordinator.
+    var onPost: (AgentSessionSnapshot, String) -> Void = { _, _ in }
+    var onWithdraw: ([String]) -> Void = { _ in }
 
     init(adapter: NotificationAdapter, log: DiagnosticsLog, allowThresholdOverride: Bool) {
         self.adapter = adapter
@@ -65,6 +68,7 @@ final class AgentWaitNotifier {
         if !plan.toWithdraw.isEmpty {
             adapter.removePending(plan.toWithdraw)
             adapter.removeDelivered(plan.toWithdraw)
+            onWithdraw(plan.toWithdraw)
         }
         notified = plan.notified
         for (session, identifier) in plan.toPost {
@@ -81,9 +85,11 @@ final class AgentWaitNotifier {
     /// is withdrawn immediately, pending and delivered.
     func withdrawAll() {
         guard !notified.isEmpty else { return }
-        adapter.removePending(Array(notified.keys))
-        adapter.removeDelivered(Array(notified.keys))
+        let identifiers = Array(notified.keys)
+        adapter.removePending(identifiers)
+        adapter.removeDelivered(identifiers)
         notified.removeAll()
+        onWithdraw(identifiers)
     }
 
     private func armWake(at ms: Int64) {
@@ -97,6 +103,8 @@ final class AgentWaitNotifier {
     }
 
     private func post(session: AgentSessionSnapshot, identifier: String) {
+        // Before the permission guard: the summon needs no notification permission.
+        onPost(session, identifier)
         guard isAuthorized() else { return }
         let content = UNMutableNotificationContent()
         content.title = AgentSessionFormatting.notificationTitle(for: session)
