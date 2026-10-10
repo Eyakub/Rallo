@@ -15,6 +15,7 @@ const ONBOARDING_COMPLETED: &str = "onboarding.completed";
 const NOTIFICATIONS_PREVIEW_TEXT: &str = "notifications.preview_text";
 const AGENTS_NOTIFY_LONG_WAIT: &str = "agents.notify_long_wait";
 const ALERTS_SETTINGS: &str = "alerts.settings";
+const EYE_BREAKS_SETTINGS: &str = "eye_breaks.settings";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -80,6 +81,51 @@ impl AlertSettings {
             return Err(CoreError::invalid(ErrorCode::InvalidInput, "nag repeats must be 3, 5 or 10"));
         }
         Ok(())
+    }
+}
+
+/// 20-20-20 eye breaks (0022 §9). Off by default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EyeBreakSettings {
+    pub enabled: bool,
+    pub interval_minutes: u8,
+    pub length_seconds: u8,
+    /// 0 means no warning: the break starts at once.
+    pub warn_seconds: u8,
+    pub allow_skip: bool,
+    pub hold_on_call: bool,
+}
+
+impl Default for EyeBreakSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_minutes: 20,
+            length_seconds: 20,
+            warn_seconds: 10,
+            allow_skip: true,
+            hold_on_call: true,
+        }
+    }
+}
+
+impl EyeBreakSettings {
+    pub const INTERVAL_MINUTES: [u8; 6] = [10, 15, 20, 30, 45, 60];
+    pub const LENGTH_SECONDS: [u8; 4] = [10, 20, 30, 60];
+    pub const WARN_SECONDS: [u8; 4] = [0, 5, 10, 30];
+
+    fn validate(&self) -> CoreResult<()> {
+        let check = |value: u8, allowed: &[u8], what: &str| {
+            if allowed.contains(&value) {
+                Ok(())
+            } else {
+                Err(CoreError::invalid(ErrorCode::InvalidInput, format!("eye break {what} must be one of {allowed:?}")))
+            }
+        };
+        check(self.interval_minutes, &Self::INTERVAL_MINUTES, "interval (minutes)")?;
+        check(self.length_seconds, &Self::LENGTH_SECONDS, "length (seconds)")?;
+        check(self.warn_seconds, &Self::WARN_SECONDS, "warning (seconds)")
     }
 }
 
@@ -197,6 +243,20 @@ impl Store {
         bump_revision(&tx)?;
         tx.commit()?;
         Ok(true)
+    }
+
+    /// 0022 §9. Unset, unreadable or out-of-range stored values read as the defaults.
+    pub fn eye_break_settings(&self) -> CoreResult<EyeBreakSettings> {
+        Ok(self
+            .read_preference::<EyeBreakSettings>(EYE_BREAKS_SETTINGS)?
+            .filter(|settings| settings.validate().is_ok())
+            .unwrap_or_default())
+    }
+
+    /// Rejects a value outside the listed choices (the FFI is a trust boundary).
+    pub fn set_eye_break_settings(&mut self, settings: EyeBreakSettings) -> CoreResult<bool> {
+        settings.validate()?;
+        self.write_preference(EYE_BREAKS_SETTINGS, Some(&settings))
     }
 }
 
