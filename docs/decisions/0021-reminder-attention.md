@@ -323,3 +323,21 @@ recurring reminders; changing 0005's one-request rule.
   "no screen roaming" rule, recorded here.
 - Rallo asks once for Focus status (if S1 passes).
 - The banner's sticky style only applies by default to new installs.
+
+## Verified
+
+Spikes run 2026-10-10 on macOS 27.0.1, scratch build of `feat/attention-breaks` (plan 1, Task 1).
+
+| # | Question | Result | Fallback task |
+|---|---|---|---|
+| S1 | `INFocusStatusCenter` authorises and reports a Focus | FAIL: the prompt appears and authorisation succeeds (status 3), but `isFocused` stays `false` with Do Not Disturb on and "Share Focus Status" on. A copy signed with `com.apple.developer.usernotifications.communication` doesn't launch (restricted entitlement, no provisioning profile). | 11a |
+| S1b | Re-adding a delivered request's identifier alerts again | PASS (visual): the banner, gone after its few seconds, is presented again when the same identifier is re-added 20 s later. Its sound couldn't be judged: on this Mac every notification is silent, also one posted by `osascript` with a sound. | 11a uses the re-notify route |
+| S2 | `NSUserNotificationAlertStyle = alert` sets Alerts for a new bundle id | FAIL: a never-seen bundle id with the key gets **Temporary**. macOS 27 names the styles "Temporary" and "Persistent". | 11b |
+| S3 | `UNNotificationSound(named:)` plays a `.caf` from the bundle | NOT JUDGED: the banner showed, silent, like every notification on this Mac. The bundle is the location Apple documents, so it stays; the user checks the chime by ear on a Mac where notification sounds play. | 11c not run |
+| S4 | CoreAudio/CoreMediaIO "running somewhere" without a prompt | PASS: no prompt; camera `true` while Photo Booth runs, mic `true` while `ffmpeg` records, `false` before and after. | — |
+| S5 | The deep link opens Rallo's own notification page | PASS: `x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.razlio.rallo` opens Rallo's page. | — |
+
+Probe notes: a TCC prompt is attributed to the launching process, so the
+probe must start through `open` (LaunchServices), not by running the binary
+from a terminal. `UNUserNotificationCenter` refuses a fresh bundle id whose
+app sits under `/private/tmp`.
