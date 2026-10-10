@@ -43,7 +43,8 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         log.record("notification_will_present", Self.ids(notification.request))
-        completionHandler([.banner, .list])
+        // 0021 §3: the banner rings while Rallo is the front app too.
+        completionHandler([.banner, .list, .sound])
     }
 
     func userNotificationCenter(

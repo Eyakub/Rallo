@@ -25,6 +25,10 @@ final class NotificationDrainer {
     /// the notification center, and their requests are never touched.
     private var prefix: String?
 
+    /// The chosen chime (0021 §6). Read when each request is built, so a
+    /// change applies to the very next drain.
+    var alertSound: () -> AlertSound = { .ralloChime }
+
     /// Bounds a single pass; the core never hands out more than one piece of
     /// work per intent, so this is only a guard against a logic loop.
     private let maxWorkPerPass = 128
@@ -109,7 +113,7 @@ final class NotificationDrainer {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
-            content.sound = .default
+            content.sound = alertSound().notificationSound
             content.categoryIdentifier = Self.categoryIdentifier
             content.userInfo = [
                 "reminder_id": reminderId, "item_id": itemId, "generation": generation, "deadline_ms": deadlineMs,

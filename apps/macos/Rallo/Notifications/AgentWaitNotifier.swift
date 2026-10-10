@@ -26,6 +26,8 @@ final class AgentWaitNotifier {
     var isEnabled: () -> Bool = { false }
     /// Whether macOS will actually show what's posted (0005's authorization).
     var isAuthorized: () -> Bool = { false }
+    /// The chosen chime (0021 §6), read at each post.
+    var alertSound: () -> AlertSound = { .ralloChime }
 
     init(adapter: NotificationAdapter, log: DiagnosticsLog, allowThresholdOverride: Bool) {
         self.adapter = adapter
@@ -99,7 +101,7 @@ final class AgentWaitNotifier {
         let content = UNMutableNotificationContent()
         content.title = AgentSessionFormatting.notificationTitle(for: session)
         content.body = AgentSessionFormatting.subtitle(for: session)
-        content.sound = .default
+        content.sound = alertSound().notificationSound
         content.userInfo = ["agent": session.agent, "session_id": session.sessionId]
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         Task {

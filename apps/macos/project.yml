@@ -66,6 +66,7 @@ targets:
       - path: Rallo/Capture/ServicesProvider.swift
       - path: Rallo/Setup/TerminalCommand.swift
       - path: Rallo/Pet/Stroke.swift
+      - path: Rallo/Attention/AlertSound.swift
       - path: Rallo/Pet/PetWindow.swift
       - path: Rallo/Voice/VoiceKeyGesture.swift
       - path: Rallo/Pet/PetWatermarks.swift
