@@ -80,18 +80,18 @@ final class EyeBreakOverlay {
         }
     }
 
-    /// Esc skips at once (key repeats ignored); in strict mode only a 3 s hold
-    /// ends the break (§4). A repeat also starts the strict hold: activation can
-    /// land late, so the first key-down may go to the app behind and the overlay
-    /// then only sees repeats of a key that is already held.
+    /// Esc skips at once on its first key-down; in strict mode any key-down starts
+    /// the 3 s hold that ends the break (§4). In either mode a repeat with no hold
+    /// pending starts it too: activation can land late, so the first key-down may
+    /// go to the app behind and the overlay then only sees repeats of a held key.
     private func esc(down: Bool, isRepeat: Bool, allowSkip: Bool) {
         guard down else {
             escHold?.cancel()
             escHold = nil
             return
         }
-        if allowSkip {
-            if !isRepeat { onSkip() }
+        if allowSkip, !isRepeat {
+            onSkip()
             return
         }
         guard escHold == nil else { return }
