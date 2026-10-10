@@ -317,6 +317,80 @@ impl From<PetPlacement> for preferences::PetPlacement {
     }
 }
 
+/// 0021 §6.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum AlertSound {
+    RalloChime,
+    BambooKnock,
+    GentleBell,
+    System,
+    None,
+}
+
+impl From<preferences::AlertSound> for AlertSound {
+    fn from(value: preferences::AlertSound) -> Self {
+        match value {
+            preferences::AlertSound::RalloChime => Self::RalloChime,
+            preferences::AlertSound::BambooKnock => Self::BambooKnock,
+            preferences::AlertSound::GentleBell => Self::GentleBell,
+            preferences::AlertSound::System => Self::System,
+            preferences::AlertSound::None => Self::None,
+        }
+    }
+}
+
+impl From<AlertSound> for preferences::AlertSound {
+    fn from(value: AlertSound) -> Self {
+        match value {
+            AlertSound::RalloChime => Self::RalloChime,
+            AlertSound::BambooKnock => Self::BambooKnock,
+            AlertSound::GentleBell => Self::GentleBell,
+            AlertSound::System => Self::System,
+            AlertSound::None => Self::None,
+        }
+    }
+}
+
+/// 0021 §10.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AlertSettings {
+    pub summon: bool,
+    pub sound: AlertSound,
+    pub nag: bool,
+    pub nag_interval_minutes: u8,
+    pub nag_max_rounds: u8,
+    pub glow: bool,
+    pub agents: bool,
+}
+
+impl From<preferences::AlertSettings> for AlertSettings {
+    fn from(value: preferences::AlertSettings) -> Self {
+        Self {
+            summon: value.summon,
+            sound: value.sound.into(),
+            nag: value.nag,
+            nag_interval_minutes: value.nag_interval_minutes,
+            nag_max_rounds: value.nag_max_rounds,
+            glow: value.glow,
+            agents: value.agents,
+        }
+    }
+}
+
+impl From<AlertSettings> for preferences::AlertSettings {
+    fn from(value: AlertSettings) -> Self {
+        Self {
+            summon: value.summon,
+            sound: value.sound.into(),
+            nag: value.nag,
+            nag_interval_minutes: value.nag_interval_minutes,
+            nag_max_rounds: value.nag_max_rounds,
+            glow: value.glow,
+            agents: value.agents,
+        }
+    }
+}
+
 // --- 0005 notification protocol -------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]

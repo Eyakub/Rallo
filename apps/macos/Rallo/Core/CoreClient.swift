@@ -275,4 +275,26 @@ final class CoreClient {
     func setAgentsNotifyLongWait(_ enabled: Bool) async throws -> Bool {
         try await worker.perform { try $0.setAgentsNotifyLongWait(enabled: enabled) }
     }
+
+    func alertSettings() async throws -> AlertSettings {
+        try await worker.perform { try $0.alertSettings() }
+    }
+
+    @discardableResult
+    func setAlertSettings(_ settings: AlertSettings) async throws -> Bool {
+        try await worker.perform { try $0.setAlertSettings(settings: settings) }
+    }
+
+    /// Every due reminder (0021 §2), paging to the end so a short page can
+    /// never make a due reminder look handled.
+    func allDueItems(pageSize: UInt32 = CoreClient.pageSize) async throws -> [ItemSnapshot] {
+        var items: [ItemSnapshot] = []
+        var cursor: String?
+        repeat {
+            let page = try await listItems(.due, cursor: cursor, limit: pageSize)
+            items += page.items
+            cursor = page.nextCursor
+        } while cursor != nil
+        return items
+    }
 }

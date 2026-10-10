@@ -581,6 +581,14 @@ impl RalloStore {
         Ok(self.store().set_pet_placement(placement.map(Into::into))?)
     }
 
+    pub fn alert_settings(&self) -> Result<AlertSettings, RalloError> {
+        Ok(self.store().alert_settings()?.into())
+    }
+
+    pub fn set_alert_settings(&self, settings: AlertSettings) -> Result<bool, RalloError> {
+        Ok(self.store().set_alert_settings(settings.into())?)
+    }
+
     pub fn onboarding_completed(&self) -> Result<bool, RalloError> {
         Ok(self.store().onboarding_completed()?)
     }
