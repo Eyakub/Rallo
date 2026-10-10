@@ -125,6 +125,11 @@ final class AppCoordinator {
         menu.jumpShortcutAvailable = { [weak self] in self?.globalShortcuts.jumpRegistered ?? true }
         menu.notesShortcutAvailable = { [weak self] in self?.globalShortcuts.toggleNotesRegistered ?? true }
         menu.updateAvailable = { [weak self] in self?.updateChecker.available }
+        menu.eyeBreakStatus = { [weak self] in self?.eyeBreaks.menuStatus() ?? .off }
+        menu.eyeBreakActions = .init(
+            turnOn: { [weak self] in Task { await self?.setEyeBreaksEnabled(true) } },
+            takeBreakNow: { [weak self] in self?.eyeBreaks.startNow() },
+            pause: { [weak self] until in self?.eyeBreaks.pause(until: until) })
         menu.install()
         statusMenu = menu
         configureSettings()
@@ -434,6 +439,23 @@ final class AppCoordinator {
         } catch {
             log.record("toggle_pet_failed", ["error": "\(error)"])
         }
+    }
+
+    /// Settings › Breaks and the menu's Turn On Eye Breaks (0022 §7, §8).
+    private func saveEyeBreakSettings(_ settings: EyeBreakSettings) async {
+        do {
+            try await core.setEyeBreakSettings(settings)
+            try await reloadFromCore()
+        } catch {
+            log.record("eye_break_settings_failed", ["error": "\(error)"])
+            settingsModel.refresh()
+        }
+    }
+
+    private func setEyeBreaksEnabled(_ enabled: Bool) async {
+        guard var settings = eyeBreakSettings else { return }
+        settings.enabled = enabled
+        await saveEyeBreakSettings(settings)
     }
 
     private func toggleAnimations() async {

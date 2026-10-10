@@ -30,6 +30,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     var notesShortcutAvailable: () -> Bool = { true }
     var updateAvailable: () -> String? = { nil }
 
+    /// Eye breaks (0022 §7), wired by the coordinator.
+    struct EyeBreakActions {
+        var turnOn: () -> Void = {}
+        var takeBreakNow: () -> Void = {}
+        var pause: (Date) -> Void = { _ in }
+    }
+
+    var eyeBreakStatus: () -> EyeBreakPlanner.MenuStatus = { .off }
+    var eyeBreakActions = EyeBreakActions()
+
     init(
         actions: Actions,
         petVisible: @escaping () -> Bool
@@ -148,6 +158,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         pause.state = animationsPaused() ? .on : .off
         menu.addItem(pause)
         menu.addItem(.separator())
+        populateEyeBreaks(menu)
+        menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(openSettings), key: ","))
         menu.addItem(item("Quit Rallo", #selector(quit), key: "q"))
     }
@@ -169,6 +181,29 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             menu.addItem(row)
         }
         menu.addItem(.separator())
+    }
+
+    /// The status line, Take a Break Now and the Pause submenu; only Turn On
+    /// Eye Breaks while they're off (0022 §7). The line is the time when the
+    /// menu opens; it doesn't tick.
+    private func populateEyeBreaks(_ menu: NSMenu) {
+        guard let line = EyeBreakText.statusLine(eyeBreakStatus()) else {
+            menu.addItem(item("Turn On Eye Breaks", #selector(turnOnEyeBreaks)))
+            return
+        }
+        let status = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+        status.isEnabled = false
+        menu.addItem(status)
+        menu.addItem(item("Take a Break Now", #selector(takeBreakNow)))
+        let pause = NSMenuItem(title: "Pause Eye Breaks", action: nil, keyEquivalent: "")
+        let choices = NSMenu()
+        for choice in EyeBreakPause.allCases {
+            let row = item(choice.title, #selector(pauseEyeBreaks(_:)))
+            row.tag = choice.rawValue
+            choices.addItem(row)
+        }
+        pause.submenu = choices
+        menu.addItem(pause)
     }
 
     private func notesMenuItem() -> NSMenuItem {
@@ -206,4 +241,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func openSettings() { actions.openSettings() }
     @objc private func openUpdate() { actions.openUpdate() }
     @objc private func quit() { actions.quit() }
+    @objc private func turnOnEyeBreaks() { eyeBreakActions.turnOn() }
+    @objc private func takeBreakNow() { eyeBreakActions.takeBreakNow() }
+    @objc private func pauseEyeBreaks(_ sender: NSMenuItem) {
+        guard let choice = EyeBreakPause(rawValue: sender.tag) else { return }
+        eyeBreakActions.pause(choice.until(now: Date()))
+    }
 }
