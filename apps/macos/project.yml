@@ -102,6 +102,7 @@ targets:
       - path: Rallo/Notifications/NotificationAdapter.swift
       - path: Rallo/Notifications/AgentNotificationIdentifier.swift
       - path: Rallo/Notifications/AgentWaitPlanner.swift
+      - path: Rallo/Attention/AttentionPlanner.swift
       - path: Rallo/App/AgentJumpPlanner.swift
       - path: Rallo/App/LaunchOptions.swift
       - path: Rallo/Settings/CLIReports.swift
