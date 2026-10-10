@@ -42,6 +42,8 @@ final class EyeBreakOverlay {
         shown = nil
         let closing = windows
         windows = []
+        // The fading black must not swallow a click back into the user's document.
+        closing.forEach { $0.ignoresMouseEvents = true }
         guard animate else {
             closing.forEach { $0.orderOut(nil) }
             return
