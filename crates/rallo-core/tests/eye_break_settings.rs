@@ -91,8 +91,5 @@ fn an_unreadable_partial_or_out_of_range_stored_value_reads_safely() {
     assert_eq!(store.eye_break_settings().unwrap(), EyeBreakSettings::default());
     // A field this build doesn't know, and fields it lacks, both read through serde's defaults.
     write(r#"{"enabled":true,"future_field":1}"#);
-    assert_eq!(
-        store.eye_break_settings().unwrap(),
-        EyeBreakSettings { enabled: true, ..EyeBreakSettings::default() }
-    );
+    assert_eq!(store.eye_break_settings().unwrap(), EyeBreakSettings { enabled: true, ..EyeBreakSettings::default() });
 }
