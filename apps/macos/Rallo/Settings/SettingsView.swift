@@ -153,7 +153,56 @@ private struct NotificationsTab: View {
             Toggle("Notify when an agent waits 5 minutes",
                    isOn: Binding(get: { model.notifyLongWait }, set: { _ in model.perform(model.toggleNotifyLongWait) }))
             caption("Reminders already scheduled with macOS still arrive after Rallo quits.")
+            Divider()
+            Text("Alerts").font(Theme.rounded(13, .semibold))
+            Toggle("Pet comes to the centre", isOn: alertBinding(\.summon))
+            HStack {
+                Picker("Alert sound", selection: alertBinding(\.sound)) {
+                    ForEach(AlertSound.menuOrder, id: \.self) { Text($0.title).tag($0) }
+                }
+                .fixedSize()
+                Button {
+                    model.alertSettings.sound.play()
+                } label: {
+                    Image(systemName: "play.fill")
+                }
+                .accessibilityLabel("Play the alert sound")
+                .disabled(model.alertSettings.sound == AlertSound.none)
+            }
+            HStack {
+                Toggle("Repeat until handled", isOn: alertBinding(\.nag))
+                Spacer()
+                Picker("Every", selection: alertBinding(\.nagIntervalMinutes)) {
+                    ForEach([1, 2, 5] as [UInt8], id: \.self) { Text("every \($0) min").tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .disabled(!model.alertSettings.nag)
+                Picker("Repeats", selection: alertBinding(\.nagMaxRounds)) {
+                    ForEach([3, 5, 10] as [UInt8], id: \.self) { Text("\($0)×").tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .disabled(!model.alertSettings.nag)
+            }
+            Toggle("Glow screen edges", isOn: alertBinding(\.glow))
+            Toggle("Use for agent long-waits too", isOn: alertBinding(\.agents))
+                .disabled(!model.notifyLongWait)
+            HStack {
+                line("Keep banner on screen")
+                Spacer()
+                Button("Open…") { model.openNotificationSettings() }
+            }
+            caption("Choose “Persistent” for Rallo there, so a reminder stays until you click it.")
         }
+    }
+
+    private func alertBinding<Value>(_ key: WritableKeyPath<AlertSettings, Value>) -> Binding<Value> {
+        Binding(get: { model.alertSettings[keyPath: key] }, set: { value in
+            var settings = model.alertSettings
+            settings[keyPath: key] = value
+            model.setAlertSettings(settings)
+        })
     }
 }
 

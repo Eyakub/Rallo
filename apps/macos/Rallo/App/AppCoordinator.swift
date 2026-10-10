@@ -540,6 +540,7 @@ final class AppCoordinator {
             model.notificationSummary = notificationSummary
             model.notificationsAuthorized = notificationsAuthorized
             model.notifyLongWait = notifyLongWaitEnabled
+            model.alertSettings = alertSettings
             model.clickUpConnected = clickUp.isConnected
             model.clickUpStatus = clickUp.status
             model.updateCheckEnabled = updateChecker.isEnabled
@@ -595,6 +596,26 @@ final class AppCoordinator {
             self?.updateChecker.setEnabled(enabled)
             self?.settingsModel.refresh()
         }
+        model.setAlertSettings = { [weak self] settings in
+            guard let self else { return }
+            self.settingsModel.alertSettings = settings  // the control moves at once
+            Task {
+                do {
+                    try await self.core.setAlertSettings(settings)
+                    // The revision bump drains: a new chime re-registers pending banners (0021 §6).
+                    try await self.reloadFromCore()
+                } catch {
+                    self.log.record("alert_settings_failed", ["error": "\(error)"])
+                    self.settingsModel.refresh()
+                }
+            }
+        }
+        model.openNotificationSettings = { NSWorkspace.shared.open(Self.notificationSettingsURL) }
+    }
+
+    /// System Settings › Notifications › Rallo. Spike S5 checks it opens Rallo's own page (Task 11e).
+    static var notificationSettingsURL: URL {
+        URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "com.razlio.rallo")")!
     }
 
     private static var voiceTypingEnabled: Bool { UserDefaults.standard.bool(forKey: "voiceTypingEnabled") }
@@ -714,8 +735,8 @@ final class AppCoordinator {
         let settings = await notifications.adapter.settings()
         if settings.authorizationStatus == .notDetermined {
             await enableNotifications()
-        } else if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "com.razlio.rallo")") {
-            NSWorkspace.shared.open(url)
+        } else {
+            NSWorkspace.shared.open(Self.notificationSettingsURL)
         }
     }
 
