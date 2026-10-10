@@ -453,7 +453,8 @@ final class AppCoordinator {
     }
 
     private func setEyeBreaksEnabled(_ enabled: Bool) async {
-        guard var settings = eyeBreakSettings else { return }
+        // Before the first read (or if it failed), start from the defaults the Settings model holds.
+        var settings = eyeBreakSettings ?? settingsModel.eyeBreakSettings
         settings.enabled = enabled
         await saveEyeBreakSettings(settings)
     }
