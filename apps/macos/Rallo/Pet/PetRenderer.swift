@@ -77,7 +77,10 @@ final class PetView: NSView {
     /// one until it ends; moments still play, then return to it.
     private var listening = false
     private var momentActive = false
-    private var restPose: Pose { listening ? .listening : steadyPose }
+    /// A pose held over the reducer's (0022: `nudge` for the eye-break warning,
+    /// `happy` with its toast); nil lets go.
+    private var heldPose: Pose?
+    private var restPose: Pose { heldPose ?? (listening ? .listening : steadyPose) }
     private var motionAllowed = false
     private var leanAngle: CGFloat = 0
     private var lookOffset = CGSize.zero
@@ -278,6 +281,15 @@ final class PetView: NSView {
             stopListeningMotion()
             rescheduleAmbient()
         }
+    }
+
+    /// Holds `pose` (or lets go with nil) until told otherwise; a moment in
+    /// progress finishes first and then lands on it by itself.
+    func hold(_ pose: Pose?) {
+        guard pose != heldPose else { return }
+        heldPose = pose
+        endPlay()
+        if !momentActive { show(restPose, fade: motionAllowed && canAnimate) }
     }
 
     /// A phrase was just typed: a small bob, as if to say "got it". Up, so

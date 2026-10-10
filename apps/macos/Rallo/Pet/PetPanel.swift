@@ -152,6 +152,8 @@ final class PetController {
     /// Voice typing (0013): the listening pose while dictating, a nod per phrase.
     func setListening(_ on: Bool) { petView.setListening(on) }
     func heard() { petView.heard() }
+    /// Eye breaks (0022 §3, §5): a pose over the reducer's until `hold(nil)`.
+    func hold(_ pose: PetView.Pose?) { petView.hold(pose) }
 
     private func updateCanAnimate() {
         petView.canAnimate = panel.isVisible && panel.occlusionState.contains(.visible) && !displaysAsleep
