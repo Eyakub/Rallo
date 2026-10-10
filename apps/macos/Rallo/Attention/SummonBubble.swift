@@ -32,22 +32,27 @@ struct SummonBubbleView: View {
             HStack(spacing: 6) {
                 if content.isAgent {
                     Button("Jump to it") { actions.jump(alertID) }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(BubbleButtonStyle(primary: true))
                     Button("Later") { actions.later(alertID) }
+                        .buttonStyle(BubbleButtonStyle(primary: false))
                 } else {
                     Button("Done") { actions.done(alertID) }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(BubbleButtonStyle(primary: true))
                     Menu {
                         ForEach(RemindPreset.allCases) { preset in
                             Button(preset.title) { actions.snooze(alertID, preset) }
                         }
                     } label: {
-                        Text("Snooze 10 min")
+                        Text("Snooze 10 min \u{25BE}").bubbleChrome(primary: false)
                     } primaryAction: {
                         actions.snooze(alertID, nil)
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .accessibilityLabel("Snooze 10 min")
                     .fixedSize()
                     Button("Open") { actions.open(alertID) }
+                        .buttonStyle(BubbleButtonStyle(primary: false))
                 }
                 if content.moreCount > 0 {
                     Button("+\(content.moreCount) more", action: actions.more)
@@ -59,6 +64,31 @@ struct SummonBubbleView: View {
         .frame(width: 290, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
         .tint(Theme.rust)
+    }
+}
+
+/// The mockup's bubble buttons (docs/mockups/reminder-attention.html): a
+/// system prominent button renders grey in a panel that never becomes key.
+private struct BubbleButtonStyle: ButtonStyle {
+    let primary: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .bubbleChrome(primary: primary)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+    }
+}
+
+private extension View {
+    func bubbleChrome(primary: Bool) -> some View {
+        font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(primary ? Theme.onRust : Theme.ink)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(primary ? Theme.rust : Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(primary ? Theme.rust : Theme.fieldStroke, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
