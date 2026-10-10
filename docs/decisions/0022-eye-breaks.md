@@ -66,7 +66,12 @@ nobody asked to black out would be hostile.
   black.
 - **Skip · esc** and **+5 min** sit at the bottom, dim.
 - Rallo activates (`NSApp.activate`) and makes the main overlay key, so Esc
-  works and keystrokes can't land in the user's document. It records
+  works and keystrokes can't land in the user's document. macOS grants a
+  running background app activation a few seconds late (up to ~4 s
+  measured), so keys typed in that gap still reach the app behind; a
+  strict-mode Esc hold starts on the first Esc the overlay sees, even a key
+  repeat. A non-activating panel would take no keys at all, Esc included,
+  so it isn't used (Verified). It records
   `NSWorkspace.shared.frontmostApplication` first and re-activates that app
   when the break ends.
 - Clicks and typing are swallowed. Rallo doesn't pause media.
@@ -213,10 +218,11 @@ screen sharing or presenting other than through camera/mic.
 - **S6 (2026-10-10, macOS 27.0.1, 3 displays: EK240Y main, built-in, VA2209), run with the user at the keyboard:**
   - A `.screenSaver` (1000) borderless window with `[.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]` covered TextEdit's full-screen Space: yes (main-display captures 4 s and 12 s in: all black).
   - It covered the menu bar: yes.
-  - Esc reached the key overlay after `NSApp.activate()`: yes. The log read `active=false key=false` 0.5 s in, yet every Esc press arrived, and a held Esc arrived as `repeat=true` key-downs; activation is cooperative and lands a moment later.
+  - Esc reached the key overlay after `NSApp.activate()`: yes. The log read `active=false key=false` 0.5 s in, yet every Esc press arrived, and a held Esc arrived as `repeat=true` key-downs; activation is cooperative and lands a moment later. That probe was a fresh `open` launch, which macOS lets activate.
   - Re-activating the recorded app restored focus, and a typed letter landed in TextEdit: yes (`restore com.apple.TextEdit: true`, `frontmost after: com.apple.TextEdit`).
   - ⌥⌘Esc showed Force Quit above the overlay: no.
   - Level kept: `.popUpMenu` (101), from Step 3.
 - **S6 Step 3, at `.popUpMenu` (101):** the menu bar stayed covered; Esc reached the overlay; ⌥⌘Esc showed Force Quit above the black (capture of the built-in display); re-activating the recorded app returned `true`.
 - Surfaces the overlay can't cover, at either level: Mission Control (a hot corner opened it above the black on the main display), and the Dock when the pointer reveals it (seen once at 101). Both are the user reaching for the system, so they stay.
+- **In the app (2026-10-10, Rallo already running in the background, TextEdit active, the user typing):** `NSApp.activate()` landed about 4 s after the overlay appeared (`lsappinfo` front: TextEdit, then Rallo). A letter typed in that gap landed in TextEdit; Esc after it skipped the break and focus went back to TextEdit. A non-activating `NSPanel` overlay (tried in 85a8f15, reverted) swallowed typing but got no key events at all: AppKit reported `isActive` and `isKeyWindow` true, yet a local `NSEvent` monitor saw nothing for 18 s, with or without `NSApp.activate()`, so Esc and the strict hold could never end the break. The activating window stays; closing the gap would need Input Monitoring or Accessibility permission.
 
