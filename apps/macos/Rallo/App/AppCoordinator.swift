@@ -174,7 +174,6 @@ final class AppCoordinator {
                 }
             }
         }
-        drainer.alertSound = { [weak self] in self?.alertSettings.sound ?? .ralloChime }
         agentWaitNotifier.alertSound = { [weak self] in self?.alertSettings.sound ?? .ralloChime }
         agentWaitNotifier.onPost = { [weak self] session, identifier in self?.attention.agentPosted(session, identifier: identifier) }
         agentWaitNotifier.onWithdraw = { [weak self] identifiers in self?.attention.agentsWithdrawn(identifiers) }

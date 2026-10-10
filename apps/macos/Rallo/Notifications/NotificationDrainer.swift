@@ -25,10 +25,6 @@ final class NotificationDrainer {
     /// the notification center, and their requests are never touched.
     private var prefix: String?
 
-    /// The chosen chime (0021 §6). Read when each request is built, so a
-    /// change applies to the very next drain.
-    var alertSound: () -> AlertSound = { .ralloChime }
-
     /// Bounds a single pass; the core never hands out more than one piece of
     /// work per intent, so this is only a guard against a logic loop.
     private let maxWorkPerPass = 128
@@ -113,7 +109,7 @@ final class NotificationDrainer {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
-            content.sound = alertSound().notificationSound
+            content.sound = await alertSound(reminderId: reminderId).notificationSound
             content.categoryIdentifier = Self.categoryIdentifier
             content.userInfo = [
                 "reminder_id": reminderId, "item_id": itemId, "generation": generation, "deadline_ms": deadlineMs,
@@ -155,6 +151,18 @@ final class NotificationDrainer {
                 "reminder_id": reminderId, "generation": generation, "outcome": "\(outcome)",
                 "applied": finished.applied, "superseded": finished.superseded,
             ])
+        }
+    }
+
+    /// The chosen chime (0021 §6), read from the core as each request is
+    /// built. The core worker is FIFO, so the work a sound change queued is
+    /// built with that sound, never the one from before it.
+    private func alertSound(reminderId: String) async -> AlertSound {
+        do {
+            return try await core.alertSettings().sound
+        } catch {
+            log.record("drain_alert_sound_failed", ["reminder_id": reminderId, "error": "\(error)"])
+            return .ralloChime
         }
     }
 
