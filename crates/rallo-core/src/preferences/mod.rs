@@ -1,9 +1,11 @@
 //! Typed, versioned user preferences shared by the CLI and the app.
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-use crate::shared::errors::CoreResult;
+use crate::reminders::repository::schedule_refresh_if_active;
+use crate::shared::errors::{CoreError, CoreResult, ErrorCode};
 use crate::storage::database::{Store, bump_revision};
 
 const PET_VISIBILITY: &str = "pet.visibility";
@@ -12,6 +14,7 @@ const PET_ANIMATIONS_PAUSED: &str = "pet.animations_paused";
 const ONBOARDING_COMPLETED: &str = "onboarding.completed";
 const NOTIFICATIONS_PREVIEW_TEXT: &str = "notifications.preview_text";
 const AGENTS_NOTIFY_LONG_WAIT: &str = "agents.notify_long_wait";
+const ALERTS_SETTINGS: &str = "alerts.settings";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,6 +30,59 @@ pub struct PetPlacement {
     pub y: f64,
 }
 
+/// The alert chime (0021 §6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertSound {
+    #[default]
+    RalloChime,
+    BambooKnock,
+    GentleBell,
+    System,
+    None,
+}
+
+/// Settings › Notifications › Alerts (0021 §7, §10). Every field has a
+/// default, so a value from an older or newer build still reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AlertSettings {
+    pub summon: bool,
+    pub sound: AlertSound,
+    pub nag: bool,
+    pub nag_interval_minutes: u8,
+    pub nag_max_rounds: u8,
+    pub glow: bool,
+    pub agents: bool,
+}
+
+impl Default for AlertSettings {
+    fn default() -> Self {
+        Self {
+            summon: true,
+            sound: AlertSound::RalloChime,
+            nag: true,
+            nag_interval_minutes: 2,
+            nag_max_rounds: 5,
+            glow: false,
+            agents: true,
+        }
+    }
+}
+
+impl AlertSettings {
+    /// The FFI is a trust boundary: only the choices Settings offers.
+    fn validate(&self) -> CoreResult<()> {
+        if ![1, 2, 5].contains(&self.nag_interval_minutes) {
+            return Err(CoreError::invalid(ErrorCode::InvalidInput, "nag interval must be 1, 2 or 5 minutes"));
+        }
+        if ![3, 5, 10].contains(&self.nag_max_rounds) {
+            return Err(CoreError::invalid(ErrorCode::InvalidInput, "nag repeats must be 3, 5 or 10"));
+        }
+        Ok(())
+    }
+}
+
 impl Store {
     fn read_preference<T: for<'de> Deserialize<'de>>(&self, key: &str) -> CoreResult<Option<T>> {
         let raw: Option<String> = self
@@ -40,22 +96,10 @@ impl Store {
     /// Writes a preference; bumps the global revision only if the value changed.
     fn write_preference<T: Serialize>(&mut self, key: &str, value: Option<&T>) -> CoreResult<bool> {
         let now = self.now_ms();
-        let encoded = value.map(|value| serde_json::to_string(value).expect("preference values serialize"));
         let tx = self.write_tx()?;
-        let current: Option<String> =
-            tx.query_row("SELECT value FROM preferences WHERE key = ?1", [key], |row| row.get(0)).optional()?;
-        if current == encoded {
+        if !upsert_preference(&tx, key, value, now)? {
             return Ok(false);
         }
-        match &encoded {
-            Some(encoded) => tx.execute(
-                "INSERT INTO preferences (key, value, revision, updated_at_ms) VALUES (?1, ?2, 1, ?3)
-                 ON CONFLICT (key) DO UPDATE SET value = excluded.value, revision = revision + 1,
-                                                 updated_at_ms = excluded.updated_at_ms",
-                params![key, encoded, now],
-            )?,
-            None => tx.execute("DELETE FROM preferences WHERE key = ?1", [key])?,
-        };
         bump_revision(&tx)?;
         tx.commit()?;
         Ok(true)
@@ -117,4 +161,61 @@ impl Store {
     pub fn set_agents_notify_long_wait(&mut self, enabled: bool) -> CoreResult<bool> {
         self.write_preference(AGENTS_NOTIFY_LONG_WAIT, Some(&enabled))
     }
+
+    pub fn alert_settings(&self) -> CoreResult<AlertSettings> {
+        Ok(self.read_preference(ALERTS_SETTINGS)?.unwrap_or_default())
+    }
+
+    /// A new `sound` re-registers every pending banner in the same
+    /// transaction (0021 §6; build plan: preference changes that affect
+    /// pending notification content queue reconciliation).
+    pub fn set_alert_settings(&mut self, settings: AlertSettings) -> CoreResult<bool> {
+        settings.validate()?;
+        let now = self.now_ms();
+        let tx = self.write_tx()?;
+        let previous: AlertSettings = tx
+            .query_row("SELECT value FROM preferences WHERE key = ?1", [ALERTS_SETTINGS], |row| row.get::<_, String>(0))
+            .optional()?
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default();
+        if !upsert_preference(&tx, ALERTS_SETTINGS, Some(&settings), now)? {
+            return Ok(false);
+        }
+        if settings.sound != previous.sound {
+            let item_ids: Vec<String> = {
+                let mut statement =
+                    tx.prepare("SELECT item_id FROM reminders WHERE enabled = 1 AND deadline_ms > ?1")?;
+                let rows = statement.query_map([now], |row| row.get(0))?;
+                rows.collect::<Result<_, _>>()?
+            };
+            for item_id in item_ids {
+                let item_id =
+                    Uuid::parse_str(&item_id).map_err(|_| CoreError::storage("reminder item_id is not a UUID"))?;
+                schedule_refresh_if_active(&tx, item_id, now)?;
+            }
+        }
+        bump_revision(&tx)?;
+        tx.commit()?;
+        Ok(true)
+    }
+}
+
+/// Writes `value` (or deletes the key) inside `tx`; `Ok(false)` when it is unchanged.
+fn upsert_preference<T: Serialize>(tx: &Transaction<'_>, key: &str, value: Option<&T>, now: i64) -> CoreResult<bool> {
+    let encoded = value.map(|value| serde_json::to_string(value).expect("preference values serialize"));
+    let current: Option<String> =
+        tx.query_row("SELECT value FROM preferences WHERE key = ?1", [key], |row| row.get(0)).optional()?;
+    if current == encoded {
+        return Ok(false);
+    }
+    match &encoded {
+        Some(encoded) => tx.execute(
+            "INSERT INTO preferences (key, value, revision, updated_at_ms) VALUES (?1, ?2, 1, ?3)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value, revision = revision + 1,
+                                             updated_at_ms = excluded.updated_at_ms",
+            params![key, encoded, now],
+        )?,
+        None => tx.execute("DELETE FROM preferences WHERE key = ?1", [key])?,
+    };
+    Ok(true)
 }
