@@ -26,8 +26,8 @@ extension AlertSound {
         }
     }
 
-    /// The banner's sound. Where macOS looks for the file is spike S3's
-    /// question (Task 11c changes only this seam's setup, never its callers).
+    /// The banner's sound: the file in the app bundle, where Apple documents
+    /// it (0021 Verified, S3).
     var notificationSound: UNNotificationSound? {
         switch self {
         case .none: nil

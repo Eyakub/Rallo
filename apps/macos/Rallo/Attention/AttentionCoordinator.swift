@@ -5,7 +5,8 @@ import AppKit
 /// timer and the once-a-minute re-check of a held round.
 @MainActor
 final class AttentionCoordinator {
-    /// How a nag round sounds. Spike S1 decides; Task 11a changes only this.
+    /// How a nag round sounds: S1 failed, so through the banner, which a
+    /// Focus mutes (0021 §9 fallback, Verified).
     enum NagSoundRoute { case inApp, renotify, silent }
     static let nagSoundRoute = NagSoundRoute.renotify
 

@@ -638,7 +638,7 @@ final class AppCoordinator {
         model.openNotificationSettings = { NSWorkspace.shared.open(Self.notificationSettingsURL) }
     }
 
-    /// System Settings › Notifications › Rallo. Spike S5 checks it opens Rallo's own page (Task 11e).
+    /// System Settings › Notifications › Rallo; opens Rallo's own page (0021 Verified, S5).
     static var notificationSettingsURL: URL {
         URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "com.razlio.rallo")")!
     }

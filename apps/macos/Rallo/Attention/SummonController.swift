@@ -25,11 +25,12 @@ final class SummonController {
     }
 
     /// Shows the bubble for `alertID`, summoning the pet first if it isn't
-    /// here yet. False when the pet can't show (0021 §8): secure input.
+    /// here yet. False when the pet can't show (0021 §8): secure input. A
+    /// bubble already up always moves on, so it never keeps a handled alert.
     @discardableResult
     func present(alertID: String, content: SummonBubbleContent, fades: Bool) -> Bool {
-        guard !IsSecureEventInputEnabled() else { return false }
         if !isPresented {
+            guard !IsSecureEventInputEnabled() else { return false }
             let pointer = NSEvent.mouseLocation
             guard let screen = NSScreen.screens.first(where: { NSMouseInRect(pointer, $0.frame, false) }) ?? NSScreen.main
             else { return false }

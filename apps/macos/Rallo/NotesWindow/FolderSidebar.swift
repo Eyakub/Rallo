@@ -101,8 +101,10 @@ struct FolderSidebar: View {
             }
             .font(.system(size: 13))
             .foregroundStyle(Theme.bark)
+            .contentShape(Rectangle())  // the gap before the shortcut clicks too
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("New Folder")
         // Measured against the rows: content sits 13 pt in on the left and 20 pt on the right.
         .padding(.leading, 13)
         .padding(.trailing, 20)
