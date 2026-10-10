@@ -10,8 +10,8 @@ final class EyeBreakEffectsTests: XCTestCase {
                                         allowSkip: allowSkip, holdOnCall: true), now: t0)
     }
 
-    private func breaking() -> EyeBreakPlanner {
-        var p = planner(allowSkip: false)
+    private func breaking(allowSkip: Bool = false) -> EyeBreakPlanner {
+        var p = planner(allowSkip: allowSkip)
         p.startNow(at(100))
         return p
     }
@@ -33,7 +33,8 @@ final class EyeBreakEffectsTests: XCTestCase {
         let start = breaking()
         var completed = start
         completed.tick(now: at(120), idle: 0, hold: .init())
-        var escaped = start
+        let skippable = breaking(allowSkip: true)
+        var escaped = skippable
         escaped.escHeld(at(104))
         var away = start
         away.setScreenAvailable(false, now: at(105))
@@ -46,7 +47,7 @@ final class EyeBreakEffectsTests: XCTestCase {
         let postponedStart = postponed
         postponed.postpone(at(101))
 
-        for (old, new) in [(start, completed), (start, escaped), (start, away), (start, off), (postponedStart, postponed)] {
+        for (old, new) in [(start, completed), (skippable, escaped), (start, away), (start, off), (postponedStart, postponed)] {
             let effects = EyeBreakEffects.between(old, new)
             XCTAssertTrue(effects.contains(.closeOverlay), "\(new.phase)")
             XCTAssertTrue(effects.contains(.restoreFocus), "\(new.phase): focus comes back even if activation failed")
@@ -60,9 +61,10 @@ final class EyeBreakEffectsTests: XCTestCase {
         var completed = start
         completed.tick(now: at(120), idle: 0, hold: .init())
         XCTAssertTrue(EyeBreakEffects.between(start, completed).contains(.toast(nextIn: 1200)))
-        var escaped = start
+        let skippable = breaking(allowSkip: true)
+        var escaped = skippable
         escaped.escHeld(at(104))
-        XCTAssertTrue(EyeBreakEffects.between(start, escaped).contains(.toast(nextIn: 1200)))
+        XCTAssertTrue(EyeBreakEffects.between(skippable, escaped).contains(.toast(nextIn: 1200)))
 
         var postponed = planner()
         postponed.startNow(at(100))

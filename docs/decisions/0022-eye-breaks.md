@@ -68,19 +68,20 @@ nobody asked to black out would be hostile.
 - Rallo activates (`NSApp.activate`) and makes the main overlay key, so Esc
   works and keystrokes can't land in the user's document. macOS grants a
   running background app activation a few seconds late (up to ~4 s
-  measured), so keys typed in that gap still reach the app behind; a
-  strict-mode Esc hold starts on the first Esc the overlay sees, even a key
-  repeat. A non-activating panel would take no keys at all, Esc included,
+  measured), so keys typed in that gap still reach the app behind; an Esc
+  held through the gap still skips, as the first repeat the overlay sees
+  starts a 3 s hold. A non-activating panel would take no keys at all, Esc included,
   so it isn't used (Verified). It records
   `NSWorkspace.shared.frontmostApplication` first and re-activates that app
   when the break ends.
 - Clicks and typing are swallowed. Rallo doesn't pause media.
 - **Skip** counts as a break taken (next in a full cycle). **+5 min** closes
   the overlay and shows the warning again in 5 min.
-- **Strict mode** ("Allow skipping" off): no buttons, and Esc alone does
-  nothing. **Holding Esc for 3 s always ends the break**, in strict mode
-  too, so a stuck overlay can never lock the user out. The overlay also
-  closes itself when the countdown ends, whatever else happens. Strict mode
+- **Strict mode** ("Allow skipping" off): no buttons, and **Esc does
+  nothing, pressed or held** (user, 2026-10-10). Only the countdown ending
+  closes the overlay, whatever else happens; Force Quit (⌥⌘Esc) shows above
+  it (Verified) and quitting Rallo removes it, the way out of a stuck
+  overlay. Strict mode
   changes only the black screen: the warning pill keeps **Start now**,
   **+5 min** and **Skip** (user, 2026-10-10).
 - VoiceOver: an announcement "Eye break, 20 seconds" when it starts, and
@@ -162,7 +163,7 @@ New folder `apps/macos/Rallo/EyeBreak/`:
 
 | File | Job |
 |---|---|
-| `EyeBreakPlanner.swift` | Pure state machine, no AppKit: `counting → warning → breaking → counting`, plus `held` and `paused`. Inputs: settings, ticks with idle seconds, lock/sleep/wake events, quiet signals, bubble-on-screen, user actions (start now, +5 min, skip, hold-Esc, pause until). Output: the state and the next time it needs a tick. |
+| `EyeBreakPlanner.swift` | Pure state machine, no AppKit: `counting → warning → breaking → counting`, plus `held` and `paused`. Inputs: settings, ticks with idle seconds, lock/sleep/wake events, quiet signals, bubble-on-screen, user actions (start now, +5 min, skip, held Esc, pause until). Output: the state and the next time it needs a tick. |
 | `EyeBreakController.swift` | Owns the timer (armed to the planner's next time, at most a minute away), the `QuietSignals` (0021 §9) and system observers, and the windows below. Records and restores the frontmost app. |
 | `EyeBreakOverlay.swift` | The per-screen black windows and the main screen's SwiftUI content (pet, countdown, tip, buttons); Esc and hold-Esc handling. |
 | `EyeBreakPill.swift` | The warning pill panel. |
@@ -194,21 +195,22 @@ screen sharing or presenting other than through camera/mic.
 - **Swift units** (`EyeBreakPlannerTests`, injected clock): counting to the
   warning; idle ≥ 5 min restarts the cycle and < 5 min doesn't; lock and
   sleep pause, unlock and wake restart; warning off; Start now, +5 min,
-  Skip; strict mode ignores a short Esc and ends on a 3 s hold; the
+  Skip; strict mode ignores Esc, pressed or held; the
   countdown always ends the break; camera/mic hold and release; a call
   starting during the warning; bubble on screen delays the break; pause
   until a time; interval change restarts.
 - **Manual** (scratch data dir, a short interval), screenshots in Light and
   Dark Mode: warning pill; overlay on the main and a second display (if
   available); over a full-screen app; focus returns to the previous app;
-  hold-Esc in strict mode; Photo Booth running holds the break; menu status
+  Esc ignored in strict mode; Photo Booth running holds the break; menu status
   line and pause items; VoiceOver announcement. Reduce Motion is the user's
   manual check.
 
 ## Consequences
 
 - Rallo can take over the whole screen for up to 60 s, only after the user
-  turns eye breaks on, and always with a 3 s Esc escape.
+  turns eye breaks on. In strict mode only the countdown or Force Quit ends
+  it.
 - Rallo becomes the active app for the length of a break, then hands focus
   back.
 - A once-a-minute timer runs while eye breaks are on.

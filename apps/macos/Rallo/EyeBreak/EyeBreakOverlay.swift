@@ -11,7 +11,7 @@ final class EyeBreakOverlay {
 
     var onSkip: () -> Void = {}
     var onPostpone: () -> Void = {}
-    /// Esc held for `EyeBreakPlanner.escHold` seconds: strict mode's way out.
+    /// Esc held for `EyeBreakPlanner.escHold` seconds after its first key-down went elsewhere.
     var onEscHeld: () -> Void = {}
 
     private var windows: [OverlayWindow] = []
@@ -98,17 +98,18 @@ final class EyeBreakOverlay {
         }
     }
 
-    /// Esc skips at once on its first key-down; in strict mode any key-down starts
-    /// the 3 s hold that ends the break (§4). In either mode a repeat with no hold
-    /// pending starts it too: activation can land late, so the first key-down may
-    /// go to the app behind and the overlay then only sees repeats of a held key.
+    /// Esc skips at once on its first key-down. Activation can land late, so the first
+    /// key-down may go to the app behind and the overlay then only sees repeats of a
+    /// held key: a repeat with no hold pending starts the 3 s hold that skips too.
+    /// Strict mode ignores Esc altogether (§4).
     private func esc(down: Bool, isRepeat: Bool, allowSkip: Bool) {
+        guard allowSkip else { return }
         guard down else {
             escHold?.cancel()
             escHold = nil
             return
         }
-        if allowSkip, !isRepeat {
+        if !isRepeat {
             onSkip()
             return
         }

@@ -163,9 +163,11 @@ struct EyeBreakPlanner: Equatable {
         return true
     }
 
-    /// Esc held for `escHold` seconds: always ends a break, in strict mode too (§4).
+    /// Esc held for `escHold` seconds: skips, for a press whose first key-down went to the
+    /// app behind. Strict mode ignores Esc; only the countdown or Force Quit ends it (§4).
     mutating func escHeld(_ now: Date) {
-        if case .breaking = phase { finishBreak(now) }
+        guard settings.allowSkip, case .breaking = phase else { return }
+        finishBreak(now)
     }
 
     /// Pause Eye Breaks ▸ (§7). In memory only.

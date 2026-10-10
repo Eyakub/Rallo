@@ -233,7 +233,7 @@ private struct BreaksTab: View {
                 }
                 .fixedSize()
                 Toggle("Allow skipping", isOn: binding(\.allowSkip))
-                caption("Off = strict mode: the black screen has no Skip or +5 min. Holding Esc for 3 seconds always ends a break.")
+                caption("Off = strict mode: the black screen has no Skip or +5 min, and Esc does nothing. It ends when its countdown does.")
                 Toggle("Hold while camera or mic is in use", isOn: binding(\.holdOnCall))
                 caption("Doesn’t black out a video call; the break runs after the call.")
             }

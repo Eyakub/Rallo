@@ -141,7 +141,7 @@ final class EyeBreakPlannerTests: XCTestCase {
         XCTAssertEqual(p.breakDue, at(1303), "next in a full cycle")
     }
 
-    func testStrictModeKeepsThePillButtonsButOnlyAHeldEscEndsTheBreak() {
+    func testStrictModeKeepsThePillButtonsButNoEscEndsTheBreak() {
         var warning = planner { $0.allowSkip = false }
         warning.tick(now: at(1190), idle: 0, hold: free)
         var skipped = warning
@@ -157,7 +157,9 @@ final class EyeBreakPlannerTests: XCTestCase {
         XCTAssertFalse(p.postpone(at(101)))
         XCTAssertEqual(p.phase, .breaking(until: at(120)))
         p.escHeld(at(104))
-        XCTAssertEqual(p.phase, .counting)
+        XCTAssertEqual(p.phase, .breaking(until: at(120)), "a held Esc does nothing either")
+        p.tick(now: at(120), idle: 0, hold: free)
+        XCTAssertEqual(p.phase, .counting, "only the countdown ends it")
         XCTAssertEqual(p.breaksTaken, 1)
     }
 
