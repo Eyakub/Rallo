@@ -366,7 +366,7 @@ Branch `feat/attention-breaks`, which also carries the update badge (0020,
 | Plan | Spec | Execution |
 |---|---|---|
 | [1 alerts](2026-10-10-attention-1-alerts.md) | 0021 | Done (`0ab9050`..`d9e04b5`), final review fixed. S1 failed (no Focus status; repeat chimes go through the banner), S2 failed (Temporary by default; Settings opens Rallo's page), S4b: mic check per process. Open by hand: Reduce Motion, banner chime by ear, VoiceOver, Light Mode. |
-| [2 eye breaks](2026-10-10-attention-2-eye-breaks.md) | 0022 | In progress. Task 1 (`8479771`) and S6 (`2f863dc`: overlay at `.popUpMenu`, Force Quit stays reachable) done. |
+| [2 eye breaks](2026-10-10-attention-2-eye-breaks.md) | 0022 | Done (`8479771`..`2287ff3`), final review fixed. S6: overlay at `.popUpMenu` (Force Quit stays reachable). The overlay activates Rallo, which macOS grants a few seconds late, so early keys reach the app behind (0022 Verified). Open by hand: pill clicks, reminder collision, camera hold, strict held Esc, hands-off break, hot-plug, lock, Light Mode. |
 
 Start here on a new machine: [handoff](2026-10-10-attention-handoff.md).
 
