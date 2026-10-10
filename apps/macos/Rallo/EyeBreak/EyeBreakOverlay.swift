@@ -56,6 +56,9 @@ final class EyeBreakOverlay {
 
     private func build(animate: Bool) {
         guard let shown else { return }
+        // The old key window's keyUp never arrives, so a pending hold would outlive the release.
+        escHold?.cancel()
+        escHold = nil
         windows.forEach { $0.orderOut(nil) }
         let screens = NSScreen.screens
         let main = EyeBreakLayout.mainIndex(screens: screens.map(\.frame), mouse: NSEvent.mouseLocation)
@@ -88,6 +91,7 @@ final class EyeBreakOverlay {
             onSkip()
             return
         }
+        escHold?.cancel()
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.onEscHeld() } }
         escHold = work
         DispatchQueue.main.asyncAfter(deadline: .now() + EyeBreakPlanner.escHold, execute: work)
