@@ -42,18 +42,7 @@ struct FolderSidebar: View {
                             FolderRow(model: model, folder: folder, count: Int(folder.openCount), focused: focused, select: select)
                         }
                     } header: {
-                        HStack {
-                            Text("Folders")
-                            Spacer()
-                            Button {
-                                Task { await model.newFolderInline() }
-                            } label: {
-                                Image(systemName: "plus")
-                            }
-                            .buttonStyle(.plain)
-                            .help("New Folder")
-                            .accessibilityLabel("New Folder")
-                        }
+                        Text("Folders")
                     }
                     Section("Views") {
                         SidebarLabel(model: model, tag: .scope(.all), focused: focused, select: select, symbol: "tray.full", title: "All Notes", count: Int(model.overview?.allOpen ?? 0))
@@ -100,14 +89,25 @@ struct FolderSidebar: View {
         Button {
             Task { await model.newFolderInline() }
         } label: {
-            Label("New Folder", systemImage: "plus.circle")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.bark)
+            // Same 18 pt icon column, 8 pt gap and 12 pt count font as the rows above, so glyph, title and hint line up with them.
+            HStack(spacing: 8) {
+                Image(systemName: "plus.circle").frame(width: 18)
+                Text("New Folder")
+                Spacer(minLength: 4)
+                Text("⇧⌘N")
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .accessibilityHidden(true)
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(Theme.bark)
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 18)
+        // Measured against the rows: content sits 13 pt in on the left and 20 pt on the right.
+        .padding(.leading, 13)
+        .padding(.trailing, 20)
         .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1) }
         .help("New Folder (⇧⌘N)")
     }
