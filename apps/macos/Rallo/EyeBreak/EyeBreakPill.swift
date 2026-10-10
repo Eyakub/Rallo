@@ -104,7 +104,11 @@ final class EyeBreakPill {
         panel.orderFrontRegardless()
     }
 
-    func hide() { panel.orderOut(nil) }
+    /// Detaching the host stops its once-a-second TimelineView while hidden.
+    func hide() {
+        panel.orderOut(nil)
+        panel.contentView = nil
+    }
 }
 
 private struct ToastView: View {
