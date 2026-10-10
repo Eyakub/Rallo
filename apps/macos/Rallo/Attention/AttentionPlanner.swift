@@ -77,6 +77,13 @@ struct AttentionQueue: Equatable {
         alerts.removeAll { $0.id == id }
     }
 
+    /// The alert a nag round re-rings: the newest one with a repeat left, of
+    /// either kind. A launch or wake group (§2) never re-rings. Read before
+    /// `countNag`, which may use up that alert's last repeat.
+    func drivingAlert(maxRounds: Int) -> AttentionAlert? {
+        alerts.last { $0.nags && $0.repeats < maxRounds }
+    }
+
     /// A nag round ran: one repeat for every alert that still had one.
     mutating func countNag(maxRounds: Int) {
         for index in alerts.indices where alerts[index].nags && alerts[index].repeats < maxRounds {

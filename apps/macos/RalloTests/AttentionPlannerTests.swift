@@ -10,6 +10,10 @@ final class AttentionPlannerTests: XCTestCase {
         AttentionAlert(id: id, kind: .reminder(deadline: t0), text: "Note \(id)", nags: nags, repeats: repeats)
     }
 
+    private func agent(_ id: String, nags: Bool = true, repeats: Int = 0) -> AttentionAlert {
+        AttentionAlert(id: id, kind: .agent(waitingSince: t0), text: "Agent \(id)", nags: nags, repeats: repeats)
+    }
+
     private func round(_ decision: AttentionPlanner.Decision) -> AttentionRound? {
         if case let .run(round) = decision { return round }
         return nil
@@ -99,6 +103,45 @@ final class AttentionPlannerTests: XCTestCase {
         queue.countNag(maxRounds: 5)
         queue.countNag(maxRounds: 5)
         XCTAssertEqual(queue.alerts.map(\.repeats), [5, 2])
+    }
+
+    // MARK: What a nag round re-rings (§2, §4, §9 fallback)
+
+    /// Wake: A came due before sleep and nags; B came due during sleep, newer, in the one grouped round.
+    func testAWakeNagReringsTheReminderThatNagsNotTheNewerGroupedOne() {
+        var queue = AttentionQueue()
+        queue.add(reminder("a", repeats: 1))
+        queue.add(reminder("b", nags: false))
+        XCTAssertEqual(queue.drivingAlert(maxRounds: 5)?.id, "a")
+    }
+
+    /// Launch: a grouped reminder never re-rings, even while an agent alert nags.
+    func testAnAgentNagReringsTheAgentNotALaunchGroupedReminder() {
+        var launchFirst = AttentionQueue()
+        launchFirst.add(reminder("launch", nags: false))
+        launchFirst.add(agent("agent"))
+        XCTAssertEqual(launchFirst.drivingAlert(maxRounds: 5)?.id, "agent")
+        var agentFirst = AttentionQueue()
+        agentFirst.add(agent("agent"))
+        agentFirst.add(reminder("launch", nags: false))
+        XCTAssertEqual(agentFirst.drivingAlert(maxRounds: 5)?.id, "agent")
+    }
+
+    /// Agent-only: nag rounds chime for agents too (§4).
+    func testAnAgentOnlyQueueReringsTheAgent() {
+        var queue = AttentionQueue()
+        queue.add(agent("agent"))
+        XCTAssertEqual(queue.drivingAlert(maxRounds: 5), agent("agent"))
+    }
+
+    /// Read before `countNag`: an alert's last repeat still re-rings it.
+    func testTheLastRepeatStillReringsAndThenNothingDoes() {
+        var queue = AttentionQueue()
+        queue.add(reminder("a", repeats: 4))
+        queue.add(reminder("b", repeats: 5))
+        XCTAssertEqual(queue.drivingAlert(maxRounds: 5)?.id, "a", "b, newer, has no repeat left")
+        queue.countNag(maxRounds: 5)
+        XCTAssertNil(queue.drivingAlert(maxRounds: 5))
     }
 
     // MARK: Pending and handled (§2, §4)

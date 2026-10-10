@@ -148,17 +148,30 @@ final class AppCoordinator {
         attention.animationsPaused = { [weak self] in self?.animationsPaused ?? false }
         attention.openNotes = { [weak self] itemID in self?.openNotes(highlighting: itemID) }
         attention.activateAgent = { [weak self] session in self?.activateAgent(session) }
-        // 0021 §9 fallback: re-add the reminder's delivered banner (same identifier, so
+        // 0021 §9 fallback: re-add the alert's delivered banner (same identifier, so
         // 0005 still sees one request); a Focus mutes it where an in-app sound would not.
-        attention.renotify = { [weak self] itemID in
+        attention.renotify = { [weak self] alert in
             guard let self else { return }
             Task {
-                guard let prefix = try? await self.core.notificationIdentifierPrefix() else { return }
-                let delivered = await self.notifications.adapter.delivered(prefix: prefix)
-                guard let old = delivered.first(where: { $0.request.content.userInfo["item_id"] as? String == itemID })
-                else { return }
-                try? await self.notifications.adapter.add(
-                    UNNotificationRequest(identifier: old.request.identifier, content: old.request.content, trigger: nil))
+                do {
+                    let old: UNNotificationRequest?
+                    switch alert.kind {
+                    case .reminder:
+                        let prefix = try await self.core.notificationIdentifierPrefix()
+                        old = await self.notifications.adapter.delivered(prefix: prefix).map(\.request)
+                            .first { $0.content.userInfo["item_id"] as? String == alert.id }
+                    case .agent:
+                        // A long-wait alert's id is its notification identifier.
+                        old = await self.notifications.adapter.delivered(prefix: alert.id).map(\.request)
+                            .first { $0.identifier == alert.id }
+                    }
+                    guard let old, self.attention.mayRenotify(alert.id, deliveredGeneration: old.native.generation)
+                    else { return }
+                    try await self.notifications.adapter.add(
+                        UNNotificationRequest(identifier: old.identifier, content: old.content, trigger: nil))
+                } catch {
+                    self.log.record("renotify_failed", ["alert_id": alert.id, "error": "\(error)"])
+                }
             }
         }
         drainer.alertSound = { [weak self] in self?.alertSettings.sound ?? .ralloChime }

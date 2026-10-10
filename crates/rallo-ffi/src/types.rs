@@ -99,6 +99,7 @@ impl From<ItemView> for ItemSnapshot {
             reminder: view.reminder.map(|reminder| ReminderSnapshot {
                 id: reminder.id.to_string(),
                 deadline_ms: reminder.deadline_ms,
+                generation: reminder.generation,
                 state: reminder.state().into(),
                 scheduling_state: None,
                 scheduling_reason: None,
@@ -270,6 +271,8 @@ impl From<reminders::ReminderState> for ReminderState {
 pub struct ReminderSnapshot {
     pub id: String,
     pub deadline_ms: i64,
+    /// The `generation` a delivered request carries in its `userInfo` (0005).
+    pub generation: i64,
     pub state: ReminderState,
     pub scheduling_state: Option<String>,
     pub scheduling_reason: Option<String>,

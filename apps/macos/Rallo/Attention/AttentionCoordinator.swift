@@ -43,8 +43,10 @@ final class AttentionCoordinator {
     var animationsPaused: () -> Bool = { false }
     var openNotes: (String?) -> Void = { _ in }
     var activateAgent: (AgentSessionSnapshot) -> Void = { _ in }
-    /// Task 11a only: re-adds a reminder's delivered banner so a Focus can mute it.
-    var renotify: (String) -> Void = { _ in }
+    /// The nag's repeat sound (0021 §9 fallback): re-adds the alert's
+    /// delivered banner so a Focus can mute it. Ask `mayRenotify` after the
+    /// awaits, right before the add.
+    var renotify: (AttentionAlert) -> Void = { _ in }
 
     init(core: CoreClient, pet: PetController, quietSignals: QuietSignals, log: DiagnosticsLog) {
         self.core = core
@@ -192,19 +194,23 @@ final class AttentionCoordinator {
             heldRound = nil
             holdTimer?.invalidate()
             holdTimer = nil
-            if kind != .first { queue.countNag(maxRounds: Int(settings.nagMaxRounds)) }
+            var ringing: AttentionAlert?
+            if kind != .first {
+                ringing = queue.drivingAlert(maxRounds: Int(settings.nagMaxRounds))
+                queue.countNag(maxRounds: Int(settings.nagMaxRounds))
+            }
             lastRoundAt = Date()
             // Counts and switches only: diagnostics never carry note text.
             log.record("attention_round", ["kind": "\(kind)", "alerts": queue.alerts.count, "summon": round.summon,
                                            "glow": round.glow, "chime": round.chime, "details": round.showsDetails])
-            perform(round)
+            perform(round, ringing: ringing)
         }
         armNag()
     }
 
-    private func perform(_ round: AttentionRound) {
+    private func perform(_ round: AttentionRound, ringing: AttentionAlert?) {
         lastRound = round
-        if round.chime { chime() }
+        if round.chime { chime(ringing) }
         if round.glow { glow.pulse(fades: round.fades) }
         if round.summon { showBubble(for: round) }
     }
@@ -239,17 +245,25 @@ final class AttentionCoordinator {
         if heldRound == nil { armNag() }
     }
 
-    private func chime() {
+    private func chime(_ ringing: AttentionAlert?) {
         switch Self.nagSoundRoute {
         case .inApp:
             settings.sound.play()
         case .renotify:
-            if let reminder = queue.alerts.last(where: { if case .reminder = $0.kind { true } else { false } }) {
-                renotify(reminder.id)
-            }
+            if let ringing { renotify(ringing) }
         case .silent:
             break
         }
+    }
+
+    /// A snooze re-adds a reminder's identifier as a pending request between
+    /// a renotify's awaits and its add; old content must not overwrite it.
+    /// So: still queued and, for a reminder, the delivered request is the
+    /// due note's current generation.
+    func mayRenotify(_ alertID: String, deliveredGeneration: Int64?) -> Bool {
+        guard let alert = queue.alerts.first(where: { $0.id == alertID }) else { return false }
+        guard case .reminder = alert.kind else { return true }
+        return deliveredGeneration != nil && deliveredGeneration == dueItems[alertID]?.reminder?.generation
     }
 
     private func armNag() {
