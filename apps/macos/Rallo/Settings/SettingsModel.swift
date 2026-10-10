@@ -29,6 +29,9 @@ final class SettingsModel: ObservableObject {
     @Published var screenshotHotkeyEnabled = false
     /// The screenshot hot key is on but another app owns ⌃⌥⌘S.
     @Published var screenshotShortcutTaken = false
+    /// 0022 §8; the stored defaults until the coordinator's first snapshot.
+    @Published var eyeBreakSettings = EyeBreakSettings(enabled: false, intervalMinutes: 20, lengthSeconds: 20,
+                                                       warnSeconds: 10, allowSkip: true, holdOnCall: true)
     /// Settings › Notifications › Alerts (0021 §7).
     @Published var alertSettings = AlertSettings.initial
     var dataPath = ""
@@ -41,7 +44,7 @@ final class SettingsModel: ObservableObject {
     }
 
     // Own state.
-    /// The selected tab's tag: general, notifications, agents, voice, clickup, data, about.
+    /// The selected tab's tag: general, notifications, breaks, agents, voice, clickup, data, about.
     @Published var tab = "general"
     @Published var token = ""
     @Published var clickUpBusy = false
@@ -74,6 +77,7 @@ final class SettingsModel: ObservableObject {
     var setUpdateCheck: (Bool) -> Void = { _ in }
     var setVoiceTyping: (Bool) -> Void = { _ in }
     var setScreenshotHotkey: (Bool) -> Void = { _ in }
+    var setEyeBreakSettings: (EyeBreakSettings) -> Void = { _ in }
     var setAlertSettings: (AlertSettings) -> Void = { _ in }
     var openNotificationSettings: () -> Void = {}
 

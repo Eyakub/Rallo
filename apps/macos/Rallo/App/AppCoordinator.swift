@@ -612,6 +612,7 @@ final class AppCoordinator {
             model.voiceShortcutTaken = Self.voiceTypingEnabled && !globalShortcuts.voiceRegistered
             model.screenshotHotkeyEnabled = Self.screenshotHotkeyEnabled
             model.screenshotShortcutTaken = Self.screenshotHotkeyEnabled && !globalShortcuts.screenshotRegistered
+            if let eyeBreakSettings { model.eyeBreakSettings = eyeBreakSettings }
         }
         model.toggleLoginItem = { [weak self] in
             guard let self else { return }
@@ -653,6 +654,9 @@ final class AppCoordinator {
             UserDefaults.standard.set(enabled, forKey: "screenshotHotkeyEnabled")
             globalShortcuts.setScreenshot(enabled: enabled)
             settingsModel.refresh()
+        }
+        model.setEyeBreakSettings = { [weak self] settings in
+            Task { await self?.saveEyeBreakSettings(settings) }
         }
         model.setUpdateCheck = { [weak self] enabled in
             self?.updateChecker.setEnabled(enabled)

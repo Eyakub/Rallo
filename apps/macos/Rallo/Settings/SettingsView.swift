@@ -6,7 +6,7 @@ import SwiftUI
 /// its tabs into the toolbar's overflow menu on macOS 26). The raw value is
 /// `SettingsModel.tab`.
 enum SettingsTab: String, CaseIterable {
-    case general, notifications, agents, voice, clickup, data, about
+    case general, notifications, breaks, agents, voice, clickup, data, about
 
     static let size = CGSize(width: 540, height: 400)
 
@@ -14,6 +14,7 @@ enum SettingsTab: String, CaseIterable {
         switch self {
         case .general: "General"
         case .notifications: "Notifications"
+        case .breaks: "Breaks"
         case .agents: "Agents"
         case .voice: "Voice"
         case .clickup: "ClickUp"
@@ -26,6 +27,7 @@ enum SettingsTab: String, CaseIterable {
         switch self {
         case .general: "gearshape"
         case .notifications: "bell"
+        case .breaks: "eye"
         case .agents: "terminal"
         case .voice: "waveform"
         case .clickup: "bubble.left.and.bubble.right"
@@ -40,6 +42,7 @@ enum SettingsTab: String, CaseIterable {
             switch self {
             case .general: GeneralTab(model: model)
             case .notifications: NotificationsTab(model: model)
+            case .breaks: BreaksTab(model: model)
             case .agents: AgentsTab(model: model)
             case .voice: VoiceTab(model: model)
             case .clickup: ClickUpTab(model: model)
@@ -204,6 +207,50 @@ private struct NotificationsTab: View {
             settings[keyPath: key] = value
             model.setAlertSettings(settings)
         })
+    }
+}
+
+// MARK: Breaks
+
+private struct BreaksTab: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        Page {
+            Toggle("Remind me to rest my eyes", isOn: binding(\.enabled))
+            caption("The 20-20-20 rule: every 20 minutes, look at something 20 feet (6 m) away for 20 seconds. Rallo blacks out the screen and counts down.")
+            Group {
+                Picker("Every", selection: binding(\.intervalMinutes)) {
+                    ForEach([10, 15, 20, 30, 45, 60] as [UInt8], id: \.self) { Text("\($0) min").tag($0) }
+                }
+                .fixedSize()
+                Picker("Break length", selection: binding(\.lengthSeconds)) {
+                    ForEach([10, 20, 30, 60] as [UInt8], id: \.self) { Text("\($0) s").tag($0) }
+                }
+                .fixedSize()
+                Picker("Warn before", selection: binding(\.warnSeconds)) {
+                    ForEach([0, 5, 10, 30] as [UInt8], id: \.self) { Text($0 == 0 ? "Off" : "\($0) s").tag($0) }
+                }
+                .fixedSize()
+                Toggle("Allow skipping", isOn: binding(\.allowSkip))
+                caption("Off = strict mode: the black screen has no Skip or +5 min. Holding Esc for 3 seconds always ends a break.")
+                Toggle("Hold while camera or mic is in use", isOn: binding(\.holdOnCall))
+                caption("Doesn’t black out a video call; the break runs after the call.")
+            }
+            .disabled(!model.eyeBreakSettings.enabled)
+        }
+    }
+
+    /// Edits one field and saves the whole record; the core rejects anything off the menus.
+    private func binding<Value>(_ keyPath: WritableKeyPath<EyeBreakSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { model.eyeBreakSettings[keyPath: keyPath] },
+            set: { value in
+                var settings = model.eyeBreakSettings
+                settings[keyPath: keyPath] = value
+                model.eyeBreakSettings = settings
+                model.setEyeBreakSettings(settings)
+            })
     }
 }
 
