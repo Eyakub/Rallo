@@ -1,5 +1,29 @@
 # Rallo pet art — source of truth
 
+## Transparent asset cleanup — 2026-10-12
+
+The six full-size `rallo_*.png` expression sources now have transparent
+backgrounds. The `pet-*` pose sprites were refreshed to remove leftover
+white gaps and pale background fringes, keeping the existing filenames,
+143 × 118 / 286 × 236 canvases, and ground shadows. `rallo_hero.png` is the
+separate high-resolution transparent hero cutout (1458 × 1079).
+
+The cleanup used the image editor with each original as its edit target:
+remove cream/white backgrounds, preserve the pose and expression, retain
+cream fur and whiskers, keep translucent ground shadows, and refine the
+silhouette without a pale halo. Generated results can differ in fine painted
+details; the originals remain available for exact comparisons.
+
+Original PNGs are saved locally under `backup/2026-10-12-originals/`, with
+SHA-256 hashes in `sha256.json`. Backup image files are excluded from Git.
+Already-transparent eye overlays were retained. These changes apply to
+this asset directory; bundled copies in `apps/macos/Rallo/Resources/Sprites/`
+are separate and were not replaced.
+
+The production notes below describe the earlier import process. The cleaned
+sources already contain alpha: do not run the old RGB matting step over them,
+because it discards their transparency. Preserve alpha when resizing them.
+
 ## Provenance
 
 The full pose set was supplied by the user on 2026-09-30 as a
