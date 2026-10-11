@@ -14,11 +14,9 @@ cream fur and whiskers, keep translucent ground shadows, and refine the
 silhouette without a pale halo. Generated results can differ in fine painted
 details; the originals remain available for exact comparisons.
 
-Original PNGs are saved locally under `backup/2026-10-12-originals/`, with
-SHA-256 hashes in `sha256.json`. Backup image files are excluded from Git.
-Already-transparent eye overlays were retained. These changes apply to
-this asset directory; bundled copies in `apps/macos/Rallo/Resources/Sprites/`
-are separate and were not replaced.
+The originals are in Git history: `git show ab94c255:assets/pet/rallo/<file>`.
+Already-transparent eye overlays were retained. The refreshed `pet-*`
+sprites are copied to `apps/macos/Rallo/Resources/Sprites/`.
 
 The production notes below describe the earlier import process. The cleaned
 sources already contain alpha: do not run the old RGB matting step over them,
