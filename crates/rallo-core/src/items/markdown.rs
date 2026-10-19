@@ -42,12 +42,15 @@ struct Parser<'a> {
     out: Vec<Raw>,
 }
 
-fn is_fence(c: &[char], s: usize, e: usize) -> bool {
+/// An opening fence is 3+ backticks and an info string without a backtick
+/// (so "```x``` y" is inline code); a closing one is 3+ backticks and spaces.
+fn is_fence(c: &[char], s: usize, e: usize, closing: bool) -> bool {
     let mut k = s;
     while k < e && k - s < 3 && c[k] == ' ' {
         k += 1;
     }
-    c[k..e].starts_with(&['`', '`', '`'])
+    let run = c[k..e].iter().take_while(|&&x| x == '`').count();
+    run >= 3 && c[k + run..e].iter().all(|&x| if closing { x == ' ' } else { x != '`' })
 }
 
 impl Parser<'_> {
@@ -72,7 +75,7 @@ impl Parser<'_> {
         while i < n {
             let nl = c[i..].iter().position(|&x| x == '\n').map_or(n, |p| i + p);
             let e = if nl > i && c[nl - 1] == '\r' { nl - 1 } else { nl };
-            if is_fence(c, i, e) {
+            if is_fence(c, i, e, fence.is_some()) {
                 self.push(Kind::CodeFence, i, e);
                 match fence.take() {
                     Some(start) => self.push(Kind::CodeBlock, start, e),
@@ -119,6 +122,9 @@ impl Parser<'_> {
             return self.inline(m, e);
         }
         let k = self.skip_spaces(s, e);
+        if k == e {
+            return;
+        }
         if matches!(c[k], '-' | '*' | '+') && k + 1 < e && c[k + 1] == ' ' {
             let after = self.skip_spaces(k + 1, e);
             let boxed = after + 2 < e
@@ -223,8 +229,9 @@ impl Parser<'_> {
     }
 
     /// Pairs of a delimiter run of exactly `n` `ch`s (longer runs are literal).
-    // ponytail: first valid closer wins, no CommonMark delimiter stack; the
-    // grammar is small enough that the cases it differs on are rare in notes.
+    // ponytail: first valid closer wins, no CommonMark delimiter stack, and an
+    // unmatched opener scans to line end, so one 64 KiB line of `*a *a ...` is
+    // O(n^2) on the main thread. Upgrade path: a delimiter stack.
     fn pairs(&mut self, a: usize, b: usize, lit: &mut [bool], ch: char, n: usize, kind: Kind) {
         let c = self.c;
         let run = |lit: &[bool], i: usize| (i..b).take_while(|&j| c[j] == ch && !lit[j - a]).count();
@@ -370,6 +377,37 @@ mod tests {
         assert_eq!(spans("```\n**x**"), [s(CodeBlock, 0, 9), s(CodeFence, 0, 3)]);
         assert_eq!(spans("---"), [s(Divider, 0, 3)]);
         assert_eq!(spans("Title\n---"), [s(Divider, 6, 3)]);
+    }
+
+    #[test]
+    fn blank_lines_and_fences() {
+        assert!(spans("    ").is_empty());
+        assert!(spans("a\n    ").is_empty());
+        assert_eq!(plain_text("a\n    "), "a\n    ");
+        assert_eq!(spans("```x``` y"), [s(Marker, 0, 3), s(Code, 3, 1), s(Marker, 4, 3)]);
+        assert_eq!(spans("```\na\n```sh\nb\n```"), [s(CodeBlock, 0, 17), s(CodeFence, 0, 3), s(CodeFence, 14, 3)]);
+        assert_eq!(spans("```\r\na\r\n```"), [s(CodeBlock, 0, 11), s(CodeFence, 0, 3), s(CodeFence, 8, 3)]);
+    }
+
+    #[test]
+    fn more_inline_and_numbers() {
+        assert_eq!(
+            spans("**a** and **b**"),
+            [s(Marker, 0, 2), s(Bold, 2, 1), s(Marker, 3, 2), s(Marker, 10, 2), s(Bold, 12, 1), s(Marker, 13, 2)]
+        );
+        assert_eq!(
+            spans("[x](y) **z**"),
+            [
+                s(Marker, 0, 1),
+                s(LinkText, 1, 1),
+                s(Marker, 2, 4),
+                s(LinkUrl, 4, 1),
+                s(Marker, 7, 2),
+                s(Bold, 9, 1),
+                s(Marker, 10, 2)
+            ]
+        );
+        assert_eq!(spans("1) one"), [s(Number, 0, 2), s(ListContent, 3, 3)]);
     }
 
     #[test]
