@@ -86,6 +86,11 @@ enum NoteCaret {
 
     private static func spot(at p: Int, _ spots: [Spot]) -> Spot? { spots.first { $0.lo <= p && p <= $0.hi } }
 
+    /// The hidden spot (caret positions `lo...hi`) that holds `p`, if any.
+    static func hiddenSpot(at p: Int, runs: [Run], length: Int) -> (lo: Int, hi: Int, isLine: Bool)? {
+        spot(at: p, spots(runs, length: length)).map { ($0.lo, $0.hi, $0.isLine) }
+    }
+
     /// Where a click (or a landing after a step) rests.
     private static func settle(_ p: Int, _ spots: [Spot]) -> Int {
         guard let s = spot(at: p, spots) else { return p }
