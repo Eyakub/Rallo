@@ -31,6 +31,8 @@ final class NoteEditorSession: ObservableObject {
     private(set) var showCount = 0
     /// The text view has an input method's marked text: never save mid-composition.
     var isComposing = false
+    /// The mounted editor, for the toolbar's format actions.
+    weak var textView: PlainTextView?
     /// Set by the text view: turns marked text into ordinary text and pushes it
     /// through `textChanged`, as AppKit does when focus leaves the view.
     var commitComposition: () -> Void = {}

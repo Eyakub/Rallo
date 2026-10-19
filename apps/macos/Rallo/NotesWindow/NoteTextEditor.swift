@@ -17,6 +17,7 @@ struct NoteTextEditor: NSViewRepresentable {
         view.setAccessibilityLabel("Note text")
         view.insertionPointColor = Theme.rustNS
         context.coordinator.attach(view)
+        session.textView = view
         return view
     }
 

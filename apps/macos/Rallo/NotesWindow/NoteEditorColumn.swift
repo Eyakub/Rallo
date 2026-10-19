@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 struct NoteEditorColumn: View {
     @ObservedObject var model: NotesWindowModel
     @ObservedObject var editor: NoteEditorSession
+    @State private var stylesOpen = false
 
     /// The list's copy of the note (latest after a reload), else the session's
     /// (a note created a moment ago).
@@ -69,6 +70,24 @@ struct NoteEditorColumn: View {
             }
             .disabled(actionable == nil || atImageLimit)
             .help(atImageLimit ? "A note holds up to 10 images" : "Add Image")
+
+            Button { stylesOpen.toggle() } label: {
+                Text("Aa").font(Theme.rounded(13, .semibold))
+            }
+            .disabled(!editor.isEditable)
+            .help("Text Style")
+            .accessibilityLabel("Text Style")
+            .popover(isPresented: $stylesOpen, arrowEdge: .bottom) { FormatPopover(textView: editor.textView) }
+
+            Button {
+                guard let textView = editor.textView else { return }
+                NSApp.sendAction(#selector(PlainTextView.formatChecklist(_:)), to: textView, from: nil)
+                textView.window?.makeFirstResponder(textView)
+            } label: {
+                Label("Checklist", systemImage: "checklist")
+            }
+            .disabled(!editor.isEditable)
+            .help("Checklist ⇧⌘L")
 
             Menu {
                 if let note = actionable {
