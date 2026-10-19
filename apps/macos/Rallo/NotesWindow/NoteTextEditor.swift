@@ -23,7 +23,7 @@ struct NoteTextEditor: NSViewRepresentable {
 
     func updateNSView(_ view: PlainTextView, context: Context) {
         let coordinator = context.coordinator
-        _ = session.layoutRevision  // a reveal changed line heights: SwiftUI re-measures
+        _ = session.layoutRevision  // the parent view observes the session; a reveal bumps it so SwiftUI re-measures
         if view.isEditable != session.isEditable { view.isEditable = session.isEditable }
         coordinator.applying = true
         defer { coordinator.applying = false }
@@ -109,6 +109,8 @@ struct NoteTextEditor: NSViewRepresentable {
         let measurements = MeasureCache()
         /// Where Markdown marks were last shown (nil: nowhere).
         private(set) var lastReveal: NSRange?
+        /// Length of the string `view.marks` describe; differs while an edit is in flight.
+        private var markedLength = -1
 
         init(session: NoteEditorSession) {
             self.session = session
@@ -166,6 +168,9 @@ struct NoteTextEditor: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard !applying, let view = notification.object as? PlainTextView, !view.isTrackingMouse, !view.hasMarkedText()
             else { return }
+            // AppKit posts this before `textDidChange`: marks are stale; the full restyle follows.
+            // ponytail: a same-length replacement still slips through, it costs one wasted range restyle.
+            guard (view.string as NSString).length == markedLength else { return }
             updateReveal(view)
         }
 
@@ -192,6 +197,7 @@ struct NoteTextEditor: NSViewRepresentable {
             let palette = NoteTextStyler.Palette(ink: Theme.inkNS, rust: Theme.rustNS)
             let marks = markdownSpans(text: view.string)
             view.marks = marks
+            markedLength = (view.string as NSString).length
             let reveal = currentReveal(view)
             NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: marks, reveal: reveal, palette: palette)
             lastReveal = reveal

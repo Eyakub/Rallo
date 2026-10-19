@@ -365,6 +365,20 @@ final class NoteRevealTests: XCTestCase {
         XCTAssertFalse(visible(2))
     }
 
+    /// Pins: a keystroke on a revealed line leaves `layoutRevision` as the full restyle does (no bump),
+    /// and the marks stay revealed.
+    func testTypingDoesNotRestyleWithStaleMarks() {
+        view.delegate = coordinator
+        view.setSelectedRange(NSRange(location: 4, length: 0))
+        coordinator.restyle(view)
+        let before = session.layoutRevision
+        view.insertText("x", replacementRange: view.selectedRange())
+        XCTAssertEqual(view.string, "a **xb**\nc **d**")
+        XCTAssertEqual(session.layoutRevision, before)
+        XCTAssertTrue(visible(2))
+        XCTAssertFalse(visible(11))
+    }
+
     func testLosingFocusHidesEverything() {
         window.makeFirstResponder(nil)
         XCTAssertFalse(visible(2))
