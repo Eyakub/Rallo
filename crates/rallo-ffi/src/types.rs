@@ -171,6 +171,61 @@ pub struct TagRange {
     pub name: String,
 }
 
+/// What a styled range in a note is (0023 §2); mirrors `markdown::Kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MarkdownKind {
+    Marker,
+    Bold,
+    Italic,
+    Strike,
+    Code,
+    LinkText,
+    LinkUrl,
+    Heading { level: u8 },
+    Bullet,
+    Number,
+    TaskBox { checked: bool },
+    TaskDone,
+    ListContent,
+    Quote,
+    CodeBlock,
+    CodeFence,
+    Divider,
+}
+
+impl From<rallo_core::items::markdown::Kind> for MarkdownKind {
+    fn from(kind: rallo_core::items::markdown::Kind) -> Self {
+        use rallo_core::items::markdown::Kind as K;
+        match kind {
+            K::Marker => Self::Marker,
+            K::Bold => Self::Bold,
+            K::Italic => Self::Italic,
+            K::Strike => Self::Strike,
+            K::Code => Self::Code,
+            K::LinkText => Self::LinkText,
+            K::LinkUrl => Self::LinkUrl,
+            K::Heading(level) => Self::Heading { level },
+            K::Bullet => Self::Bullet,
+            K::Number => Self::Number,
+            K::TaskBox { checked } => Self::TaskBox { checked },
+            K::TaskDone => Self::TaskDone,
+            K::ListContent => Self::ListContent,
+            K::Quote => Self::Quote,
+            K::CodeBlock => Self::CodeBlock,
+            K::CodeFence => Self::CodeFence,
+            K::Divider => Self::Divider,
+        }
+    }
+}
+
+/// A styled range in a note's text, in UTF-16 units for `NSTextView`.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct MarkdownSpan {
+    pub kind: MarkdownKind,
+    pub utf16_start: u32,
+    pub utf16_len: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum FolderScope {
     All,

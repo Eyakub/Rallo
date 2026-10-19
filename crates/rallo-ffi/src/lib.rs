@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use rallo_core::folders::{DeleteNotes, FolderSelector};
 use rallo_core::items::{
-    ItemScope, ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome, Page, SearchQuery, tags,
+    ItemScope, ItemView, ListFilter, ListQuery, MutationOptions, MutationOutcome, Page, SearchQuery, markdown, tags,
 };
 use rallo_core::pet;
 use rallo_core::reminders::phrase;
@@ -37,6 +37,21 @@ pub fn tag_ranges(text: String) -> Vec<TagRange> {
         .into_iter()
         .map(|(utf16_start, utf16_len, name)| TagRange { utf16_start, utf16_len, name })
         .collect()
+}
+
+/// The styled ranges of a note's Markdown (0023 §2), UTF-16 like `tag_ranges`.
+#[uniffi::export]
+pub fn markdown_spans(text: String) -> Vec<MarkdownSpan> {
+    markdown::spans(&text)
+        .into_iter()
+        .map(|s| MarkdownSpan { kind: s.kind.into(), utf16_start: s.start, utf16_len: s.len })
+        .collect()
+}
+
+/// `text` with the Markdown marks removed and line breaks kept, for previews.
+#[uniffi::export]
+pub fn plain_text(text: String) -> String {
+    markdown::plain_text(&text)
 }
 
 #[uniffi::export]
@@ -839,5 +854,13 @@ mod tests {
             ]
         );
         assert!(tag_ranges("fix #123, C# and https://x.y/#frag".into()).is_empty());
+    }
+
+    #[test]
+    fn markdown_exports_map_spans_and_plain_text() {
+        let spans = markdown_spans("**a**".into());
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[1], MarkdownSpan { kind: MarkdownKind::Bold, utf16_start: 2, utf16_len: 1 });
+        assert_eq!(plain_text("**a**".into()), "a");
     }
 }

@@ -253,8 +253,9 @@ fn fallback_title_and_body() -> (String, String) {
 
 /// The note's title line and the rest flattened to one line: the first
 /// non-empty line is the title, the remaining lines are trimmed and joined
-/// with spaces. An image-only note (empty text) is titled "Image".
+/// with spaces, with the note's Markdown marks removed. An image-only note (empty text) is titled "Image".
 fn title_and_body(text: &str) -> (String, String) {
+    let text = crate::items::markdown::plain_text(text);
     let lines: Vec<&str> = text.lines().collect();
     match lines.iter().position(|line| !line.trim().is_empty()) {
         None => ("Image".to_owned(), String::new()),
@@ -904,5 +905,6 @@ mod tests {
         assert_eq!(title_and_body(""), ("Image".to_owned(), String::new()));
         assert_eq!(title_and_body("  \n "), ("Image".to_owned(), String::new()));
         assert_eq!(title_and_body("Call\n me \n\n now"), ("Call".to_owned(), "me now".to_owned()));
+        assert_eq!(title_and_body("# Call\n**me** now"), ("Call".to_owned(), "me now".to_owned()));
     }
 }
