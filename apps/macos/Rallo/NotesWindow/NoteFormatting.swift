@@ -42,19 +42,23 @@ enum NoteFormatting {
         var bullet = "-"
         var delimiter = "."
         var checked = false
+        var box = 0       // checklist: offset of the `[ ]` mark's character
     }
 
-    // `#…# `, a bullet then `[ ] `/`[x] ` (or the box at line end), a bullet, `N. `/`N) `, `> `.
+    // As crates/rallo-core/src/items/markdown.rs `line`: up to 3 spaces then `#`×1–6 and a space, spaces then a
+    // bullet, its spaces and `[ ]`/`[x]` (then a space or the line end), a bullet, `N. `/`N) ` (1–9 digits), `>`
+    // and an optional space.
     private static let prefixPattern = try! NSRegularExpression(
-        pattern: #"^(?:(#+) |([ \t]*)([-*+]) \[([ xX])\](?: |$)|([ \t]*)([-*+]) |([ \t]*)([0-9]+)([.)]) |> )"#)
+        pattern: #"^(?: {0,3}(#{1,6}) |( *)([-*+]) +\[([ xX])\](?: |$)|( *)([-*+]) |( *)([0-9]{1,9})([.)]) |>(?: )?)"#)
 
     private static func prefix(of line: String) -> Prefix? {
         let ns = line as NSString
         guard let m = prefixPattern.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
         func group(_ i: Int) -> String? { m.range(at: i).location == NSNotFound ? nil : ns.substring(with: m.range(at: i)) }
         if let hashes = group(1) { return Prefix(style: hashes.count == 1 ? .heading : .subheading, length: m.range.length) }
-        if let bullet = group(3), let box = group(4) {
-            return Prefix(style: .checklist, length: m.range.length, indent: group(2) ?? "", bullet: bullet, checked: box != " ")
+        if let bullet = group(3), let mark = group(4) {
+            let box = m.range(at: 4).location - m.range.location // `[x]`'s character
+            return Prefix(style: .checklist, length: m.range.length, indent: group(2) ?? "", bullet: bullet, checked: mark != " ", box: box)
         }
         if let bullet = group(6) { return Prefix(style: .bulleted, length: m.range.length, indent: group(5) ?? "", bullet: bullet) }
         if let delimiter = group(9) { return Prefix(style: .numbered, length: m.range.length, indent: group(7) ?? "", delimiter: delimiter) }
@@ -158,6 +162,25 @@ enum NoteFormatting {
 
         // Otherwise merge: widen each segment over the same-kind spans it touches, drop their
         // delimiters, and wrap the result once.
+        // A run of three `*` is literal to the parser, so bold meeting an italic that it covers or
+        // borders turns that italic's `*` into `_` (same length: every offset still holds).
+        var src = ns
+        var italics: [NSRange] = []
+        if mark == .bold {
+            italics = contents(.italic, marks).filter { it in
+                segments.contains { seg in
+                    seg.location < NSMaxRange(it) + 1 && NSMaxRange(seg) > it.location - 1
+                        && (seg.location <= it.location || NSMaxRange(seg) >= NSMaxRange(it))
+                }
+            }
+            let work = ns.mutableCopy() as! NSMutableString
+            for it in italics {
+                for p in [it.location - 1, NSMaxRange(it)] where work.character(at: p) == 0x2A {
+                    work.replaceCharacters(in: NSRange(location: p, length: 1), with: "_")
+                }
+            }
+            src = work
+        }
         var out = "", prev = 0, start = 0, firstLength = 0
         for (i, seg) in segments.enumerated() {
             var s = seg.location, e = NSMaxRange(seg)
@@ -168,15 +191,22 @@ enum NoteFormatting {
                     s = min(s, span.location - dl); e = max(e, NSMaxRange(span) + dl); touched.append(span)
                 }
             }
+            for it in italics where seg.location < NSMaxRange(it) + 1 && NSMaxRange(seg) > it.location - 1 {
+                s = min(s, it.location - 1); e = max(e, NSMaxRange(it) + 1)
+            }
             var inner = "", at = s
             for span in touched {
                 let dl = delimiterLength(of: span, mark: mark, in: ns)
-                inner += string(ns, at, span.location - dl) + string(ns, span.location, NSMaxRange(span))
+                inner += string(src, at, span.location - dl) + string(src, span.location, NSMaxRange(span))
                 at = NSMaxRange(span) + dl
             }
-            inner += string(ns, at, e)
+            inner += string(src, at, e)
+            let star: unichar = 0x2A
+            let touchesStar = (s > 0 && src.character(at: s - 1) == star) || (e < src.length && src.character(at: e) == star)
+                || inner.hasPrefix("*") || inner.hasSuffix("*")
+            let wrap = mark == .italic && touchesStar ? "_" : mark.rawValue
             if i == 0 { firstLength = inner.utf16.count; start = s; prev = s }
-            out += string(ns, prev, s) + mark.rawValue + inner + mark.rawValue
+            out += string(src, prev, s) + wrap + inner + wrap
             prev = e
         }
         let region = NSRange(location: start, length: prev - start)
@@ -192,6 +222,10 @@ enum NoteFormatting {
         if let span = spans.first(where: { NSMaxRange($0) == caret }) {
             let dl = delimiterLength(of: span, mark: mark, in: ns)
             return nop(NSRange(location: caret + dl, length: 0))
+        }
+        // Right after the opening mark: step out before it.
+        if let span = spans.first(where: { $0.location == caret }) {
+            return nop(NSRange(location: caret - delimiterLength(of: span, mark: mark, in: ns), length: 0))
         }
         // On an empty pair: remove it.
         let before = NSRange(location: caret - d, length: d), after = NSRange(location: caret, length: d)
@@ -296,8 +330,7 @@ enum NoteFormatting {
         let check = tasks.contains { !$0.checked }
         let results = strings.enumerated().map { i, s -> String in
             guard let p = prefixes[i], p.style == .checklist else { return s }
-            let box = p.indent.utf16.count + 3 // `- [` then the mark
-            return (s as NSString).replacingCharacters(in: NSRange(location: box, length: 1), with: check ? "x" : " ")
+            return (s as NSString).replacingCharacters(in: NSRange(location: p.box, length: 1), with: check ? "x" : " ")
         }
         let (range, out) = rebuild(ns, ls, results)
         return FormatEdit(range: range, replacement: out, selection: selection)

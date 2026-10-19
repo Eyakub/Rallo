@@ -189,6 +189,51 @@ final class NoteFormattingTests: XCTestCase {
                        FormatEdit(range: r(3, 0), replacement: "", selection: r(3, 0)))
     }
 
+    // MARK: Final review
+
+    private func kinds(_ text: String) -> (bold: Bool, italic: Bool) {
+        let spans = markdownSpans(text: text)
+        return (spans.contains { $0.kind == .bold }, spans.contains { $0.kind == .italic })
+    }
+
+    private func applied(_ edit: FormatEdit, to text: String) -> (text: String, sel: NSRange) {
+        (((text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)), edit.selection)
+    }
+
+    func testBoldThenItalicOnTheSameWordKeepsBothStyles() {
+        let bold = applied(toggle(.bold, "word", r(0, 4)), to: "word")
+        XCTAssertEqual(bold.text, "**word**")
+        let both = applied(toggle(.italic, bold.text, bold.sel), to: bold.text)
+        XCTAssertEqual(both.text, "**_word_**")
+        XCTAssertTrue(kinds(both.text).bold && kinds(both.text).italic)
+    }
+
+    func testItalicThenBoldAndItalicOverBoldKeepBothStyles() {
+        let italic = applied(toggle(.italic, "word", r(0, 4)), to: "word")
+        let both = applied(toggle(.bold, italic.text, italic.sel), to: italic.text)
+        XCTAssertTrue(kinds(both.text).bold && kinds(both.text).italic, both.text)
+        let over = applied(toggle(.italic, "**word**", r(0, 8)), to: "**word**")
+        XCTAssertTrue(kinds(over.text).bold && kinds(over.text).italic, over.text)
+    }
+
+    func testBoldOverItalicAndBoldNeverMakesAStarRun() {
+        let out = applied(toggle(.bold, "*i* **b**", r(0, 9)), to: "*i* **b**")
+        XCTAssertFalse(out.text.contains("***"), out.text)
+        XCTAssertTrue(kinds(out.text).bold && kinds(out.text).italic, out.text)
+    }
+
+    func testBoldAtTheCaretRightAfterTheOpenerStepsOutBeforeIt() {
+        XCTAssertEqual(toggle(.bold, "**bold**", r(2, 0)), FormatEdit(range: r(0, 0), replacement: "", selection: r(0, 0)))
+    }
+
+    func testPrefixesFollowTheCoreGrammar() {
+        XCTAssertNil(newline("\t- item", r(7, 0)))
+        check(block(.quote, ">q", r(2, 0)), on: ">q", gives: "q")
+        XCTAssertEqual(NoteFormatting.blockStyle(text: "####### x", at: 0), .body)
+        XCTAssertEqual(NoteFormatting.blockStyle(text: "###### x", at: 0), .subheading)
+        check(NoteFormatting.toggleChecked(text: "-  [ ] a", selection: r(0, 0)), on: "-  [ ] a", gives: "-  [x] a")
+    }
+
     // MARK: Queries
 
     func testBlockStyleAndIsInside() {
