@@ -122,6 +122,88 @@ final class EditorStylingTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
 
+    // MARK: Markdown marks
+
+    /// Styles `text` with `reveal` given as the paragraph of `revealAt` (nil: nowhere).
+    private func styled(_ text: String, revealAt: String? = nil, revealAll: Bool = false) -> (PlainTextView, NSWindow) {
+        let (view, window) = textView(text)
+        let marks = markdownSpans(text: text)
+        var reveal: NSRange?
+        if revealAll {
+            reveal = NSRange(location: 0, length: (text as NSString).length)
+        } else if let revealAt {
+            reveal = NoteTextStyler.revealRange(in: text as NSString, selection: range(of: revealAt, in: text), marks: marks)
+        }
+        NoteTextStyler.restyle(view, tags: [], marks: marks, reveal: reveal, palette: palette)
+        return (view, window)
+    }
+
+    private func font(_ view: PlainTextView, _ index: Int) -> NSFont {
+        view.textStorage!.attribute(.font, at: index, effectiveRange: nil) as! NSFont
+    }
+
+    private func color(_ view: PlainTextView, _ index: Int) -> NSColor {
+        view.textStorage!.attribute(.foregroundColor, at: index, effectiveRange: nil) as! NSColor
+    }
+
+    func testMarkersOffTheRevealedLineAreHidden() {
+        let text = "Plan\nShip **rich** text\nmore **x**"
+        let (view, window) = styled(text, revealAt: "Ship")
+        let line3 = range(of: "**x", in: text).location
+        XCTAssertEqual(font(view, line3).pointSize, 0.01)
+        XCTAssertEqual(color(view, line3), .clear)
+        let line2 = range(of: "**rich", in: text).location
+        XCTAssertEqual(font(view, line2).pointSize, 14.5)
+        XCTAssertEqual(color(view, line2), palette.marker)
+        withExtendedLifetime(window) {}
+    }
+
+    func testNilRevealHidesEveryMarker() {
+        let text = "Plan\nShip **rich** text\nmore **x**"
+        let (view, window) = styled(text)
+        for needle in ["**rich", "**x"] {
+            let at = range(of: needle, in: text).location
+            XCTAssertEqual(font(view, at).pointSize, 0.01)
+            XCTAssertEqual(color(view, at), .clear)
+        }
+        withExtendedLifetime(window) {}
+    }
+
+    func testBoldAndItalicCarryTheirTraits() {
+        let text = "x **b** *i*"
+        let (view, window) = styled(text, revealAll: true)
+        XCTAssertTrue(NSFontManager.shared.traits(of: font(view, range(of: "b", in: text).location)).contains(.boldFontMask))
+        XCTAssertTrue(NSFontManager.shared.traits(of: font(view, range(of: "i", in: text).location)).contains(.italicFontMask))
+        withExtendedLifetime(window) {}
+    }
+
+    func testHiddenFenceLinesCollapse() {
+        let text = "a\n```\ncode\n```\nb"
+        let (hidden, w1) = styled(text, revealAt: "a")
+        let (shown, w2) = styled(text, revealAll: true)
+        for fence in [2, 11] {
+            let style = hidden.textStorage!.attribute(.paragraphStyle, at: fence, effectiveRange: nil) as! NSParagraphStyle
+            XCTAssertEqual(style.maximumLineHeight, 0.01)
+        }
+        XCTAssertLessThan(
+            NoteTextEditor.textHeight(hidden.textStorage!, width: 400),
+            NoteTextEditor.textHeight(shown.textStorage!, width: 400) - 30)
+        withExtendedLifetime((w1, w2)) {}
+    }
+
+    func testRevealRangeCoversTheWholeCodeBlock() {
+        let text = "a\n```\ncode\n```\nb"
+        let reveal = NoteTextStyler.revealRange(in: text as NSString, selection: range(of: "code", in: text), marks: markdownSpans(text: text))
+        XCTAssertEqual(reveal, NSRange(location: 2, length: 13))  // "```\ncode\n```\n"
+    }
+
+    func testStylingNeverChangesTheString() {
+        let text = "# H\n> q\n- [x] done *i*\n---\n```\ncode\n```"
+        let (view, window) = styled(text)
+        XCTAssertEqual(view.string, text)
+        withExtendedLifetime(window) {}
+    }
+
     func testThePlainTextViewIsPlainTextKitOne() {
         let (view, window) = textView("")
         XCTAssertFalse(view.isRichText)

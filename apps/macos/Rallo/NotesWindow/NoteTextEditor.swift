@@ -105,6 +105,8 @@ struct NoteTextEditor: NSViewRepresentable {
         var applying = false
         var shown = -1
         let measurements = MeasureCache()
+        /// Where Markdown marks were last shown (nil: nowhere).
+        private(set) var lastReveal: NSRange?
 
         init(session: NoteEditorSession) {
             self.session = session
@@ -153,7 +155,12 @@ struct NoteTextEditor: NSViewRepresentable {
         func restyle(_ view: PlainTextView) {
             measurements.invalidate()  // every text change and style change comes through here
             let palette = NoteTextStyler.Palette(ink: Theme.inkNS, rust: Theme.rustNS)
-            NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), palette: palette)
+            let marks = markdownSpans(text: view.string)
+            view.marks = marks
+            let reveal = view.window?.firstResponder === view
+                ? NoteTextStyler.revealRange(in: view.string as NSString, selection: view.selectedRange(), marks: marks) : nil
+            NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: marks, reveal: reveal, palette: palette)
+            lastReveal = reveal
         }
     }
 }

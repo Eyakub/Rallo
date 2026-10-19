@@ -17,7 +17,12 @@ enum Theme {
     static let inkNS = NSColor.dynamic(light: 0x2B1A13, dark: 0xF5E8DC)
     static let ink = Color(nsColor: inkNS)
     // Bark: secondary text (≥ 4.5:1 on both surfaces).
-    static let bark = Color(light: 0x7D5F50, dark: 0xB59C8D)
+    static let barkNS = NSColor.dynamic(light: 0x7D5F50, dark: 0xB59C8D)
+    static let bark = Color(nsColor: barkNS)
+    // Markdown marks shown on the caret's line: bark, faded.
+    static let markerNS = NSColor.dynamic(light: 0x7D5F50, lightAlpha: 0.55, dark: 0xB59C8D, darkAlpha: 0.55)
+    static let codeBackgroundNS = NSColor.dynamic(light: 0x2B1A13, lightAlpha: 0.06, dark: 0xFFFFFF, darkAlpha: 0.07)
+    static let quoteBarNS = NSColor.dynamic(light: 0xB4501F, lightAlpha: 0.45, dark: 0xF08A4B, darkAlpha: 0.50)
     // Fur rust: the accent. Lighter ember on dark for contrast.
     static let rustNS = NSColor.dynamic(light: 0xB4501F, dark: 0xF08A4B)
     static let rust = Color(nsColor: rustNS)
@@ -26,7 +31,8 @@ enum Theme {
     static let field = Color(light: 0xFFFFFF, dark: 0xFFFFFF, darkAlpha: 0.06)
     static let fieldStroke = Color(light: 0xE8D6C8, dark: 0xFFFFFF, darkAlpha: 0.12)
     static let hover = Color(light: 0x2B1A13, lightAlpha: 0.045, dark: 0xF5E8DC, darkAlpha: 0.06)
-    static let divider = Color(light: 0x2B1A13, lightAlpha: 0.14, dark: 0xF5E8DC, darkAlpha: 0.12)
+    static let dividerNS = NSColor.dynamic(light: 0x2B1A13, lightAlpha: 0.14, dark: 0xF5E8DC, darkAlpha: 0.12)
+    static let divider = Color(nsColor: dividerNS)
     static let toast = Color(light: 0x2B1A13, dark: 0xF5E8DC)
     static let onToast = Color(light: 0xF5E8DC, dark: 0x2B1A13)
     // The toast inverts the surface, so its accent inverts too.
