@@ -33,6 +33,17 @@ final class NoteTextViewCommandTests: XCTestCase {
         XCTAssertEqual(view.string, before)
     }
 
+    func testBodyIsCurrentOnlyOnPlainLines() {
+        XCTAssertFalse(makeView("- a", NSRange(location: 3, length: 0)).isActive(#selector(PlainTextView.formatBody(_:))))
+        XCTAssertTrue(makeView("a", NSRange(location: 1, length: 0)).isActive(#selector(PlainTextView.formatBody(_:))))
+    }
+
+    func testMonostyledIsCurrentInsideACodeBlock() {
+        let view = makeView("```\ncode\n```", NSRange(location: 5, length: 0))
+        XCTAssertTrue(view.isActive(#selector(PlainTextView.formatMonostyled(_:))))
+        XCTAssertFalse(view.isActive(#selector(PlainTextView.formatBody(_:))))
+    }
+
     func testReturnContinuesAList() {
         let view = makeView("- one", NSRange(location: 5, length: 0))
         view.insertNewline(nil)

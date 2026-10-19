@@ -28,27 +28,20 @@ struct FormatPopover: View {
         Entry(title: "Bold", symbol: "bold", shortcut: "⌘B", action: #selector(PlainTextView.formatBold(_:))),
         Entry(title: "Italic", symbol: "italic", shortcut: "⌘I", action: #selector(PlainTextView.formatItalic(_:))),
         Entry(title: "Strikethrough", symbol: "strikethrough", shortcut: "⇧⌘X", action: #selector(PlainTextView.formatStrikethrough(_:))),
-        Entry(title: "Code", symbol: "chevron.left.forwardslash.chevron.right", shortcut: "⇧⌘K", action: #selector(PlainTextView.formatCode(_:))),
+        Entry(title: "Code", symbol: "chevron.left.forwardslash.chevron.right", shortcut: "⌘E", action: #selector(PlainTextView.formatCode(_:))),
         Entry(title: "Link", symbol: "link", shortcut: "⌘K", action: #selector(PlainTextView.formatAddLink(_:))),
     ]
     private let blocks: [Entry] = [
-        Entry(title: "Bulleted List", symbol: "list.bullet", shortcut: "", action: #selector(PlainTextView.formatBulletedList(_:))),
-        Entry(title: "Numbered List", symbol: "list.number", shortcut: "", action: #selector(PlainTextView.formatNumberedList(_:))),
+        Entry(title: "Bulleted List", symbol: "list.bullet", shortcut: "⇧⌘7", action: #selector(PlainTextView.formatBulletedList(_:))),
+        Entry(title: "Numbered List", symbol: "list.number", shortcut: "⇧⌘9", action: #selector(PlainTextView.formatNumberedList(_:))),
         Entry(title: "Checklist", symbol: "checklist", shortcut: "⇧⌘L", action: #selector(PlainTextView.formatChecklist(_:))),
-        Entry(title: "Block Quote", symbol: "text.quote", shortcut: "", action: #selector(PlainTextView.formatBlockQuote(_:))),
+        Entry(title: "Block Quote", symbol: "text.quote", shortcut: "⌘'", action: #selector(PlainTextView.formatBlockQuote(_:))),
         Entry(title: "Increase Indent", symbol: "increase.indent", shortcut: "⌘]", action: #selector(PlainTextView.formatIncreaseIndent(_:))),
     ]
 
     private func isOn(_ action: Selector) -> Bool {
         _ = tick
         return textView?.isActive(action) ?? false
-    }
-
-    private func isCurrent(_ action: Selector) -> Bool {
-        if action == #selector(PlainTextView.formatBody(_:)) {
-            return !isOn(#selector(PlainTextView.formatHeading(_:))) && !isOn(#selector(PlainTextView.formatSubheading(_:)))
-        }
-        return isOn(action)
     }
 
     private func send(_ action: Selector) {
@@ -66,7 +59,7 @@ struct FormatPopover: View {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 11, weight: .bold))
-                                .opacity(isCurrent(style.action) ? 1 : 0)
+                                .opacity(isOn(style.action) ? 1 : 0)
                                 .frame(width: 14)
                                 .accessibilityHidden(true)
                             Text(style.title).font(Theme.rounded(13, .medium))
@@ -80,7 +73,7 @@ struct FormatPopover: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(style.title)
-                    .accessibilityAddTraits(isCurrent(style.action) ? .isSelected : [])
+                    .accessibilityAddTraits(isOn(style.action) ? .isSelected : [])
                 }
             }
             Divider()

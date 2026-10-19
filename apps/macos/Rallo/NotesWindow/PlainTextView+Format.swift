@@ -83,6 +83,9 @@ extension PlainTextView {
             #selector(formatChecklist(_:)): .checklist, #selector(formatBlockQuote(_:)): .quote,
         ]
         if let style = blocks[action] { return NoteFormatting.blockStyle(text: string, at: start) == style }
+        let inCode = marks.contains { $0.kind == .codeBlock && start >= Int($0.utf16Start) && start <= Int($0.utf16Start + $0.utf16Len) }
+        if action == #selector(formatMonostyled(_:)) { return inCode }
+        if action == #selector(formatBody(_:)) { return !inCode && NoteFormatting.blockStyle(text: string, at: start) == .body }
         return false
     }
 
