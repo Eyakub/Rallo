@@ -4,21 +4,70 @@ import AppKit
 extension PlainTextView {
     private var canFormat: Bool { isEditable && !hasMarkedText() }
 
-    func apply(_ edit: FormatEdit, actionName: String) {
+    /// `pair`: the empty pair this edit inserted; it stays hidden while the caret rests in its middle.
+    func apply(_ edit: FormatEdit, actionName: String, pair: NSRange? = nil) {
         guard canFormat else { return }
+        isEditingText = true  // the command's selection is its own; `NoteCaret` must not move it
+        defer { isEditingText = false }
         let isMove = edit.range.length == 0 && edit.replacement.isEmpty
         if !isMove {
             guard shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
             textStorage?.replaceCharacters(in: edit.range, with: edit.replacement)
             didChangeText()
+            isEditingText = true
             undoManager?.setActionName(actionName)
         }
+        if let pair { pendingPair = pair }
         setSelectedRange(edit.selection)
+    }
+
+    // MARK: Empty pair
+
+    private func isEmptyPair(_ r: NSRange) -> Bool {
+        let ns = string as NSString
+        guard r.length >= 2, r.length % 2 == 0, NSMaxRange(r) <= ns.length else { return false }
+        let half = r.length / 2
+        let first = ns.substring(with: NSRange(location: r.location, length: half))
+        return first == ns.substring(with: NSRange(location: r.location + half, length: half))
+            && first.allSatisfy { "*~`".contains($0) }
+    }
+
+    /// The pending pair, if it is still empty and the caret is exactly in its middle.
+    func pairHidden(at selection: NSRange) -> NSRange? {
+        guard let pair = pendingPair, selection.length == 0, selection.location == pair.location + pair.length / 2,
+              isEmptyPair(pair) else { return nil }
+        return pair
+    }
+
+    /// Typing made the pair real, or the caret left it empty: forget it, or remove it.
+    func settlePendingPair() {
+        guard let pair = pendingPair else { return }
+        guard isEmptyPair(pair) else { pendingPair = nil; return }
+        guard pairHidden(at: selectedRange()) == nil else { return }
+        DispatchQueue.main.async { [weak self] in self?.removePendingPair(pair) }  // not inside the selection callback
+    }
+
+    private func removePendingPair(_ pair: NSRange) {
+        guard pendingPair == pair, isEmptyPair(pair), pairHidden(at: selectedRange()) == nil, isEditable, !hasMarkedText() else { return }
+        pendingPair = nil
+        let sel = selectedRange()
+        isEditingText = true
+        defer { isEditingText = false }
+        guard shouldChangeText(in: pair, replacementString: "") else { return }
+        textStorage?.replaceCharacters(in: pair, with: "")
+        didChangeText()
+        isEditingText = true
+        undoManager?.setActionName("Typing")
+        let shift = { (p: Int) in p >= NSMaxRange(pair) ? p - pair.length : min(p, pair.location) }
+        setSelectedRange(NSRange(location: shift(sel.location), length: max(shift(NSMaxRange(sel)) - shift(sel.location), 0)))
     }
 
     private func toggle(_ mark: InlineMark, _ name: String) {
         guard canFormat else { return }
-        apply(NoteFormatting.toggle(mark, text: string, selection: selectedRange(), marks: marks), actionName: name)
+        let selection = selectedRange()
+        let edit = NoteFormatting.toggle(mark, text: string, selection: selection, marks: marks)
+        let inserted = selection.length == 0 && edit.range.length == 0 && edit.replacement == mark.rawValue + mark.rawValue
+        apply(edit, actionName: name, pair: inserted ? NSRange(location: edit.range.location, length: edit.replacement.utf16.count) : nil)
     }
 
     private func block(_ style: BlockStyle, _ name: String) {

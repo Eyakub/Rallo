@@ -47,7 +47,10 @@ struct NoteTextEditor: NSViewRepresentable {
             view.setSelectedRange(NSRange(location: min(kept.location, length), length: 0))
             changed = true
         }
-        if changed { coordinator.restyle(view) }
+        if changed {
+            coordinator.restyle(view)
+            coordinator.snapSelection(view)
+        }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: PlainTextView, context: Context) -> CGSize? {
@@ -107,8 +110,12 @@ struct NoteTextEditor: NSViewRepresentable {
         var applying = false
         var shown = -1
         let measurements = MeasureCache()
-        /// Where Markdown marks were last shown (nil: nowhere).
-        private(set) var lastReveal: NSRange?
+        /// What was last drawn beyond the hidden default: a revealed link and a hidden empty pair.
+        struct Display: Equatable {
+            var link: NSRange?
+            var pair: NSRange?
+        }
+        private(set) var lastDisplay = Display()
         /// Length of the string `view.marks` describe; differs while an edit is in flight.
         private var markedLength = -1
 
@@ -160,9 +167,36 @@ struct NoteTextEditor: NSViewRepresentable {
             restyle(view)
         }
 
-        private func currentReveal(_ view: PlainTextView) -> NSRange? {
-            view.window?.firstResponder === view && !view.isResigning
-                ? NoteTextStyler.revealRange(in: view.string as NSString, selection: view.selectedRange(), marks: view.marks) : nil
+        private func display(_ view: PlainTextView) -> Display {
+            let selection = view.selectedRange()
+            let focused = view.window?.firstResponder === view && !view.isResigning
+            return Display(
+                link: focused ? NoteTextStyler.linkReveal(in: view.string as NSString, selection: selection, marks: view.marks) : nil,
+                pair: view.pairHidden(at: selection))
+        }
+
+        /// Keeps the caret out of hidden marks (`NoteCaret`), but never inside an edit: typing, format
+        /// commands and undo put the selection where they mean it.
+        func textView(
+            _ textView: NSTextView, willChangeSelectionFromCharacterRange old: NSRange, toCharacterRange new: NSRange
+        ) -> NSRange {
+            guard let view = textView as? PlainTextView, !view.isEditingText, !view.hasMarkedText() else { return new }
+            let text = view.string as NSString
+            guard text.length == markedLength else { return new }  // marks are stale mid-edit
+            return NoteCaret.adjust(
+                from: old, to: new, runs: NoteCaret.runs(text: text, marks: view.marks, shown: display(view).link),
+                length: text.length, mouse: view.isTrackingMouse)
+        }
+
+        /// Moves a selection that a programmatic change left inside a hidden mark (a note shown, text replaced).
+        func snapSelection(_ view: PlainTextView) {
+            let text = view.string as NSString
+            let selection = view.selectedRange()
+            guard !view.hasMarkedText(), text.length == markedLength else { return }
+            let snapped = NoteCaret.adjust(
+                from: selection, to: selection, runs: NoteCaret.runs(text: text, marks: view.marks, shown: nil),
+                length: text.length, mouse: true)
+            if snapped != selection { view.setSelectedRange(snapped) }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -174,31 +208,22 @@ struct NoteTextEditor: NSViewRepresentable {
             updateReveal(view)
         }
 
-        /// Moves the revealed marks to the caret's line: restyles only the old and new paragraphs.
+        /// Moves the revealed link and the hidden pair: restyles only their old and new paragraphs.
         func updateReveal(_ view: PlainTextView) {
             guard !view.hasMarkedText() else { return }
-            let new = currentReveal(view)
-            guard new != lastReveal else { return }
-            // Only marker, fence and divider spans change with the reveal: none on either line, nothing to restyle.
-            let revealed = { (r: NSRange?) -> Bool in
-                guard let r else { return false }
-                return view.marks.contains { span in
-                    switch span.kind {
-                    case .marker, .codeFence, .divider:
-                        return NSIntersectionRange(NSRange(location: Int(span.utf16Start), length: Int(span.utf16Len)), r).length > 0
-                    default: return false
-                    }
-                }
-            }
-            guard revealed(lastReveal) || revealed(new) else { lastReveal = new; return }
+            view.settlePendingPair()
+            let new = display(view)
+            guard new != lastDisplay else { return }
             let palette = NoteTextStyler.Palette(ink: Theme.inkNS, rust: Theme.rustNS)
             let tags = tagRanges(text: view.string)
             let text = view.string as NSString
-            for r in [lastReveal, new].compactMap({ $0 }) {
+            for r in [lastDisplay.link, lastDisplay.pair, new.link, new.pair].compactMap({ $0 }) {
                 let r = NSIntersectionRange(r, NSRange(location: 0, length: text.length))
-                NoteTextStyler.restyle(view, tags: tags, marks: view.marks, reveal: new, palette: palette, in: text.paragraphRange(for: r))
+                NoteTextStyler.restyle(
+                    view, tags: tags, marks: view.marks, reveal: new.link, pair: new.pair, palette: palette,
+                    in: text.paragraphRange(for: r))
             }
-            lastReveal = new
+            lastDisplay = new
             measurements.invalidate()
             if !applying { session.layoutRevision += 1 }
         }
@@ -210,9 +235,9 @@ struct NoteTextEditor: NSViewRepresentable {
             let marks = markdownSpans(text: view.string)
             view.marks = marks
             markedLength = (view.string as NSString).length
-            let reveal = currentReveal(view)
-            NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: marks, reveal: reveal, palette: palette)
-            lastReveal = reveal
+            let now = display(view)
+            NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: marks, reveal: now.link, pair: now.pair, palette: palette)
+            lastDisplay = now
         }
     }
 }

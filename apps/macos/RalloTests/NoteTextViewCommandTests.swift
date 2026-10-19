@@ -40,7 +40,7 @@ final class NoteTextViewCommandTests: XCTestCase {
     func testClickingATaskBoxTogglesItAndKeepsTheSelection() {
         let view = makeView("- [ ] task\n- [x] done", NSRange(location: 14, length: 2))
         let palette = NoteTextStyler.Palette(ink: .black, rust: .red)
-        NoteTextStyler.restyle(view, tags: [], marks: view.marks, reveal: nil, palette: palette)
+        NoteTextStyler.restyle(view, tags: [], marks: view.marks, reveal: nil, pair: nil, palette: palette)
         let p = boxCenter(view)
         XCTAssertTrue(view.handleMouseDown(click(view, at: NSPoint(x: p.x + 40, y: p.y))) == false)
         XCTAssertEqual(view.string, "- [ ] task\n- [x] done")
@@ -101,5 +101,57 @@ final class NoteTextViewCommandTests: XCTestCase {
         let item = NSMenuItem(title: "Bold", action: #selector(PlainTextView.formatBold(_:)), keyEquivalent: "b")
         XCTAssertTrue(view.validateUserInterfaceItem(item))
         XCTAssertEqual(item.state, .on)
+    }
+
+    // MARK: Hidden marks (caret and edit rules)
+
+    private var session: NoteEditorSession?
+    private var coordinator: NoteTextEditor.Coordinator?
+
+    /// `makeView` plus the editor's Coordinator as delegate: snapping, restyling and the hidden pair work as in the app.
+    private func wired(_ text: String, _ sel: NSRange) -> PlainTextView {
+        let view = makeView(text, NSRange(location: 0, length: 0))
+        let session = NoteEditorSession(core: CoreClient(dataDir: NSTemporaryDirectory() + "rallo-unused"))
+        let coordinator = NoteTextEditor.Coordinator(session: session)
+        coordinator.attach(view)
+        view.delegate = coordinator
+        coordinator.restyle(view)
+        self.session = session
+        self.coordinator = coordinator
+        view.setSelectedRange(sel)
+        return view
+    }
+
+    private func r(_ l: Int, _ n: Int = 0) -> NSRange { NSRange(location: l, length: n) }
+
+    private func runMainQueue() {
+        let done = expectation(description: "main queue")
+        DispatchQueue.main.async { done.fulfill() }
+        wait(for: [done], timeout: 2)
+    }
+
+    func testProgrammaticSelectionSnapsOutOfAHiddenMark() {
+        let view = wired("x**bold**y", r(0))
+        view.setSelectedRange(r(2))
+        XCTAssertEqual(view.selectedRange(), r(1))
+        view.setSelectedRange(r(8))
+        XCTAssertEqual(view.selectedRange(), r(9))
+    }
+
+    func testTypingInsideAnEmptyPairKeepsTheCaretBeforeTheHiddenCloser() {
+        let view = wired("", r(0))
+        view.formatBold(nil)
+        XCTAssertEqual(view.string, "****")
+        view.insertText("a", replacementRange: view.selectedRange())
+        XCTAssertEqual(view.string, "**a**")
+        XCTAssertEqual(view.selectedRange(), r(3), "the edit left the caret before the hidden closer")
+        view.insertText("b", replacementRange: view.selectedRange())
+        XCTAssertEqual(view.string, "**ab**")
+        XCTAssertEqual(view.selectedRange(), r(4))
+        XCTAssertFalse(view.isEditingText)
+        view.setSelectedRange(r(4))  // a plain move after the edit snaps again: to rest after the closer
+        XCTAssertEqual(view.selectedRange(), r(6))
+        view.setSelectedRange(r(5))  // one step left from the rest position hops over the closer
+        XCTAssertEqual(view.selectedRange(), r(3))
     }
 }

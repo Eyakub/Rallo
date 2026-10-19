@@ -92,7 +92,7 @@ final class EditorStylingTests: XCTestCase {
     func testTitleAndTagAttributes() {
         let text = "Plan: ship #bug today"
         let (view, window) = textView(text)
-        XCTAssertTrue(NoteTextStyler.restyle(view, tags: tagRanges(text: text), marks: [], reveal: nil, palette: palette))
+        XCTAssertTrue(NoteTextStyler.restyle(view, tags: tagRanges(text: text), marks: [], reveal: nil, pair: nil, palette: palette))
         let storage = view.textStorage!
         func font(at index: Int) -> NSFont { storage.attribute(.font, at: index, effectiveRange: nil) as! NSFont }
         func color(at index: Int) -> NSColor { storage.attribute(.foregroundColor, at: index, effectiveRange: nil) as! NSColor }
@@ -110,7 +110,7 @@ final class EditorStylingTests: XCTestCase {
     func testATagInsideTheTitleKeepsTheTitleSize() {
         let text = "Fix #bug\nlater"
         let (view, window) = textView(text)
-        NoteTextStyler.restyle(view, tags: tagRanges(text: text), marks: [], reveal: nil, palette: palette)
+        NoteTextStyler.restyle(view, tags: tagRanges(text: text), marks: [], reveal: nil, pair: nil, palette: palette)
         let font = view.textStorage!.attribute(.font, at: 5, effectiveRange: nil) as! NSFont
         XCTAssertEqual(font.pointSize, 24)
         XCTAssertEqual(view.textStorage!.attribute(.foregroundColor, at: 5, effectiveRange: nil) as? NSColor, .red)
@@ -123,27 +123,21 @@ final class EditorStylingTests: XCTestCase {
         view.setMarkedText("にほ", selectedRange: NSRange(location: 2, length: 1), replacementRange: NSRange(location: 5, length: 0))
         XCTAssertTrue(view.hasMarkedText())
         let before = view.string
-        XCTAssertFalse(NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: [], reveal: nil, palette: palette))
+        XCTAssertFalse(NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: [], reveal: nil, pair: nil, palette: palette))
         XCTAssertEqual(view.string, before)
         XCTAssertTrue(view.hasMarkedText(), "restyling must not end the composition")
         view.unmarkText()
-        XCTAssertTrue(NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: [], reveal: nil, palette: palette))
+        XCTAssertTrue(NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: [], reveal: nil, pair: nil, palette: palette))
         withExtendedLifetime(window) {}
     }
 
     // MARK: Markdown marks
 
-    /// Styles `text` with `reveal` given as the paragraph of `revealAt` (nil: nowhere).
-    private func styled(_ text: String, revealAt: String? = nil, revealAll: Bool = false) -> (PlainTextView, NSWindow) {
+    /// Styles `text`; `revealAll` shows every mark (the way a revealed link shows its own).
+    private func styled(_ text: String, revealAll: Bool = false) -> (PlainTextView, NSWindow) {
         let (view, window) = textView(text)
-        let marks = markdownSpans(text: text)
-        var reveal: NSRange?
-        if revealAll {
-            reveal = NSRange(location: 0, length: (text as NSString).length)
-        } else if let revealAt {
-            reveal = NoteTextStyler.revealRange(in: text as NSString, selection: range(of: revealAt, in: text), marks: marks)
-        }
-        NoteTextStyler.restyle(view, tags: [], marks: marks, reveal: reveal, palette: palette)
+        let reveal = revealAll ? NSRange(location: 0, length: (text as NSString).length) : nil
+        NoteTextStyler.restyle(view, tags: [], marks: markdownSpans(text: text), reveal: reveal, pair: nil, palette: palette)
         return (view, window)
     }
 
@@ -153,18 +147,6 @@ final class EditorStylingTests: XCTestCase {
 
     private func color(_ view: PlainTextView, _ index: Int) -> NSColor {
         view.textStorage!.attribute(.foregroundColor, at: index, effectiveRange: nil) as! NSColor
-    }
-
-    func testMarkersOffTheRevealedLineAreHidden() {
-        let text = "Plan\nShip **rich** text\nmore **x**"
-        let (view, window) = styled(text, revealAt: "Ship")
-        let line3 = range(of: "**x", in: text).location
-        XCTAssertEqual(font(view, line3).pointSize, 0.01)
-        XCTAssertEqual(color(view, line3), .clear)
-        let line2 = range(of: "**rich", in: text).location
-        XCTAssertEqual(font(view, line2).pointSize, 14.5)
-        XCTAssertEqual(color(view, line2), palette.marker)
-        withExtendedLifetime(window) {}
     }
 
     func testNilRevealHidesEveryMarker() {
@@ -188,7 +170,7 @@ final class EditorStylingTests: XCTestCase {
 
     func testHiddenFenceLinesCollapse() {
         let text = "a\n```\ncode\n```\nb"
-        let (hidden, w1) = styled(text, revealAt: "a")
+        let (hidden, w1) = styled(text)
         let (shown, w2) = styled(text, revealAll: true)
         for fence in [2, 11] {
             let style = hidden.textStorage!.attribute(.paragraphStyle, at: fence, effectiveRange: nil) as! NSParagraphStyle
@@ -200,16 +182,49 @@ final class EditorStylingTests: XCTestCase {
         withExtendedLifetime((w1, w2)) {}
     }
 
-    func testRevealRangeCoversTheWholeCodeBlock() {
-        let text = "a\n```\ncode\n```\nb"
-        let reveal = NoteTextStyler.revealRange(in: text as NSString, selection: range(of: "code", in: text), marks: markdownSpans(text: text))
-        XCTAssertEqual(reveal, NSRange(location: 2, length: 13))  // "```\ncode\n```\n"
+    func testLinkRevealCoversTheLinkWhileTheCaretIsStrictlyInside() {
+        let text = "see [site](http://x.y) now", marks = markdownSpans(text: text)
+        func reveal(_ loc: Int, _ len: Int = 0) -> NSRange? {
+            NoteTextStyler.linkReveal(in: text as NSString, selection: NSRange(location: loc, length: len), marks: marks)
+        }
+        let link = NSRange(location: 4, length: 18)
+        XCTAssertNil(reveal(4))
+        XCTAssertEqual(reveal(5), link)
+        XCTAssertEqual(reveal(21), link)
+        XCTAssertNil(reveal(22))
+        XCTAssertEqual(reveal(0, 5), link, "a range touching the link reveals it")
+        XCTAssertNil(reveal(0, 4))
+        XCTAssertNil(NoteTextStyler.linkReveal(in: "a **b** c" as NSString, selection: NSRange(location: 4, length: 0), marks: markdownSpans(text: "a **b** c")))
     }
 
-    func testACaretAtTheTextEndRevealsItsOwnLine() {
-        let text = "a\n**b**"
-        let reveal = NoteTextStyler.revealRange(in: text as NSString, selection: NSRange(location: 7, length: 0), marks: markdownSpans(text: text))
-        XCTAssertEqual(reveal, NSRange(location: 2, length: 5))
+    func testCaretInsideACodeBlockKeepsItsFencesHidden() {
+        let text = "a\n```\ncode\n```\nb"
+        let (view, window) = styled(text)
+        view.setSelectedRange(range(of: "code", in: text))
+        XCTAssertEqual(font(view, 2).pointSize, 0.01)
+        XCTAssertEqual(font(view, 11).pointSize, 0.01)
+        withExtendedLifetime(window) {}
+    }
+
+    func testBoldMarksStayHiddenWithTheCaretAnywhere() {
+        let text = "x**bold**y"
+        let (view, window) = styled(text)
+        for caret in 0...10 {
+            view.setSelectedRange(NSRange(location: caret, length: 0))
+            for i in [1, 2, 7, 8] { XCTAssertEqual(font(view, i).pointSize, 0.01, "caret \(caret), index \(i)") }
+        }
+        withExtendedLifetime(window) {}
+    }
+
+    func testAPairIsHiddenByFontAndColour() {
+        let text = "a****"
+        let (view, window) = textView(text)
+        NoteTextStyler.restyle(view, tags: [], marks: [], reveal: nil, pair: NSRange(location: 1, length: 4), palette: palette)
+        for i in 1..<5 {
+            XCTAssertEqual(font(view, i).pointSize, 0.01)
+            XCTAssertEqual(color(view, i), .clear)
+        }
+        withExtendedLifetime(window) {}
     }
 
     func testListIndentFollowsTheVisibleMarks() {
@@ -237,7 +252,7 @@ final class EditorStylingTests: XCTestCase {
     func testATagInAHeadingTakesTheHeadingSize() {
         let text = "# Release #v2"
         let (view, window) = textView(text)
-        NoteTextStyler.restyle(view, tags: tagRanges(text: text), marks: markdownSpans(text: text), reveal: nil, palette: palette)
+        NoteTextStyler.restyle(view, tags: tagRanges(text: text), marks: markdownSpans(text: text), reveal: nil, pair: nil, palette: palette)
         let heading = font(view, 3).pointSize
         XCTAssertGreaterThan(heading, EditorStyling.bodySize)
         XCTAssertEqual(font(view, 10).pointSize, heading)
@@ -250,7 +265,7 @@ final class EditorStylingTests: XCTestCase {
         let sentinel = NSMutableParagraphStyle()
         sentinel.headIndent = 999
         view.textStorage!.addAttribute(.paragraphStyle, value: sentinel, range: NSRange(location: 8, length: 11))
-        NoteTextStyler.restyle(view, tags: [], marks: view.marks.isEmpty ? markdownSpans(text: text) : view.marks, reveal: nil,
+        NoteTextStyler.restyle(view, tags: [], marks: view.marks.isEmpty ? markdownSpans(text: text) : view.marks, reveal: nil, pair: nil,
                                palette: palette, in: NSRange(location: 0, length: 8))
         let style = view.textStorage!.attribute(.paragraphStyle, at: 10, effectiveRange: nil) as! NSParagraphStyle
         XCTAssertEqual(style.headIndent, 999)
@@ -330,7 +345,8 @@ final class NoteTextEditorCommitTests: XCTestCase {
 
 @MainActor
 final class NoteRevealTests: XCTestCase {
-    private let text = "a **b**\nc **d**"
+    /// Link 1 spans 2..<9 (`[` at 2, `]` at 5); link 2 spans 12..<19.
+    private let text = "a [bc](u)\nc [de](v)"
     private var window: NSWindow!
     private var view: PlainTextView!
     private var session: NoteEditorSession!
@@ -349,7 +365,6 @@ final class NoteRevealTests: XCTestCase {
         coordinator.restyle(view)
     }
 
-    /// The `**` of line 1 starts at 2, of line 2 at 10.
     private func visible(_ index: Int) -> Bool {
         (view.textStorage!.attribute(.font, at: index, effectiveRange: nil) as! NSFont).pointSize > 1
     }
@@ -359,55 +374,62 @@ final class NoteRevealTests: XCTestCase {
         coordinator.updateReveal(view)
     }
 
-    func testRevealFollowsTheCaretAndBumpsLayoutRevisionOnlyOnChange() {
-        XCTAssertTrue(visible(2))
-        XCTAssertFalse(visible(10))
-        let before = session.layoutRevision
-        move(to: 9)
+    func testALinkRevealsWhileTheCaretIsInsideAndBumpsLayoutRevisionOnlyOnChange() {
         XCTAssertFalse(visible(2))
-        XCTAssertTrue(visible(10))
+        XCTAssertFalse(visible(12))
+        let before = session.layoutRevision
+        move(to: 4)
+        XCTAssertTrue(visible(2))
+        XCTAssertTrue(visible(5))
+        XCTAssertFalse(visible(12))
         XCTAssertEqual(session.layoutRevision, before + 1)
-        move(to: 11)
+        move(to: 7)
         XCTAssertEqual(session.layoutRevision, before + 1)
+        move(to: 14)
+        XCTAssertFalse(visible(2))
+        XCTAssertTrue(visible(12))
+        XCTAssertEqual(session.layoutRevision, before + 2)
     }
 
     func testRangeRestyleLeavesOtherLinesAlone() {
+        move(to: 4)
         let font = view.textStorage!.attribute(.font, at: 2, effectiveRange: nil)
         let palette = NoteTextStyler.Palette(ink: .black, rust: .red)
-        XCTAssertTrue(NoteTextStyler.restyle(view, tags: [], marks: view.marks, reveal: nil, palette: palette, in: NSRange(location: 8, length: 7)))
+        XCTAssertTrue(NoteTextStyler.restyle(view, tags: [], marks: view.marks, reveal: nil, pair: nil, palette: palette, in: NSRange(location: 10, length: 9)))
         XCTAssertEqual(view.textStorage!.attribute(.font, at: 2, effectiveRange: nil) as? NSFont, font as? NSFont)
         XCTAssertTrue(visible(2))
     }
 
-    func testMovingBetweenLinesWithoutMarksDoesNotRestyle() {
-        let plain = "one\ntwo"
+    func testMovingBetweenLinesWithoutLinksDoesNotRestyle() {
+        let plain = "one **x**\ntwo"
         view.string = plain
         coordinator.restyle(view)
         view.setSelectedRange(NSRange(location: 0, length: 0))
         coordinator.updateReveal(view)
         let before = session.layoutRevision
-        move(to: 5)
+        move(to: 12)
         XCTAssertEqual(session.layoutRevision, before)
     }
 
     func testMarkedTextBlocksReveal() {
+        move(to: 4)
         let before = session.layoutRevision
-        view.setMarkedText("x", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 9, length: 0))
+        view.setMarkedText("x", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 10, length: 0))
         XCTAssertTrue(view.hasMarkedText())
-        coordinator.updateReveal(view)  // the caret is now on line 2
+        coordinator.updateReveal(view)
         XCTAssertEqual(session.layoutRevision, before)
         XCTAssertTrue(visible(2))
     }
 
-    func testAnExternalReplaceRevealsTheCaretsLine() {
-        view.setSelectedRange(NSRange(location: 9, length: 0))
+    func testAnExternalReplaceRevealsTheLinkTheCaretIsIn() {
         view.string = text
+        view.setSelectedRange(NSRange(location: 14, length: 0))
         coordinator.restyle(view)
-        XCTAssertTrue(visible(10))
+        XCTAssertTrue(visible(12))
         XCTAssertFalse(visible(2))
     }
 
-    /// Pins: a keystroke on a revealed line leaves `layoutRevision` as the full restyle does (no bump),
+    /// Pins: a keystroke inside a revealed link leaves `layoutRevision` as the full restyle does (no bump),
     /// and the marks stay revealed.
     func testTypingDoesNotRestyleWithStaleMarks() {
         view.delegate = coordinator
@@ -415,13 +437,15 @@ final class NoteRevealTests: XCTestCase {
         coordinator.restyle(view)
         let before = session.layoutRevision
         view.insertText("x", replacementRange: view.selectedRange())
-        XCTAssertEqual(view.string, "a **xb**\nc **d**")
+        XCTAssertEqual(view.string, "a [bxc](u)\nc [de](v)")
         XCTAssertEqual(session.layoutRevision, before)
         XCTAssertTrue(visible(2))
-        XCTAssertFalse(visible(11))
+        XCTAssertFalse(visible(13))
     }
 
     func testLosingFocusHidesEverything() {
+        move(to: 4)
+        XCTAssertTrue(visible(2))
         window.makeFirstResponder(nil)
         XCTAssertFalse(visible(2))
     }

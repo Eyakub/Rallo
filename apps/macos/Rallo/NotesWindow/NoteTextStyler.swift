@@ -11,6 +11,11 @@ final class PlainTextView: NSTextView {
     private(set) var isTrackingMouse = false
     /// `window.firstResponder` still names this view while it resigns.
     private(set) var isResigning = false
+    /// An edit is in flight (`shouldChangeText` … `didChangeText`, or a format command): the selection it
+    /// sets is the edit's own, never snapped over hidden marks (`NoteCaret`).
+    var isEditingText = false
+    /// An empty pair (`**|**`) a format command just inserted, hidden while the caret stays in its middle.
+    var pendingPair: NSRange?
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
@@ -47,6 +52,23 @@ final class PlainTextView: NSTextView {
         view.textContainer?.widthTracksTextView = true
         view.textContainer?.replaceLayoutManager(NoteLayoutManager())
         return view
+    }
+
+    override func shouldChangeText(in range: NSRange, replacementString: String?) -> Bool {
+        let ok = super.shouldChangeText(in: range, replacementString: replacementString)
+        isEditingText = ok
+        return ok
+    }
+
+    override func shouldChangeText(inRanges ranges: [NSValue], replacementStrings strings: [String]?) -> Bool {
+        let ok = super.shouldChangeText(inRanges: ranges, replacementStrings: strings)
+        isEditingText = ok
+        return ok
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        isEditingText = false
     }
 
     override func paste(_ sender: Any?) {
@@ -101,18 +123,21 @@ enum NoteTextStyler {
         return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
-    /// The paragraph of `selection`, grown to every code block it touches, so a
-    /// caret inside a block shows both fences.
-    static func revealRange(in text: NSString, selection: NSRange, marks: [MarkdownSpan]) -> NSRange {
-        let loc = min(selection.location, text.length)
-        let selection = NSRange(location: loc, length: min(selection.length, text.length - loc))
-        var reveal = text.paragraphRange(for: selection)
-        for span in marks {
-            guard case .codeBlock = span.kind else { continue }
-            let block = text.paragraphRange(for: NSRange(location: Int(span.utf16Start), length: Int(span.utf16Len)))
-            if NSIntersectionRange(block, reveal).length > 0 { reveal = NSUnionRange(reveal, block) }
+    /// The link `[text](url)` whose marks show: the selection is strictly inside it (caret) or a
+    /// ranged selection touches it. The range runs from `[` to `)`. Every other mark stays hidden.
+    static func linkReveal(in text: NSString, selection: NSRange, marks: [MarkdownSpan]) -> NSRange? {
+        let spans = marks.map { (kind: $0.kind, range: NSRange(location: Int($0.utf16Start), length: Int($0.utf16Len))) }
+        let markers = spans.filter { $0.kind == .marker }.map(\.range)
+        for (kind, r) in spans where kind == .linkText {
+            guard let open = markers.first(where: { NSMaxRange($0) == r.location }),
+                  let close = markers.first(where: { $0.location == NSMaxRange(r) }), NSMaxRange(close) <= text.length else { continue }
+            let link = NSRange(location: open.location, length: NSMaxRange(close) - open.location)
+            let touched = selection.length == 0
+                ? link.location < selection.location && selection.location < NSMaxRange(link)
+                : NSIntersectionRange(selection, link).length > 0
+            if touched { return link }
         }
-        return reveal
+        return nil
     }
 
     /// Styles by attributes only: the string, the selection and any input
@@ -122,7 +147,7 @@ enum NoteTextStyler {
     /// limits the work (nil: all text). Returns whether it styled.
     @discardableResult
     static func restyle(
-        _ view: NSTextView, tags: [TagRange], marks: [MarkdownSpan], reveal: NSRange?,
+        _ view: NSTextView, tags: [TagRange], marks: [MarkdownSpan], reveal: NSRange?, pair: NSRange?,
         palette: Palette, in range: NSRange? = nil
     ) -> Bool {
         guard !view.hasMarkedText(), let storage = view.textStorage else { return false }
@@ -246,6 +271,7 @@ enum NoteTextStyler {
             let indent = storage.attributedSubstring(from: NSRange(location: start, length: r.location - start)).size().width
             paragraph(r) { $0.headIndent = indent }
         }
+        if let pair { apply([.font: hiddenFont, .foregroundColor: NSColor.clear], pair) }
         storage.endEditing()
         view.typingAttributes = body
         return true
