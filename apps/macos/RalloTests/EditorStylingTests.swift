@@ -83,7 +83,7 @@ final class EditorStylingTests: XCTestCase {
     func testTitleAndTagAttributes() {
         let text = "Plan: ship #bug today"
         let (view, window) = textView(text)
-        XCTAssertTrue(NoteTextStyler.restyle(view, tags: tagRanges(text: text), palette: palette))
+        XCTAssertTrue(NoteTextStyler.restyle(view, tags: tagRanges(text: text), marks: [], reveal: nil, palette: palette))
         let storage = view.textStorage!
         func font(at index: Int) -> NSFont { storage.attribute(.font, at: index, effectiveRange: nil) as! NSFont }
         func color(at index: Int) -> NSColor { storage.attribute(.foregroundColor, at: index, effectiveRange: nil) as! NSColor }
@@ -101,7 +101,7 @@ final class EditorStylingTests: XCTestCase {
     func testATagInsideTheTitleKeepsTheTitleSize() {
         let text = "Fix #bug\nlater"
         let (view, window) = textView(text)
-        NoteTextStyler.restyle(view, tags: tagRanges(text: text), palette: palette)
+        NoteTextStyler.restyle(view, tags: tagRanges(text: text), marks: [], reveal: nil, palette: palette)
         let font = view.textStorage!.attribute(.font, at: 5, effectiveRange: nil) as! NSFont
         XCTAssertEqual(font.pointSize, 24)
         XCTAssertEqual(view.textStorage!.attribute(.foregroundColor, at: 5, effectiveRange: nil) as? NSColor, .red)
@@ -114,11 +114,11 @@ final class EditorStylingTests: XCTestCase {
         view.setMarkedText("にほ", selectedRange: NSRange(location: 2, length: 1), replacementRange: NSRange(location: 5, length: 0))
         XCTAssertTrue(view.hasMarkedText())
         let before = view.string
-        XCTAssertFalse(NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), palette: palette))
+        XCTAssertFalse(NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: [], reveal: nil, palette: palette))
         XCTAssertEqual(view.string, before)
         XCTAssertTrue(view.hasMarkedText(), "restyling must not end the composition")
         view.unmarkText()
-        XCTAssertTrue(NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), palette: palette))
+        XCTAssertTrue(NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: [], reveal: nil, palette: palette))
         withExtendedLifetime(window) {}
     }
 
@@ -195,6 +195,26 @@ final class EditorStylingTests: XCTestCase {
         let text = "a\n```\ncode\n```\nb"
         let reveal = NoteTextStyler.revealRange(in: text as NSString, selection: range(of: "code", in: text), marks: markdownSpans(text: text))
         XCTAssertEqual(reveal, NSRange(location: 2, length: 13))  // "```\ncode\n```\n"
+    }
+
+    func testACaretAtTheTextEndRevealsItsOwnLine() {
+        let text = "a\n**b**"
+        let reveal = NoteTextStyler.revealRange(in: text as NSString, selection: NSRange(location: 7, length: 0), marks: markdownSpans(text: text))
+        XCTAssertEqual(reveal, NSRange(location: 2, length: 5))
+    }
+
+    func testListIndentFollowsTheVisibleMarks() {
+        let text = "- [ ] task"
+        let body = NSFont.systemFont(ofSize: EditorStyling.bodySize)
+        func width(_ s: String) -> CGFloat { (s as NSString).size(withAttributes: [.font: body]).width }
+        func indent(_ view: PlainTextView) -> CGFloat {
+            (view.textStorage!.attribute(.paragraphStyle, at: 8, effectiveRange: nil) as! NSParagraphStyle).headIndent
+        }
+        let (hidden, w1) = styled(text)
+        XCTAssertLessThan(indent(hidden), width("[ ] ") + 1)
+        let (shown, w2) = styled(text, revealAll: true)
+        XCTAssertGreaterThanOrEqual(indent(shown), width("- [ ] ") - 1)
+        withExtendedLifetime((w1, w2)) {}
     }
 
     func testStylingNeverChangesTheString() {

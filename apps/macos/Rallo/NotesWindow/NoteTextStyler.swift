@@ -57,7 +57,8 @@ enum NoteTextStyler {
     /// The paragraph of `selection`, grown to every code block it touches, so a
     /// caret inside a block shows both fences.
     static func revealRange(in text: NSString, selection: NSRange, marks: [MarkdownSpan]) -> NSRange {
-        let selection = NSIntersectionRange(selection, NSRange(location: 0, length: text.length))
+        let loc = min(selection.location, text.length)
+        let selection = NSRange(location: loc, length: min(selection.length, text.length - loc))
         var reveal = text.paragraphRange(for: selection)
         for span in marks {
             guard case .codeBlock = span.kind else { continue }
@@ -74,7 +75,7 @@ enum NoteTextStyler {
     /// limits the work (nil: all text). Returns whether it styled.
     @discardableResult
     static func restyle(
-        _ view: NSTextView, tags: [TagRange], marks: [MarkdownSpan] = [], reveal: NSRange? = nil,
+        _ view: NSTextView, tags: [TagRange], marks: [MarkdownSpan], reveal: NSRange?,
         palette: Palette, in range: NSRange? = nil
     ) -> Bool {
         guard !view.hasMarkedText(), let storage = view.textStorage else { return false }
@@ -111,7 +112,8 @@ enum NoteTextStyler {
 
         let marks = marks.compactMap { span -> (kind: MarkdownKind, range: NSRange)? in
             let r = NSRange(location: Int(span.utf16Start), length: Int(span.utf16Len))
-            return NSMaxRange(r) <= text.length ? (span.kind, r) : nil
+            let clamped = NSIntersectionRange(r, NSRange(location: 0, length: text.length))
+            return clamped.length > 0 ? (span.kind, clamped) : nil
         }
         storage.beginEditing()
         storage.setAttributes(body, range: target)
@@ -128,10 +130,6 @@ enum NoteTextStyler {
                 apply([.foregroundColor: palette.rust, .font: font(size: EditorStyling.bodySize, weight: .semibold, rounded: false)], r)
             case .taskDone:
                 apply([.foregroundColor: palette.bark, .strikethroughStyle: NSUnderlineStyle.single.rawValue], r)
-            case .listContent:
-                let lead = text.substring(with: NSRange(location: text.paragraphRange(for: r).location, length: r.location - text.paragraphRange(for: r).location))
-                let indent = (lead as NSString).size(withAttributes: [.font: bodyFont]).width
-                paragraph(r) { $0.headIndent = indent }
             case .quote:
                 paragraph(r) { $0.firstLineHeadIndent = 14; $0.headIndent = 14 }
                 apply([.foregroundColor: palette.bark, .noteDecoration: NoteDecoration.quote.rawValue], r)
@@ -179,6 +177,13 @@ enum NoteTextStyler {
                 }
             default: break
             }
+        }
+        // Last, so the indent counts hidden marks as ~0 and a semibold number at its real width.
+        for (kind, r) in marks {
+            guard case .listContent = kind else { continue }
+            let start = text.paragraphRange(for: r).location
+            let indent = storage.attributedSubstring(from: NSRange(location: start, length: r.location - start)).size().width
+            paragraph(r) { $0.headIndent = indent }
         }
         storage.endEditing()
         view.typingAttributes = body
