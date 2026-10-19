@@ -127,6 +127,7 @@ the same interface you do. `rallo --help` lists them all;
 |---|---|
 | **Notes panel** | Click the pet or press **⌃⌥⌘N**. Add, edit, complete, and snooze notes. **Remind Me** offers 20 minutes, 1 hour, tomorrow at 9:00, or **Custom…**, where you type a time ("fri 5pm") and see when it lands before you set it. A "Waiting for you" section lists agents and people who need you; swipe one sideways to dismiss it. Paste (⌘V) or drop screenshots into the note field, or drop them on a note; click a thumbnail for Quick Look, drag it out to share it. Start a new line with ⇧↩; a short first line (or text before ": ") becomes the note's title. |
 | **Notes window** | The expand button at the top right of the panel, **Notes Window** in the menu bar menu, or the Dock icon while it is open. A three-column window like Apple Notes: folders, views (All Notes, Due, Done, Deleted) and `#tags` on the left; the notes of the selection, grouped by date, in the middle, with a collapsed "N done" row, search (⌘F) across every folder, and Undo for done, delete and move; the note itself on the right, edited in place (saved as you type) with its reminder, images, and a Move chip. ⌘N starts a note in the current folder, ⇧⌘N a folder; drag a note onto a folder to file it; right-click a folder to rename or delete it (keep its notes in Notes, or delete them too). Rallo shows in the Dock only while this window is open. |
+| **Formatting** | In the Notes window, like Apple Notes: **⌘B** bold, **⌘I** italic, **⇧⌘X** strikethrough, **⌘E** code; **⇧⌘H** heading, **⇧⌘J** subheading, **⇧⌘B** body; **⇧⌘7** bulleted and **⇧⌘9** numbered list, **⇧⌘L** checklist (**⇧⌘U** or a click checks it), **⌘'** quote, **⇧⌘M** code block, **⌘K** link (⌘-click opens it), **⌘L** divider. All are in the Format menu and behind the **Aa** button. Return continues a list, Tab and ⇧Tab indent it. A note stays plain Markdown (`**bold**`, `- [ ] task`), so the CLI, agents and exports see the same text; the marks show, dimmed, only on the line you're editing. |
 | **Screenshot to a note** | Turn it on in Settings → General, then press **⌃⌥⌘S**, select part of the screen, and the capture waits in the notes panel: add a few words and press Return. Needs Screen Recording access (macOS asks the first time). |
 | **Menu bar** | The paw shows how many are waiting. The menu lists them, and jumps to one with **⌃⌥⌘J** (longest waiting first). |
 | **Settings (⌘,)** | Open at Login, the pet, the terminal command, notifications, agent hooks, ClickUp, voice typing, screenshots, export (with images) and import, updates (including the daily check, on by default). |
@@ -134,7 +135,14 @@ the same interface you do. `rallo --help` lists them all;
 | **Reminders** | Delivered by macOS Notification Center, even after Rallo quits. Up to 32 active at once. |
 
 <p align="center">
-  <img src="docs/images/menu.png" width="440" alt="The menu bar menu: two rows waiting for you, then Open Notes, Jump to Waiting Agent, Hide Pet, Pause Animations, Settings, and Quit">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/window-dark.png">
+    <img src="docs/images/window-light.png" width="820" alt="The Notes window: folders and views on the left, the notes in the middle, and a formatted note on the right with a heading, a checklist, bold, italic and code, a numbered list and a quote">
+  </picture>
+</p>
+
+<p align="center">
+  <img src="docs/images/menu.png" width="440" alt="The menu bar menu: two rows waiting for you, then Open Notes, Notes Window, Jump to Waiting Agent, Hide Pet, Pause Animations, Turn On Eye Breaks, Settings, and Quit">
 </p>
 
 ## Shortcuts, Siri and Services
