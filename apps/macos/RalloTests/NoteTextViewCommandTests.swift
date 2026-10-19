@@ -17,6 +17,32 @@ final class NoteTextViewCommandTests: XCTestCase {
         return view
     }
 
+    private func boxCenter(_ view: PlainTextView) -> NSPoint {
+        let layout = view.layoutManager as! NoteLayoutManager
+        layout.ensureLayout(for: view.textContainer!)
+        let span = view.marks.first { if case .taskBox = $0.kind { return true } else { return false } }!
+        let rect = layout.boxRect(forCharacterRange: NSRange(location: Int(span.utf16Start), length: Int(span.utf16Len)))!
+        let o = view.textContainerOrigin
+        return NSPoint(x: rect.midX + o.x, y: rect.midY + o.y)
+    }
+
+    private func click(_ view: PlainTextView, at p: NSPoint) -> NSEvent {
+        NSEvent.mouseEvent(with: .leftMouseDown, location: view.convert(p, to: nil), modifierFlags: [], timestamp: 0,
+                           windowNumber: window!.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+    }
+
+    func testClickingATaskBoxTogglesItAndKeepsTheSelection() {
+        let view = makeView("- [ ] task\n- [x] done", NSRange(location: 14, length: 2))
+        let palette = NoteTextStyler.Palette(ink: .black, rust: .red)
+        NoteTextStyler.restyle(view, tags: [], marks: view.marks, reveal: nil, palette: palette)
+        let p = boxCenter(view)
+        XCTAssertTrue(view.handleMouseDown(click(view, at: NSPoint(x: p.x + 40, y: p.y))) == false)
+        XCTAssertEqual(view.string, "- [ ] task\n- [x] done")
+        view.mouseDown(with: click(view, at: p))
+        XCTAssertEqual(view.string, "- [x] task\n- [x] done")
+        XCTAssertEqual(view.selectedRange(), NSRange(location: 14, length: 2))
+    }
+
     func testBoldActionWrapsTheSelectionAndOneUndoRestoresIt() {
         let view = makeView("Ship rich text", NSRange(location: 5, length: 4))
         view.formatBold(nil)
