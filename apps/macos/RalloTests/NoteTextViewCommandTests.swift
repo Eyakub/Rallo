@@ -1,5 +1,11 @@
 import XCTest
 
+/// A test window can't become key headless; this one says so on demand.
+private final class StubKeyWindow: NSWindow {
+    var stubKey = false
+    override var isKeyWindow: Bool { stubKey }
+}
+
 @MainActor
 final class NoteTextViewCommandTests: XCTestCase {
     private var window: NSWindow?
@@ -7,7 +13,7 @@ final class NoteTextViewCommandTests: XCTestCase {
     private func makeView(_ text: String, _ sel: NSRange) -> PlainTextView {
         let view = PlainTextView.make()
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        let win = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let win = StubKeyWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
         win.contentView = view
         win.makeFirstResponder(view)
         window = win
@@ -51,6 +57,19 @@ final class NoteTextViewCommandTests: XCTestCase {
         XCTAssertEqual(view.string, "Ship rich text")
     }
 
+    func testFormatActionsAreOffWhileTheWindowIsNotKey() {
+        let view = makeView("a **b** c", NSRange(location: 5, length: 0))
+        XCTAssertFalse(window!.isKeyWindow)
+        let item = NSMenuItem(title: "Bold", action: #selector(PlainTextView.formatBold(_:)), keyEquivalent: "b")
+        XCTAssertFalse(view.validateUserInterfaceItem(item))
+    }
+
+    func testBodyInsideACodeBlockRemovesTheFences() {
+        let view = makeView("```\ncode\n```", NSRange(location: 5, length: 0))
+        view.formatBody(nil)
+        XCTAssertEqual(view.string, "code")
+    }
+
     func testActionsDoNothingWhileComposing() {
         let view = makeView("Ship", NSRange(location: 4, length: 0))
         view.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: 4, length: 0))
@@ -78,6 +97,7 @@ final class NoteTextViewCommandTests: XCTestCase {
 
     func testMenuValidationChecksBold() {
         let view = makeView("a **b** c", NSRange(location: 5, length: 0))
+        (window as! StubKeyWindow).stubKey = true
         let item = NSMenuItem(title: "Bold", action: #selector(PlainTextView.formatBold(_:)), keyEquivalent: "b")
         XCTAssertTrue(view.validateUserInterfaceItem(item))
         XCTAssertEqual(item.state, .on)

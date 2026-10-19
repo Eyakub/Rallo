@@ -32,7 +32,10 @@ extension PlainTextView {
     @objc func formatCode(_ sender: Any?) { toggle(.code, "Code") }
     @objc func formatHeading(_ sender: Any?) { block(.heading, "Heading") }
     @objc func formatSubheading(_ sender: Any?) { block(.subheading, "Subheading") }
-    @objc func formatBody(_ sender: Any?) { block(.body, "Body") }
+    @objc func formatBody(_ sender: Any?) {
+        // Inside a code block Body is its way out: Monostyled shows current there.
+        if isActive(#selector(formatMonostyled(_:))) { formatMonostyled(sender) } else { block(.body, "Body") }
+    }
     @objc func formatBulletedList(_ sender: Any?) { block(.bulleted, "Bulleted List") }
     @objc func formatNumberedList(_ sender: Any?) { block(.numbered, "Numbered List") }
     @objc func formatChecklist(_ sender: Any?) { block(.checklist, "Checklist") }
@@ -101,7 +104,10 @@ extension PlainTextView {
     func validateFormat(_ item: NSValidatedUserInterfaceItem) -> Bool? {
         guard let action = item.action, Self.formatActions.contains(action) else { return nil }
         if let menuItem = item as? NSMenuItem { menuItem.state = isActive(action) ? .on : .off }
-        return isEditable
+        // Nil-target actions also reach the main window's chain: a key panel (notes panel, Transfer) must not
+        // edit this window's note. The Aa popover is a child window and keeps it.
+        // Validate only: the popover's `sendAction(to:)` runs the action directly.
+        return isEditable && (window?.isKeyWindow == true || NSApp.keyWindow?.parent === window)
     }
 
     // MARK: Keys
@@ -130,9 +136,9 @@ extension PlainTextView {
                 let range = NSRange(location: Int(span.utf16Start), length: Int(span.utf16Len))
                 guard NSMaxRange(range) <= ns.length, layout.boxRect(forCharacterRange: range)?.contains(point) == true else { continue }
                 let saved = selectedRange()
-                if let edit = NoteFormatting.toggleChecked(text: string, selection: ns.paragraphRange(for: range)) {
+                if var edit = NoteFormatting.toggleChecked(text: string, selection: ns.paragraphRange(for: range)) {
+                    edit.selection = saved // `[ ]` ↔ `[x]` keeps the length: nothing shifts
                     apply(edit, actionName: "Mark as Checked")
-                    setSelectedRange(saved) // `[ ]` ↔ `[x]` keeps the length: nothing shifts
                 }
                 return true
             }
