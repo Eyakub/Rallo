@@ -29,6 +29,26 @@ final class PlainTextView: NSTextView {
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)
     }
+
+    override func insertNewline(_ sender: Any?) {
+        if !handleNewline() { super.insertNewline(sender) }
+    }
+
+    override func insertTab(_ sender: Any?) {
+        if !handleTab(outdent: false) { super.insertTab(sender) }
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        if !handleTab(outdent: true) { super.insertBacktab(sender) }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if !handleMouseDown(event) { super.mouseDown(with: event) }
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        validateFormat(item) ?? super.validateUserInterfaceItem(item)
+    }
 }
 
 enum NoteTextStyler {

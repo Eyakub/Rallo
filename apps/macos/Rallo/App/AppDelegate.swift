@@ -97,8 +97,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         main.addItem(appItem)
         main.addItem(fileItem)
         main.addItem(editItem)
+        main.addItem(formatMenuItem())
         main.addItem(windowItem)
         return main
+    }
+
+    /// Format menu (0023 §4): Apple Notes' items and keys. Nil targets: the notes editor answers through the
+    /// responder chain, anything else leaves them dimmed. An uppercase key adds ⇧.
+    private func formatMenuItem() -> NSMenuItem {
+        func item(_ title: String, _ action: String, _ key: String, shiftDigit: Bool = false) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: Selector((action)), keyEquivalent: key)
+            if shiftDigit { item.keyEquivalentModifierMask = [.command, .shift] }
+            return item
+        }
+        func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
+            let menu = NSMenu(title: title)
+            items.forEach(menu.addItem)
+            let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            parent.submenu = menu
+            return parent
+        }
+        let format = NSMenu(title: "Format")
+        [
+            item("Heading", "formatHeading:", "H"), item("Subheading", "formatSubheading:", "J"),
+            item("Body", "formatBody:", "B"), item("Monostyled", "formatMonostyled:", "M"), .separator(),
+            item("Bulleted List", "formatBulletedList:", "7", shiftDigit: true),
+            item("Numbered List", "formatNumberedList:", "9", shiftDigit: true),
+            item("Checklist", "formatChecklist:", "L"), item("Mark as Checked", "formatMarkChecked:", "U"),
+            item("Block Quote", "formatBlockQuote:", "'"), .separator(),
+            submenu("Font", [
+                item("Bold", "formatBold:", "b"), item("Italic", "formatItalic:", "i"),
+                item("Strikethrough", "formatStrikethrough:", "X"), item("Code", "formatCode:", "e"),
+            ]),
+            submenu("Indentation", [
+                item("Increase", "formatIncreaseIndent:", "]"), item("Decrease", "formatDecreaseIndent:", "["),
+            ]),
+            .separator(),
+            item("Add Link…", "formatAddLink:", "k"), item("Insert Divider", "formatInsertDivider:", "l"),
+        ].forEach(format.addItem)
+        let parent = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
+        parent.submenu = format
+        return parent
     }
 
     @objc private func openSettings() { coordinator?.openSettings() }
