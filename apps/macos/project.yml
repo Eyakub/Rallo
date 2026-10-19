@@ -86,6 +86,8 @@ targets:
       - path: Rallo/NotesWindow/SaveScheduler.swift
       - path: Rallo/NotesWindow/EditorStyling.swift
       - path: Rallo/NotesWindow/NoteFormatting.swift
+      - path: Rallo/NotesWindow/NoteCaret.swift
+      - path: Rallo/NotesWindow/PlainTextView+Delete.swift
       - path: Rallo/NotesWindow/NoteTextStyler.swift
       - path: Rallo/NotesWindow/PlainTextView+Format.swift
       - path: Rallo/NotesWindow/NoteLayoutManager.swift
