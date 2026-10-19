@@ -134,7 +134,6 @@ enum NoteTextStyler {
         let body: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: palette.ink, .paragraphStyle: basePara]
         let mono = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         let titleFont = font(size: EditorStyling.titleSize, weight: .semibold, rounded: true)
-        let tagFont = font(size: EditorStyling.bodySize, weight: .semibold, rounded: false)
         let spans = EditorStyling.spans(text: storage.string, tags: tags)
         let titles = spans.filter { $0.kind == .title }.map(\.range)
 
@@ -157,10 +156,13 @@ enum NoteTextStyler {
         }
         func shown(_ r: NSRange) -> Bool { reveal.map { NSIntersectionRange($0, r).length > 0 } ?? false }
 
+        // Spans outside the target's paragraphs are skipped before any work (a reveal move styles two lines).
+        let all = target.length == text.length
         let marks = marks.compactMap { span -> (kind: MarkdownKind, range: NSRange)? in
             let r = NSRange(location: Int(span.utf16Start), length: Int(span.utf16Len))
             let clamped = NSIntersectionRange(r, NSRange(location: 0, length: text.length))
-            return clamped.length > 0 ? (span.kind, clamped) : nil
+            guard clamped.length > 0, all || NSIntersectionRange(text.paragraphRange(for: clamped), target).length > 0 else { return nil }
+            return (span.kind, clamped)
         }
         storage.beginEditing()
         storage.setAttributes(body, range: target)
@@ -188,10 +190,22 @@ enum NoteTextStyler {
             default: break
             }
         }
-        for range in titles { apply([.font: titleFont], range) }
+        // A block on the title's line keeps its own look; a heading keeps the title over it.
+        let blockStarts = marks.filter {
+            switch $0.kind {
+            case .bullet, .taskBox, .number, .quote, .codeBlock, .divider: return true
+            default: return false
+            }
+        }.map(\.range.location)
+        for range in titles where !blockStarts.contains(where: { NSLocationInRange($0, text.paragraphRange(for: range)) }) {
+            apply([.font: titleFont], range)
+        }
         for span in spans where span.kind == .tag {
+            guard NSIntersectionRange(span.range, target).length > 0 else { continue }
+            // The size already at the tag (title, heading, body), semibold.
+            let size = (storage.attribute(.font, at: span.range.location, effectiveRange: nil) as? NSFont)?.pointSize ?? EditorStyling.bodySize
             let inTitle = titles.contains { NSIntersectionRange($0, span.range).length > 0 }
-            apply([.foregroundColor: palette.rust, .font: inTitle ? titleFont : tagFont], span.range)
+            apply([.foregroundColor: palette.rust, .font: font(size: size, weight: .semibold, rounded: inTitle && size == EditorStyling.titleSize)], span.range)
         }
         for (kind, r) in marks {
             switch kind {

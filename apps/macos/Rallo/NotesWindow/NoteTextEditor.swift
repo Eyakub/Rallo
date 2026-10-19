@@ -179,6 +179,18 @@ struct NoteTextEditor: NSViewRepresentable {
             guard !view.hasMarkedText() else { return }
             let new = currentReveal(view)
             guard new != lastReveal else { return }
+            // Only marker, fence and divider spans change with the reveal: none on either line, nothing to restyle.
+            let revealed = { (r: NSRange?) -> Bool in
+                guard let r else { return false }
+                return view.marks.contains { span in
+                    switch span.kind {
+                    case .marker, .codeFence, .divider:
+                        return NSIntersectionRange(NSRange(location: Int(span.utf16Start), length: Int(span.utf16Len)), r).length > 0
+                    default: return false
+                    }
+                }
+            }
+            guard revealed(lastReveal) || revealed(new) else { lastReveal = new; return }
             let palette = NoteTextStyler.Palette(ink: Theme.inkNS, rust: Theme.rustNS)
             let tags = tagRanges(text: view.string)
             let text = view.string as NSString

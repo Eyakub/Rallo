@@ -226,6 +226,37 @@ final class EditorStylingTests: XCTestCase {
         withExtendedLifetime((w1, w2)) {}
     }
 
+    func testABlockOnTheTitleLineKeepsItsOwnFont() {
+        let (view, window) = styled("- [ ] buy\nmilk")
+        XCTAssertEqual(font(view, 8).pointSize, EditorStyling.bodySize)
+        let (heading, w2) = styled("# Plan\nmilk")
+        XCTAssertEqual(font(heading, 3).pointSize, EditorStyling.titleSize)
+        withExtendedLifetime((window, w2)) {}
+    }
+
+    func testATagInAHeadingTakesTheHeadingSize() {
+        let text = "# Release #v2"
+        let (view, window) = textView(text)
+        NoteTextStyler.restyle(view, tags: tagRanges(text: text), marks: markdownSpans(text: text), reveal: nil, palette: palette)
+        let heading = font(view, 3).pointSize
+        XCTAssertGreaterThan(heading, EditorStyling.bodySize)
+        XCTAssertEqual(font(view, 10).pointSize, heading)
+        withExtendedLifetime(window) {}
+    }
+
+    func testARangeRestyleDoesNotTouchListLinesOutsideIt() {
+        let text = "a **b**\n- one\n- two"
+        let (view, window) = styled(text)
+        let sentinel = NSMutableParagraphStyle()
+        sentinel.headIndent = 999
+        view.textStorage!.addAttribute(.paragraphStyle, value: sentinel, range: NSRange(location: 8, length: 11))
+        NoteTextStyler.restyle(view, tags: [], marks: view.marks.isEmpty ? markdownSpans(text: text) : view.marks, reveal: nil,
+                               palette: palette, in: NSRange(location: 0, length: 8))
+        let style = view.textStorage!.attribute(.paragraphStyle, at: 10, effectiveRange: nil) as! NSParagraphStyle
+        XCTAssertEqual(style.headIndent, 999)
+        withExtendedLifetime(window) {}
+    }
+
     func testStylingNeverChangesTheString() {
         let text = "# H\n> q\n- [x] done *i*\n---\n```\ncode\n```"
         let (view, window) = styled(text)
@@ -346,6 +377,17 @@ final class NoteRevealTests: XCTestCase {
         XCTAssertTrue(NoteTextStyler.restyle(view, tags: [], marks: view.marks, reveal: nil, palette: palette, in: NSRange(location: 8, length: 7)))
         XCTAssertEqual(view.textStorage!.attribute(.font, at: 2, effectiveRange: nil) as? NSFont, font as? NSFont)
         XCTAssertTrue(visible(2))
+    }
+
+    func testMovingBetweenLinesWithoutMarksDoesNotRestyle() {
+        let plain = "one\ntwo"
+        view.string = plain
+        coordinator.restyle(view)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        coordinator.updateReveal(view)
+        let before = session.layoutRevision
+        move(to: 5)
+        XCTAssertEqual(session.layoutRevision, before)
     }
 
     func testMarkedTextBlocksReveal() {

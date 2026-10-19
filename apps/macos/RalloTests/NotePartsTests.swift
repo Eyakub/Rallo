@@ -65,6 +65,14 @@ final class NotePartsTests: XCTestCase {
         XCTAssertEqual(note.name, "Call Maya")
     }
 
+    func testSnapshotNameOfOnlyMarksFallsBackToTheRawLine() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rallo-np-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = try RalloStore.open(dataDir: dir.path)
+        let note = try store.createNoteWithImages(text: "**", images: [], folderId: nil)
+        XCTAssertEqual(note.name, "**")
+    }
+
     func testNameIsTheTitleOrTheFirstLine() {
         XCTAssertEqual(NoteParts("Deploy\nfreeze starts fri").name, "Deploy")
         XCTAssertEqual(NoteParts("Call the dentist").name, "Call the dentist")

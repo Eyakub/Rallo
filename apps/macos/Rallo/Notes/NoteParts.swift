@@ -51,5 +51,10 @@ struct NoteParts: Equatable {
 extension ItemSnapshot {
     /// What toasts and VoiceOver call a note: its title or first line, or
     /// "Image" for a note that is only images (0018).
-    var name: String { text.isEmpty ? "Image" : NoteParts(plainText(text: text)).name }
+    var name: String {
+        guard !text.isEmpty else { return "Image" }
+        let plain = NoteParts(plainText(text: text)).name
+        // Only marks (`**`): show them rather than a blank name.
+        return plain.isEmpty ? String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix { !$0.isNewline }) : plain
+    }
 }

@@ -231,7 +231,8 @@ impl Parser<'_> {
     /// Pairs of a delimiter run of exactly `n` `ch`s (longer runs are literal).
     // ponytail: first valid closer wins, no CommonMark delimiter stack, and an
     // unmatched opener scans to line end, so one 64 KiB line of `*a *a ...` is
-    // O(n^2) on the main thread. Upgrade path: a delimiter stack.
+    // O(n^2) on the main thread (`link()` too: a `[` with no `]` scans to line
+    // end). Upgrade path: a delimiter stack, and one bracket index per line.
     fn pairs(&mut self, a: usize, b: usize, lit: &mut [bool], ch: char, n: usize, kind: Kind) {
         let c = self.c;
         let run = |lit: &[bool], i: usize| (i..b).take_while(|&j| c[j] == ch && !lit[j - a]).count();
