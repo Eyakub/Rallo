@@ -23,7 +23,7 @@ struct SummonBubbleContent: Equatable {
 
     /// The banner-preview rule: line breaks flattened, at most 160 grapheme clusters.
     static func excerpt(_ text: String) -> String {
-        let flat = text.split(whereSeparator: \.isNewline)
+        let flat = plainText(text: text).split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
             .joined(separator: " ")

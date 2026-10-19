@@ -35,7 +35,7 @@ struct NoteRow: View {
     @State private var hovering = false
     @State private var dropTargeted = false
 
-    private var parts: NoteParts { NoteParts(item.text) }
+    private var parts: NoteParts { NoteParts(plainText(text: item.text)) }
     private var expanded: Bool { model.expandedID == item.id }
     private var editing: Bool { model.editingID == item.id }
     private var completing: Bool { model.completingIDs.contains(item.id) }

@@ -42,6 +42,10 @@ final class SummonBubbleContentTests: XCTestCase {
         XCTAssertEqual(SummonBubbleContent.agentText(for: session), place.map { "\(name) needs you in \($0)" } ?? "\(name) needs you")
     }
 
+    func testTheExcerptDropsMarkdownMarks() {
+        XCTAssertEqual(SummonBubbleContent.excerpt("**a**\n- b"), "a b")
+    }
+
     func testTheExcerptFlattensLinesAndStopsAt160Characters() {
         XCTAssertEqual(SummonBubbleContent.excerpt("Call the dentist\n\n  about Thursday \n"), "Call the dentist about Thursday")
         let cut = SummonBubbleContent.excerpt(String(repeating: "🦊", count: 200))

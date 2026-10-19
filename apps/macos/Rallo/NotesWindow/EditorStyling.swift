@@ -43,7 +43,7 @@ struct RowText: Equatable {
     let preview: String
 
     init(_ text: String) {
-        let parts = NoteParts(text)
+        let parts = NoteParts(plainText(text: text))
         if let title = parts.title {
             self.title = title
             preview = parts.preview

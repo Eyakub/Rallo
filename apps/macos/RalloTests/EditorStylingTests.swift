@@ -57,6 +57,15 @@ final class EditorStylingTests: XCTestCase {
 
     // MARK: List text
 
+    func testRowTextShowsPlainTextButTitleRangeStaysRaw() {
+        let row = RowText("# Plan\n**ship** it")
+        XCTAssertEqual(row.title, "Plan")
+        XCTAssertEqual(row.preview, "ship it")
+        let range = EditorStyling.titleRange(in: "# Plan\nbody")
+        XCTAssertEqual(range?.location, 0)
+        XCTAssertEqual(range?.length, 6)
+    }
+
     func testRowTextIsTheTitleAndWhatFollows() {
         XCTAssertEqual(RowText("Standup\nWhat changed\nsince Friday").title, "Standup")
         XCTAssertEqual(RowText("Standup\nWhat changed\nsince Friday").preview, "What changed since Friday")
