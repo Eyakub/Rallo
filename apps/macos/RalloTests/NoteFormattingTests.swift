@@ -51,9 +51,9 @@ final class NoteFormattingTests: XCTestCase {
     }
 
     func testItalicStrikeAndCodeWriteTheirOwnDelimiters() {
-        check(toggle(.italic, "a b", r(2, 1)), on: "a b", gives: "a *b*")
-        check(toggle(.strike, "a b", r(2, 1)), on: "a b", gives: "a ~~b~~")
-        check(toggle(.code, "a b", r(2, 1)), on: "a b", gives: "a `b`")
+        check(toggle(.italic, "a b", r(2, 1)), on: "a b", gives: "a *b*", r(3, 1))
+        check(toggle(.strike, "a b", r(2, 1)), on: "a b", gives: "a ~~b~~", r(4, 1))
+        check(toggle(.code, "a b", r(2, 1)), on: "a b", gives: "a `b`", r(3, 1))
     }
 
     func testMarksCountUTF16ForBanglaAndEmoji() {
@@ -136,6 +136,57 @@ final class NoteFormattingTests: XCTestCase {
         let wrapped = "```\na\nb\n```"
         check(NoteFormatting.toggleCodeBlock(text: "a\nb", selection: r(0, 3), marks: markdownSpans(text: "a\nb")), on: "a\nb", gives: wrapped)
         check(NoteFormatting.toggleCodeBlock(text: wrapped, selection: r(5, 0), marks: markdownSpans(text: wrapped)), on: wrapped, gives: "a\nb")
+    }
+
+    // MARK: Fix round 1
+
+    func testBoldMergesWithSpansItOverlaps() {
+        check(toggle(.bold, "**ab** cd", r(2, 6)), on: "**ab** cd", gives: "**ab c**d", r(2, 4))
+        check(toggle(.bold, "**a** b **c**", r(0, 13)), on: "**a** b **c**", gives: "**a b c**", r(2, 5))
+    }
+
+    func testUnwrapAcrossLinesSelectsTheFormerContent() {
+        check(toggle(.bold, "**a**\n**b**", r(0, 11)), on: "**a**\n**b**", gives: "a\nb", r(0, 3))
+    }
+
+    func testCaretInsideASpanButNotAtItsCloserInsertsANewPair() {
+        check(toggle(.bold, "**bold** x", r(4, 0)), on: "**bold** x", gives: "**bo****ld** x", r(6, 0))
+    }
+
+    func testItalicOnTheMiddleOfFourStarsInsertsInsteadOfRemoving() {
+        check(toggle(.italic, "****", r(2, 0)), on: "****", gives: "******", r(3, 0))
+    }
+
+    func testWhitespaceOnlySelectionActsAsACaretAtItsStart() {
+        check(toggle(.bold, "a  b", r(1, 2)), on: "a  b", gives: "a****  b", r(3, 0))
+    }
+
+    func testMoreReturnCases() {
+        check(newline("1) a", r(4, 0)), on: "1) a", gives: "1) a\n2) ")
+        check(newline("* [x] a", r(7, 0)), on: "* [x] a", gives: "* [x] a\n* [ ] ")
+        check(newline("9. x", r(4, 0)), on: "9. x", gives: "9. x\n10. ")
+        check(newline("  * [x] a", r(9, 0)), on: "  * [x] a", gives: "  * [x] a\n  * [ ] ")
+        XCTAssertNil(newline("- a", r(0, 0)))
+    }
+
+    func testMoreBlockCases() {
+        check(block(.bulleted, "  a\n  b", r(0, 7)), on: "  a\n  b", gives: "  - a\n  - b")
+        check(block(.heading, "- a", r(0, 3)), on: "- a", gives: "# a")
+        check(block(.quote, "- a", r(0, 3)), on: "- a", gives: "> a")
+        check(block(.heading, "  - a", r(0, 5)), on: "  - a", gives: "# a")
+        check(block(.bulleted, "", r(0, 0)), on: "", gives: "- ", r(2, 0))
+        check(block(.bulleted, "a\nb", r(3, 0)), on: "a\nb", gives: "a\n- b", r(5, 0))
+        check(block(.bulleted, "- a\r\n- b", r(0, 8)), on: "- a\r\n- b", gives: "a\r\nb")
+        check(block(.bulleted, "a\nb", r(0, 2)), on: "a\nb", gives: "- a\nb")
+    }
+
+    func testMoreCheckedCodeBlockAndOutdentCases() {
+        check(NoteFormatting.toggleChecked(text: "* [ ] a", selection: r(0, 0)), on: "* [ ] a", gives: "* [x] a")
+        check(NoteFormatting.toggleChecked(text: "+ [X] a", selection: r(0, 0)), on: "+ [X] a", gives: "+ [ ] a")
+        let open = "```\na"
+        check(NoteFormatting.toggleCodeBlock(text: open, selection: r(5, 0), marks: markdownSpans(text: open)), on: open, gives: "a")
+        XCTAssertEqual(NoteFormatting.indent(text: "- a", selection: r(3, 0), outdent: true),
+                       FormatEdit(range: r(3, 0), replacement: "", selection: r(3, 0)))
     }
 
     // MARK: Queries

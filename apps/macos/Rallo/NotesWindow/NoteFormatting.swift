@@ -46,7 +46,7 @@ enum NoteFormatting {
 
     // `#…# `, a bullet then `[ ] `/`[x] ` (or the box at line end), a bullet, `N. `/`N) `, `> `.
     private static let prefixPattern = try! NSRegularExpression(
-        pattern: #"^(?:(#+) |([ \t]*)([-*+]) \[([ xX])\](?: |$)|([ \t]*)([-*+]) |([ \t]*)(\d+)([.)]) |> )"#)
+        pattern: #"^(?:(#+) |([ \t]*)([-*+]) \[([ xX])\](?: |$)|([ \t]*)([-*+]) |([ \t]*)([0-9]+)([.)]) |> )"#)
 
     private static func prefix(of line: String) -> Prefix? {
         let ns = line as NSString
@@ -156,15 +156,32 @@ enum NoteFormatting {
                               selection: NSRange(location: regionStart + newStart, length: newEnd - newStart))
         }
 
-        var out = "", prev = segments[0].location
-        for seg in segments {
-            out += string(ns, prev, seg.location) + mark.rawValue + string(ns, seg.location, NSMaxRange(seg)) + mark.rawValue
-            prev = NSMaxRange(seg)
+        // Otherwise merge: widen each segment over the same-kind spans it touches, drop their
+        // delimiters, and wrap the result once.
+        var out = "", prev = 0, start = 0, firstLength = 0
+        for (i, seg) in segments.enumerated() {
+            var s = seg.location, e = NSMaxRange(seg)
+            var touched: [NSRange] = []
+            for span in spans {
+                let dl = delimiterLength(of: span, mark: mark, in: ns)
+                if seg.location < NSMaxRange(span) + dl, NSMaxRange(seg) > span.location - dl {
+                    s = min(s, span.location - dl); e = max(e, NSMaxRange(span) + dl); touched.append(span)
+                }
+            }
+            var inner = "", at = s
+            for span in touched {
+                let dl = delimiterLength(of: span, mark: mark, in: ns)
+                inner += string(ns, at, span.location - dl) + string(ns, span.location, NSMaxRange(span))
+                at = NSMaxRange(span) + dl
+            }
+            inner += string(ns, at, e)
+            if i == 0 { firstLength = inner.utf16.count; start = s; prev = s }
+            out += string(ns, prev, s) + mark.rawValue + inner + mark.rawValue
+            prev = e
         }
-        let start = segments[0].location
         let region = NSRange(location: start, length: prev - start)
         let selected = segments.count == 1
-            ? NSRange(location: start + d, length: segments[0].length)
+            ? NSRange(location: start + d, length: firstLength)
             : NSRange(location: start, length: out.utf16.count)
         return FormatEdit(range: region, replacement: out, selection: selected)
     }
@@ -178,7 +195,11 @@ enum NoteFormatting {
         }
         // On an empty pair: remove it.
         let before = NSRange(location: caret - d, length: d), after = NSRange(location: caret, length: d)
-        if before.location >= 0, NSMaxRange(after) <= ns.length,
+        // Not when more of the same delimiter flanks it (`**|**` is not an empty italic pair).
+        let first = mark.rawValue.utf16.first!
+        let flanked = (before.location > 0 && ns.character(at: before.location - 1) == first)
+            || (NSMaxRange(after) < ns.length && ns.character(at: NSMaxRange(after)) == first)
+        if before.location >= 0, NSMaxRange(after) <= ns.length, !flanked,
            ns.substring(with: before) == mark.rawValue, ns.substring(with: after) == mark.rawValue {
             return FormatEdit(range: NSRange(location: before.location, length: 2 * d), replacement: "",
                               selection: NSRange(location: before.location, length: 0))
