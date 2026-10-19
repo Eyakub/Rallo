@@ -63,7 +63,7 @@ enum NoteDeleting {
             return .edit(NoteFormatting.setBlock(.body, text: text as String, selection: NSRange(location: c, length: 0)))
         }
         // Right after a hidden divider or fence line.
-        if let run = runs.first(where: { $0.side == .line && NSLocationInRange(c - 1, $0.range) }) {
+        if let run = runs.first(where: { $0.side == .line && NSLocationInRange(c - 1, NSRange(location: $0.range.location, length: $0.range.length + 1)) }) {
             let all = spans(marks)
             if all.contains(where: { $0.kind == .divider && NSIntersectionRange($0.range, run.range).length > 0 }) {
                 return .edit(remove(dividerParagraph(run.range, in: text)))
@@ -71,8 +71,8 @@ enum NoteDeleting {
             guard let block = all.first(where: { $0.kind == .codeBlock && NSIntersectionRange($0.range, run.range).length > 0 }) else { return nil }
             let fenceStarts = all.filter { $0.kind == .codeFence }.map(\.range.location)
             let opening = run.range.location == block.range.location
-            let emptyBlock = fenceStarts.contains(NSMaxRange(run.range))
-            if opening || emptyBlock || c != NSMaxRange(run.range) {
+            let emptyBlock = fenceStarts.contains(NSMaxRange(run.range) + 1)
+            if opening || emptyBlock || c != NSMaxRange(run.range) + 1 {
                 return .edit(NoteFormatting.toggleCodeBlock(text: text as String, selection: NSRange(location: c, length: 0), marks: marks))
             }
             return .move(run.range.location - 1)  // the closer never deletes: step to the end of the last code line

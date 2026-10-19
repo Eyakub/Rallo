@@ -12,8 +12,8 @@ enum NoteCaret {
     }
 
     /// The hidden runs, sorted. `shown` (a revealed link) keeps its marks out. Inline and prefix runs may
-    /// touch; `adjust` treats touching runs as one spot. A hidden line at the very end of the text drops its
-    /// missing line break, so a caret after a trailing newline stays on a real line.
+    /// touch; `adjust` treats touching runs as one spot. A `.line` run is the hidden line's characters without
+    /// its line break.
     static func runs(text: NSString, marks: [MarkdownSpan], shown: NSRange?) -> [Run] {
         let length = text.length
         let spans = marks.map { (kind: $0.kind, range: range($0, in: length)) }
@@ -46,7 +46,7 @@ enum NoteCaret {
 
         for (kind, r) in spans where (kind == .codeFence || kind == .divider) && r.length > 0 {
             var p = text.paragraphRange(for: r)
-            if NSMaxRange(p) == length, length > p.location, [0x0A, 0x0D].contains(text.character(at: length - 1)) { p.length -= 1 }
+            if p.length > 0, [0x0A, 0x0D].contains(text.character(at: NSMaxRange(p) - 1)) { p.length -= 1 }
             if p.length > 0, !hit(p) { out.append(Run(range: p, side: .line)) }
         }
         return out.sorted { $0.range.location < $1.range.location }
@@ -66,8 +66,7 @@ enum NoteCaret {
         for run in runs {
             let a = run.range.location, b = NSMaxRange(run.range)
             if run.side == .line {
-                let hasNewline = b < length
-                out.append(Spot(lo: a, hi: hasNewline ? b - 1 : b, rest: a, isLine: true, back: a > 0 ? a - 1 : nil, fwd: hasNewline ? b : nil))
+                out.append(Spot(lo: a, hi: b, rest: a, isLine: true, back: a > 0 ? a - 1 : nil, fwd: b < length ? b + 1 : nil))
                 continue
             }
             let restHere = run.side == .end ? b : nil

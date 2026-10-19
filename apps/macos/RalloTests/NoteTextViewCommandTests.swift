@@ -311,4 +311,12 @@ final class NoteTextViewCommandTests: XCTestCase {
         XCTAssertEqual(view.string, "a**b**")
         XCTAssertNil(view.pendingPair)
     }
+
+    func testStepRightOverATrailingFenceThenTypeStartsTheLastLine() {
+        let view = wired("```\nx\n```\n", r(5))
+        view.moveRight(nil)
+        XCTAssertEqual(view.selectedRange(), r(10))
+        view.insertText("y", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertEqual(view.string, "```\nx\n```\ny")
+    }
 }

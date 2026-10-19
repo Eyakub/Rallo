@@ -49,7 +49,7 @@ final class NoteCaretTests: XCTestCase {
 
     func testCodeFenceLines() {
         let text = "a\n```\ncode\n```\nb"
-        XCTAssertEqual(runs(text), [.init(range: r(2, 4), side: .line), .init(range: r(11, 4), side: .line)])
+        XCTAssertEqual(runs(text), [.init(range: r(2, 3), side: .line), .init(range: r(11, 3), side: .line)])
         check(text, [(1, 2, 6), (6, 5, 1), (10, 11, 15), (15, 14, 10), (0, 3, 6)])
     }
 
@@ -58,10 +58,12 @@ final class NoteCaretTests: XCTestCase {
         check("```\nx\n```", [(5, 6, 9)])
         // A trailing newline leaves its empty last line to the caret.
         XCTAssertEqual(runs("```\nx\n```\n").last, .init(range: r(6, 3), side: .line))
+        check("```\nx\n```\n", [(5, 6, 10), (10, 9, 5)])
     }
 
     func testDividerLine() {
         check("a\n---\nb", [(1, 2, 6), (6, 5, 1)])
+        check("a\n---\n", [(1, 2, 6)])
     }
 
     func testLinkMarksHideUnlessShown() {
