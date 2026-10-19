@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regenerates the README screenshots in docs/images from a throwaway demo
-# instance of the installed app: sample notes, one waiting agent and one
+# instance of the installed app: sample notes (one formatted), one waiting agent and one
 # ClickUp message (both fake), captured in Light and Dark Mode. Each window
 # is captured on its own, so nothing else on screen ends up in an image.
 #
@@ -37,21 +37,40 @@ trap cleanup EXIT
 [ -x "$cli" ] || fail "no Rallo at $app (set RALLO_APP)"
 
 # --- Sample data -------------------------------------------------------------
-export RALLO_DATA_DIR="$data"
-"$cli" note "Call the dentist about Thursday" >/dev/null
-"$cli" note "Review Sam's PR on the billing service" >/dev/null
-"$cli" note "Book flights for the team offsite" >/dev/null
-"$cli" note "Try the new espresso place on 5th" >/dev/null
+# A flag, not RALLO_DATA_DIR: an app started with the variable set resolves
+# the default folder to $data, so it isn't a scratch instance (no demo, and
+# it reads the real Keychain token).
+unset RALLO_DATA_DIR
+rallo() { "$cli" "$@" --data-dir "$data"; }
+rallo note "Call the dentist about Thursday" >/dev/null
+rallo note "Review Sam's PR on the billing service" >/dev/null
+rallo note "Book flights for the team offsite" >/dev/null
+rallo note "Try the new espresso place on 5th" >/dev/null
 # Fixed daytime deadlines tomorrow, so the shots read the same whenever run.
 tomorrow_at() { date -v+1d "+%Y-%m-%dT$1:00%z" | sed -E 's/([0-9]{2})([0-9]{2})$/\1:\2/'; }
-"$cli" remind "Send the weekly update" --at "$(tomorrow_at 09:30)" >/dev/null
-"$cli" remind "Stretch and refill water" --at "$(tomorrow_at 15:00)" >/dev/null
+rallo remind "Send the weekly update" --at "$(tomorrow_at 09:30)" >/dev/null
+rallo remind "Stretch and refill water" --at "$(tomorrow_at 15:00)" >/dev/null
+# A formatted note (0023) for the Notes window shot.
+formatted_id="$(rallo note --stdin --json <<'NOTE' | python3 -c 'import json, sys; print(json.load(sys.stdin)["item"]["id"])'
+Offsite plan
+## Before we go
+- [x] Book the venue
+- [ ] Send the **agenda** by *Friday*
+- [ ] Ask about `dietary` needs
+
+## Day one
+1. Roadmap review
+2. ~~Team photo~~ moved to day two
+
+> Keep the afternoon free for walks.
+NOTE
+)"
 
 # A stand-in for an agent process: its waiting row lives while this sleeps.
-python3 - "$cli" <<'PY' &
+python3 - "$cli" "$data" <<'PY' &
 import subprocess, sys, time
 payload = b'{"session_id":"demo-claude","cwd":"/Users/demo/code/shop","hook_event_name":"PermissionRequest","tool_name":"Bash"}'
-subprocess.run([sys.argv[1], "agent-event", "--agent", "claude"], input=payload)
+subprocess.run([sys.argv[1], "agent-event", "--agent", "claude", "--data-dir", sys.argv[2]], input=payload)
 time.sleep(600)
 PY
 stand_in=$!
@@ -107,6 +126,7 @@ mkdir -p "$out"
 for appearance in light dark; do
   shoot "$appearance" notes "Rallo Notes" "panel-$appearance.png"
   shoot "$appearance" settings:agents ":0" "settings-$appearance.png"
+  shoot "$appearance" "window:$formatted_id" "Notes" "window-$appearance.png"
 done
 # Menus are translucent; captured alone, only the dark one reads well.
 shoot dark menu ":101" menu.png

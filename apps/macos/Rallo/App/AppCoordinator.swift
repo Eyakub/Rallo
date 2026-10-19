@@ -271,7 +271,9 @@ final class AppCoordinator {
             guard let self else { return }
             switch demoOpen.split(separator: ":").first {
             case "notes": openNotes(highlighting: nil)
-            case "window": openNotesWindow()
+            case "window":
+                let noteID = demoOpen.split(separator: ":").dropFirst().first.map(String.init)
+                notesWindow.show(noteID: noteID)
             case "menu": statusMenu?.openMenu()
             case "listening":
                 // The voice-typing pose (0013): 8 s listening with a nod every
