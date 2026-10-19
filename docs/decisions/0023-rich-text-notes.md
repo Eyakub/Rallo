@@ -1,6 +1,6 @@
 # 0023 — Rich text in notes
 
-- **Status:** accepted (user, 2026-10-19: "go with B")
+- **Status:** accepted (user, 2026-10-19: "go with B"; §3 amended 2026-10-19: marks never show)
 - **Date:** 2026-10-19
 - **Mockup:** `docs/mockups/rich-text.html`
 - **Related:** 0019 §7 (tags), §11 (the window's editor), 0018 (note rows),
@@ -62,23 +62,47 @@ grammar still writes Markdown that other tools render.
 The FFI exposes `markdown_spans(text)` (UTF-16 ranges, like `tag_ranges`)
 and `plain_text(text)` (marks removed, line breaks kept).
 
-### 3. Marks hide off the caret's line (option B)
+### 3. Marks never show (user, 2026-10-19, replacing option B)
 
-Bold, italic, headings and so on show styled; their marks (`**`, `# `,
-`](url)`, fence lines) are hidden except on the line(s) the selection
-touches while the editor is focused, where they show dimmed. Every line of a
-code block shows its fences while the caret is anywhere in the block.
-Bullets, numbers and checkboxes are drawn in place of their marks on every
-line.
+Marks never show: not on the caret's line, not inside a code block ("No **
+or * anywhere, ever"). Bold, italic, headings and so on show styled; their
+marks (`**`, `# `, `> `, `](url)`, fence lines, `---` lines) are hidden by
+attributes only (a 0.01 pt clear font, and a collapsed paragraph style for
+fence lines), so the editor's off-screen height measurement sees it.
+Bullets, numbers and checkboxes are drawn in place of their marks. Storage
+stays Markdown; the panel's quick editor still shows it raw.
 
-Hiding is by attributes only (a 0.01 pt clear font, and a collapsed
-paragraph style for fence lines), so the editor's off-screen height
-measurement sees it. Measured: a hidden `**` adds 0.02 pt, a hidden fence
-line 0.01 pt. Moving the caret restyles only the old and new lines, never
-while the mouse is down, then re-measures.
+- **Link exception.** A link shows all its marks, dimmed, while the editor
+  is focused and the caret is strictly inside `[`…`)`, or a ranged selection
+  touches it. ⌘K and editing a URL need it. Entering or leaving restyles
+  the link's paragraph, never while the mouse is down, then re-measures.
+- **Empty pair.** ⌘B on an empty selection still inserts `**|**`; the parser
+  rejects empty content, so the pair is hidden (`PlainTextView.pendingPair`)
+  while the caret is in its middle. Typing makes it a real span; moving the
+  caret elsewhere, or Backspace, removes it.
+- **Caret.** Hidden marks are characters, so `NoteCaret` makes each hidden
+  run one visual spot. A click rests at the run's content side (before an
+  opener, after a closer, after a block prefix); an arrow key steps over the
+  whole run; a hidden fence or divider line is skipped. Snapping runs in the
+  selection delegate, never during an edit (typing, Return, format commands,
+  undo), so after `**|**` and a letter the caret stays before the hidden
+  closer and the next letter is bold.
+- **Editing.** Backspace after a closer deletes the character before it;
+  forward delete before an opener, the one after it. At a heading, quote or
+  list line's content start, Backspace removes the block mark (Body). After
+  a hidden divider it deletes the divider; after an opening fence it removes
+  both fences; after a closing fence it only moves to the end of the code.
+  Deleting a span's only character deletes the span with its marks. A
+  deleted or cut selection takes the marks of every span it covers whole,
+  and the partner of any mark it removes; typing over a selection keeps the
+  marks (a selected bold word typed over stays bold). Typing on a collapsed
+  last line (a fence or divider ends the note) starts a new line.
+- **Ceiling.** ⌥⌫, ⌘⌫ and other word or line deletes run AppKit's own rules
+  and can orphan a mark, which then shows as literal text.
 
-The cost the user accepted: a line re-wraps when the caret enters or leaves
-it.
+Superseded: option B (marks dimmed on the caret's line, both fences while the
+caret was in a code block). It re-wrapped a line whenever the caret entered
+or left it, which the user no longer wants to see.
 
 ### 4. Shortcuts: Apple Notes'
 
