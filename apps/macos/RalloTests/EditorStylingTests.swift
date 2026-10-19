@@ -296,3 +296,77 @@ final class NoteTextEditorCommitTests: XCTestCase {
         XCTAssertEqual(session.text, "typed")
     }
 }
+
+@MainActor
+final class NoteRevealTests: XCTestCase {
+    private let text = "a **b**\nc **d**"
+    private var window: NSWindow!
+    private var view: PlainTextView!
+    private var session: NoteEditorSession!
+    private var coordinator: NoteTextEditor.Coordinator!
+
+    override func setUp() {
+        session = NoteEditorSession(core: CoreClient(dataDir: NSTemporaryDirectory() + "rallo-unused"))
+        coordinator = NoteTextEditor.Coordinator(session: session)
+        view = PlainTextView.make()
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view
+        view.string = text
+        coordinator.attach(view)
+        window.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        coordinator.restyle(view)
+    }
+
+    /// The `**` of line 1 starts at 2, of line 2 at 10.
+    private func visible(_ index: Int) -> Bool {
+        (view.textStorage!.attribute(.font, at: index, effectiveRange: nil) as! NSFont).pointSize > 1
+    }
+
+    private func move(to location: Int) {
+        view.setSelectedRange(NSRange(location: location, length: 0))
+        coordinator.updateReveal(view)
+    }
+
+    func testRevealFollowsTheCaretAndBumpsLayoutRevisionOnlyOnChange() {
+        XCTAssertTrue(visible(2))
+        XCTAssertFalse(visible(10))
+        let before = session.layoutRevision
+        move(to: 9)
+        XCTAssertFalse(visible(2))
+        XCTAssertTrue(visible(10))
+        XCTAssertEqual(session.layoutRevision, before + 1)
+        move(to: 11)
+        XCTAssertEqual(session.layoutRevision, before + 1)
+    }
+
+    func testRangeRestyleLeavesOtherLinesAlone() {
+        let font = view.textStorage!.attribute(.font, at: 2, effectiveRange: nil)
+        let palette = NoteTextStyler.Palette(ink: .black, rust: .red)
+        XCTAssertTrue(NoteTextStyler.restyle(view, tags: [], marks: view.marks, reveal: nil, palette: palette, in: NSRange(location: 8, length: 7)))
+        XCTAssertEqual(view.textStorage!.attribute(.font, at: 2, effectiveRange: nil) as? NSFont, font as? NSFont)
+        XCTAssertTrue(visible(2))
+    }
+
+    func testMarkedTextBlocksReveal() {
+        let before = session.layoutRevision
+        view.setMarkedText("x", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 9, length: 0))
+        XCTAssertTrue(view.hasMarkedText())
+        coordinator.updateReveal(view)  // the caret is now on line 2
+        XCTAssertEqual(session.layoutRevision, before)
+        XCTAssertTrue(visible(2))
+    }
+
+    func testAnExternalReplaceRevealsTheCaretsLine() {
+        view.setSelectedRange(NSRange(location: 9, length: 0))
+        view.string = text
+        coordinator.restyle(view)
+        XCTAssertTrue(visible(10))
+        XCTAssertFalse(visible(2))
+    }
+
+    func testLosingFocusHidesEverything() {
+        window.makeFirstResponder(nil)
+        XCTAssertFalse(visible(2))
+    }
+}

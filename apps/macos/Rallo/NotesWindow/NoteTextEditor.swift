@@ -23,6 +23,7 @@ struct NoteTextEditor: NSViewRepresentable {
 
     func updateNSView(_ view: PlainTextView, context: Context) {
         let coordinator = context.coordinator
+        _ = session.layoutRevision  // a reveal changed line heights: SwiftUI re-measures
         if view.isEditable != session.isEditable { view.isEditable = session.isEditable }
         coordinator.applying = true
         defer { coordinator.applying = false }
@@ -114,6 +115,11 @@ struct NoteTextEditor: NSViewRepresentable {
         }
 
         func attach(_ view: PlainTextView) {
+            view.onFocusChange = { [weak self, weak view] in
+                guard let self, let view else { return }
+                self.updateReveal(view)
+            }
+            view.onMouseUp = view.onFocusChange
             session.commitComposition = { [weak self, weak view] in
                 guard let self, let view else { return }
                 self.commitComposition(view)
@@ -152,14 +158,41 @@ struct NoteTextEditor: NSViewRepresentable {
             restyle(view)
         }
 
+        private func currentReveal(_ view: PlainTextView) -> NSRange? {
+            view.window?.firstResponder === view && !view.isResigning
+                ? NoteTextStyler.revealRange(in: view.string as NSString, selection: view.selectedRange(), marks: view.marks) : nil
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard !applying, let view = notification.object as? PlainTextView, !view.isTrackingMouse, !view.hasMarkedText()
+            else { return }
+            updateReveal(view)
+        }
+
+        /// Moves the revealed marks to the caret's line: restyles only the old and new paragraphs.
+        func updateReveal(_ view: PlainTextView) {
+            guard !view.hasMarkedText() else { return }
+            let new = currentReveal(view)
+            guard new != lastReveal else { return }
+            let palette = NoteTextStyler.Palette(ink: Theme.inkNS, rust: Theme.rustNS)
+            let tags = tagRanges(text: view.string)
+            let text = view.string as NSString
+            for r in [lastReveal, new].compactMap({ $0 }) {
+                let r = NSIntersectionRange(r, NSRange(location: 0, length: text.length))
+                NoteTextStyler.restyle(view, tags: tags, marks: view.marks, reveal: new, palette: palette, in: text.paragraphRange(for: r))
+            }
+            lastReveal = new
+            measurements.invalidate()
+            if !applying { session.layoutRevision += 1 }
+        }
+
         /// Dynamic colours: Light/Dark switches redraw them without a restyle.
         func restyle(_ view: PlainTextView) {
             measurements.invalidate()  // every text change and style change comes through here
             let palette = NoteTextStyler.Palette(ink: Theme.inkNS, rust: Theme.rustNS)
             let marks = markdownSpans(text: view.string)
             view.marks = marks
-            let reveal = view.window?.firstResponder === view
-                ? NoteTextStyler.revealRange(in: view.string as NSString, selection: view.selectedRange(), marks: marks) : nil
+            let reveal = currentReveal(view)
             NoteTextStyler.restyle(view, tags: tagRanges(text: view.string), marks: marks, reveal: reveal, palette: palette)
             lastReveal = reveal
         }

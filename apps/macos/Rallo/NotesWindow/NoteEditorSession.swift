@@ -24,6 +24,8 @@ final class NoteEditorSession: ObservableObject {
     @Published private(set) var conflict = false
     /// A refused save (`TEXT_TOO_LONG`, …), kept for the window's banner; the text stays.
     @Published private(set) var error: String?
+    /// Bumped when a reveal changes line heights, so SwiftUI re-measures the editor.
+    @Published var layoutRevision = 0
     /// The `showCount` of the last `show(_, focus: true)`. Keyed to the shown
     /// target, so a text view mounted after the request still honours it.
     private(set) var focusShow = -1

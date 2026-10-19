@@ -4,6 +4,29 @@ import AppKit
 final class PlainTextView: NSTextView {
     /// The Markdown spans of the current text, set by the coordinator on each full restyle.
     var marks: [MarkdownSpan] = []
+    /// Set by the coordinator: focus changed / a click or drag ended.
+    var onFocusChange: (() -> Void)?
+    var onMouseUp: (() -> Void)?
+    /// A click or drag is in progress: the selection changes continuously.
+    private(set) var isTrackingMouse = false
+    /// `window.firstResponder` still names this view while it resigns.
+    private(set) var isResigning = false
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { onFocusChange?() }
+        return ok
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        if ok {
+            isResigning = true
+            onFocusChange?()
+            isResigning = false
+        }
+        return ok
+    }
 
     /// TextKit 1 (the editor measures with its layout manager), plain text, no
     /// smart quotes or dashes rewriting what the user typed.
@@ -43,7 +66,11 @@ final class PlainTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if !handleMouseDown(event) { super.mouseDown(with: event) }
+        guard !handleMouseDown(event) else { return }
+        isTrackingMouse = true
+        super.mouseDown(with: event)
+        isTrackingMouse = false
+        onMouseUp?()
     }
 
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
