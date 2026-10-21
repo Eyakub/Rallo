@@ -35,6 +35,23 @@ a different data directory.
 `rallo doctor` reports the count and newest file under `<data dir>/backups/`
 so you can see at a glance whether recent snapshots exist.
 
+## Automatic backup
+
+Settings → Data → **Back up to** (off by default) copies your notes off the Mac on its own
+([decision 0024](decisions/0024-automatic-backup.md)).
+
+- **Destinations:** **iCloud Drive** (`~/Library/Mobile Documents/com~apple~CloudDocs/Rallo Backups/`,
+  offered only when iCloud Drive is on) or **Folder…**, any folder you pick (Dropbox, a NAS, Google
+  Drive for desktop).
+- **What:** the zip export with images, named `Rallo Backup <Mac name> <date and time>.zip`, so
+  several Macs can share one place.
+- **When:** at most once a day, and only if something changed. Rallo checks a minute after launch,
+  then hourly; a failure is retried at the next check. **Back Up Now** ignores both conditions.
+- **Keeps two:** after a backup is written, Rallo deletes this Mac's older backups beyond the newest
+  two. It deletes only files it remembers writing, never another Mac's or yours.
+- **Restore:** **Import…** on any Mac (a new or emptied one; see the export section below).
+- **`--data-dir` instances** keep their own settings and never use iCloud Drive; only Folder… works.
+
 ## Restoring from a `rallo backup` (or automatic) snapshot
 
 A snapshot is a complete, standalone copy of `rallo.sqlite3` — restoring
