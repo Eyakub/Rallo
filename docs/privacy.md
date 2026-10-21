@@ -15,7 +15,7 @@ macOS Keychain. Razlio never receives any of it.
 Rallo talks to the internet only for features you turn on:
 
 - **Update check:** once a day it asks GitHub for the latest Rallo release. You can turn it off in
-  Settings → About.
+  Settings → General.
 - **ClickUp**, if you connect it: Rallo sends your ClickUp token to ClickUp's API once a minute to
   find direct messages waiting for you. It keeps only the sender's name.
 - **Voice typing**, if you choose the Cloud engine: each phrase of audio goes to the provider you
