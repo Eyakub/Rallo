@@ -8,10 +8,10 @@ import SystemConfiguration
 final class BackupController {
     enum Kind: String {
         case off, icloud, folder
-        case google   // part B
+        case google
     }
 
-    private enum Keys {
+    enum Keys {
         static let kind = "backupKind"
         static let folder = "backupFolderPath"
         static let lastSuccess = "backupLastSuccess"
@@ -19,6 +19,8 @@ final class BackupController {
         static let lastError = "backupLastError"
         static let handles = "backupHandles"
         static let handlesKey = "backupHandlesKey"
+        static let googleFolder = "backupGoogleFolderID"
+        static let googleEmail = "backupGoogleEmail"
     }
 
     private let core: CoreClient
@@ -27,17 +29,26 @@ final class BackupController {
     private let home: URL
     private let macName: String
     let isScratch: Bool
+    private let tokens: GoogleTokenStore
+    private let googleAPI: GoogleDriveAPI
+    private let googleConfigured: Bool
+    private var googleListener: LoopbackListener?
     private var timer: Timer?
     private(set) var isRunning = false
     var onChange: () -> Void = {}
 
-    init(core: CoreClient, defaults: UserDefaults, log: DiagnosticsLog, isScratch: Bool,
+    init(core: CoreClient, defaults: UserDefaults, log: DiagnosticsLog, isScratch: Bool, tokens: GoogleTokenStore,
+         googleAPI: GoogleDriveAPI = GoogleDriveAPI(clientID: GoogleDriveConfig.clientID, clientSecret: GoogleDriveConfig.clientSecret),
+         googleConfigured: Bool = GoogleDriveConfig.isConfigured,
          home: URL = FileManager.default.homeDirectoryForCurrentUser,
          macName: String = BackupController.computerName()) {
         self.core = core
         self.defaults = defaults
         self.log = log
         self.isScratch = isScratch
+        self.tokens = tokens
+        self.googleAPI = googleAPI
+        self.googleConfigured = googleConfigured
         self.home = home
         self.macName = macName
     }
@@ -60,10 +71,19 @@ final class BackupController {
     /// iCloud Drive is on and this isn't a scratch instance (0024 §6).
     var iCloudAvailable: Bool { !isScratch && FolderDestination.iCloudAvailable(home: home) }
 
-    /// Where backups go now; nil when off, unavailable or not set up. Part B adds `.google` here.
+    /// Drive is set up in this build and this isn't a scratch instance (0024 §6).
+    var googleAvailable: Bool { !isScratch && googleConfigured }
+    var googleConfiguredInBuild: Bool { googleConfigured }
+    /// From the Keychain item's attributes alone, so it never prompts; scratch instances never look.
+    var googleConnected: Bool { googleAvailable && tokens.exists() && googleEmail != nil }
+    var googleEmail: String? { defaults.string(forKey: Keys.googleEmail) }
+    var googleConnecting: Bool { googleListener != nil }
+
+    /// Where backups go now; nil when off, unavailable or not set up.
     var destination: BackupDestination? {
         switch kind {
-        case .off, .google: nil
+        case .off: nil
+        case .google: googleConnected ? GoogleDriveDestination(api: googleAPI, tokens: tokens, defaults: defaults) : nil
         case .icloud: iCloudAvailable ? FolderDestination.iCloud(home: home) : nil
         case .folder: folderPath.map { FolderDestination(folder: URL(fileURLWithPath: $0, isDirectory: true)) }
         }
@@ -72,8 +92,14 @@ final class BackupController {
     /// The folder Show in Finder opens.
     var destinationFolder: URL? { (destination as? FolderDestination)?.folder }
 
+    /// The Drive folder Show in Google Drive opens.
+    var googleFolderURL: URL? {
+        defaults.string(forKey: Keys.googleFolder).flatMap { URL(string: "https://drive.google.com/drive/folders/\($0)") }
+    }
+
     func select(_ kind: Kind, folder: String? = nil) {
         if kind == .icloud, !iCloudAvailable { return }
+        if kind == .google, !googleAvailable { return }
         defaults.set(kind.rawValue, forKey: Keys.kind)
         if let folder { defaults.set(folder, forKey: Keys.folder) }
         adopt(destination?.key)
@@ -159,6 +185,7 @@ final class BackupController {
             let name = BackupNaming.fileName(mac: macName, date: Date(), timeZone: .current)
             let result = try await core.exportToFile(temp.appendingPathComponent(name).path, format: .zip, overwrite: false)
             let handle = try await destination.store(temp.appendingPathComponent(name), name: name)
+            adopt(self.destination?.key)   // Drive may have made a new folder
             defaults.set(Date(), forKey: Keys.lastSuccess)
             defaults.set(NSNumber(value: revision), forKey: Keys.lastRevision)
             defaults.removeObject(forKey: Keys.lastError)
@@ -176,8 +203,65 @@ final class BackupController {
         switch kind {
         case .icloud: "iCloud Drive is off"
         case .folder: "no folder is chosen"
-        default: "this destination isn’t available"
+        case .google:
+            if isScratch { "Google Drive is off in instances started with --data-dir" }
+            else if !googleConfigured { "Google Drive isn’t set up in this build" }
+            else { "Google Drive isn’t connected" }
+        case .off: "this destination isn’t available"
         }
+    }
+
+    // MARK: Google Drive (0024 §4)
+
+    /// Runs the browser consent flow; returns the account's email. Throws `GoogleDriveError`.
+    func connectGoogleDrive() async throws -> String {
+        guard !isScratch else { throw GoogleDriveError.disabled }
+        guard googleConfigured else { throw GoogleDriveError.notConfigured }
+        guard googleListener == nil else { throw GoogleDriveError.cancelled }
+        let pkce = PKCE.make()
+        let state = UUID().uuidString
+        let listener = try await LoopbackListener()
+        googleListener = listener
+        onChange()
+        defer {
+            listener.cancel()
+            googleListener = nil
+            onChange()
+        }
+        let url = GoogleOAuth.authorizationURL(clientID: googleAPI.clientID, redirect: listener.redirectURL,
+                                               challenge: pkce.challenge, state: state)
+        NSWorkspace.shared.open(url)
+        let code = try GoogleOAuth.parseRedirect(try await listener.waitForRequestTarget(timeout: 300), expectedState: state)
+        let granted = try await googleAPI.exchange(code: code, verifier: pkce.verifier, redirect: listener.redirectURL)
+        let tokens = tokens
+        guard await Task.detached(operation: { tokens.save(granted.refreshToken) }).value else { throw GoogleDriveError.failed(0) }
+        do {
+            let email = try await googleAPI.accountEmail(accessToken: granted.accessToken)
+            let folder = try await googleAPI.ensureFolder(defaults.string(forKey: Keys.googleFolder), accessToken: granted.accessToken)
+            defaults.set(email, forKey: Keys.googleEmail)
+            defaults.set(folder, forKey: Keys.googleFolder)
+            adopt(destination?.key)
+            return email
+        } catch {
+            tokens.delete()
+            throw error
+        }
+    }
+
+    func cancelGoogleConnect() { googleListener?.cancel() }
+
+    /// Revokes the token (best effort), forgets it and the account. Files already in Drive stay.
+    func disconnectGoogleDrive() async {
+        guard !isScratch else { return }
+        let tokens = tokens
+        if let refresh = await Task.detached(operation: { tokens.read() }).value {
+            try? await googleAPI.revoke(refresh)
+        }
+        tokens.delete()
+        defaults.removeObject(forKey: Keys.googleEmail)
+        defaults.removeObject(forKey: Keys.googleFolder)
+        defaults.removeObject(forKey: Keys.lastError)
+        onChange()
     }
 
     /// Never fails the backup: a handle that can't be removed stays for next time.

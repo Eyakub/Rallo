@@ -22,9 +22,10 @@ final class BackupControllerTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func controller(scratch: Bool = true) -> BackupController {
+    private func controller(scratch: Bool = true, google: Bool = false, token: String? = nil) -> BackupController {
         BackupController(core: core, defaults: defaults, log: DiagnosticsLog(dataDir: root.appendingPathComponent("data").path),
-                         isScratch: scratch, home: root.appendingPathComponent("home"), macName: "Test Mac")
+                         isScratch: scratch, tokens: MemoryTokenStore(token), googleConfigured: google,
+                         home: root.appendingPathComponent("home"), macName: "Test Mac")
     }
 
     private func folder(_ name: String) -> URL { root.appendingPathComponent(name, isDirectory: true) }
@@ -138,6 +139,34 @@ final class BackupControllerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: outside.path))
         try await destination.remove(mine)
         XCTAssertEqual(zips(dir), ["other.zip"])
+    }
+
+    private func googleReason(_ backup: BackupController) async -> String? {
+        defaults.set("google", forKey: "backupKind")
+        await backup.backUpNow()
+        return backup.lastError
+    }
+
+    func testGoogleUnavailableReasons() async {
+        let scratch = await googleReason(controller(scratch: true, google: true, token: "t"))
+        XCTAssertEqual(scratch, "Google Drive is off in instances started with --data-dir")
+        let notSetUp = await googleReason(controller(scratch: false, google: false))
+        XCTAssertEqual(notSetUp, "Google Drive isn’t set up in this build")
+        let notConnected = await googleReason(controller(scratch: false, google: true))
+        XCTAssertEqual(notConnected, "Google Drive isn’t connected")
+    }
+
+    func testGoogleCannotBeSelectedWhenUnavailableAndScratchNeverConnects() async {
+        let backup = controller(scratch: true, google: true)
+        backup.select(.google)
+        XCTAssertEqual(backup.kind, .off)
+        XCTAssertFalse(backup.googleConnected)
+        do {
+            _ = try await backup.connectGoogleDrive()
+            XCTFail("expected a refusal")
+        } catch {
+            XCTAssertEqual(error as? GoogleDriveError, .disabled)
+        }
     }
 
     private func tempBackupDirs() -> Set<String> {

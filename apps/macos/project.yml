@@ -34,6 +34,9 @@ targets:
         PRODUCT_NAME: Rallo
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo
         INFOPLIST_FILE: Rallo/Resources/Info.plist
+        # Google Drive backup (0024): scripts/build-macos.sh passes the real values from private/google-oauth.env.
+        RALLO_GOOGLE_CLIENT_ID: ""
+        RALLO_GOOGLE_CLIENT_SECRET: ""
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: Rallo/Resources/Rallo.entitlements
         # No get-task-allow in shipped builds (it lets same-user processes attach).
@@ -129,6 +132,11 @@ targets:
       - path: Rallo/Backup/BackupPlan.swift
       - path: Rallo/Backup/BackupDestination.swift
       - path: Rallo/Backup/BackupController.swift
+      - path: Rallo/Backup/GoogleDriveConfig.swift
+      - path: Rallo/Backup/GoogleOAuth.swift
+      - path: Rallo/Backup/LoopbackListener.swift
+      - path: Rallo/Backup/GoogleDriveAPI.swift
+      - path: Rallo/Backup/GoogleDriveDestination.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo.tests
