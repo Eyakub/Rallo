@@ -126,6 +126,9 @@ targets:
       - path: Rallo/Voice/SpeechSegmenter.swift
       - path: Rallo/Voice/WhisperModelStore.swift
       - path: Rallo/Voice/CloudVoiceSupport.swift
+      - path: Rallo/Backup/BackupPlan.swift
+      - path: Rallo/Backup/BackupDestination.swift
+      - path: Rallo/Backup/BackupController.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo.tests
