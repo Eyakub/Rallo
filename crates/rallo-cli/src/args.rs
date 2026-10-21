@@ -320,7 +320,7 @@ pub enum Command {
         check: bool,
     },
     /// Remove Rallo from this Mac: the app, its terminal command, agent hooks and skill, Open at Login,
-    /// scheduled reminders, the ClickUp token, and voice API keys. Keeps your notes unless --purge.
+    /// scheduled reminders, the ClickUp token, the Google Drive token, and voice API keys. Keeps your notes unless --purge.
     Uninstall {
         /// Also delete your notes and settings, after saving a final zip export (with images) to ~/Downloads.
         #[arg(long)]

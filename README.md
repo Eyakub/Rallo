@@ -251,7 +251,7 @@ still waits for you.
 
 `rallo uninstall` (or Settings → About → Uninstall Rallo…) removes the app, the
 `rallo` command, the agent hooks and skill, Open at Login, scheduled reminders,
-the ClickUp token, and voice API keys. If the `rallo` command is already gone, use the install
+the ClickUp token, the Google Drive token, and voice API keys. If the `rallo` command is already gone, use the install
 script instead:
 
 ```sh

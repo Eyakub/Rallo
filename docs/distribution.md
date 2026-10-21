@@ -143,7 +143,7 @@ rallo uninstall --purge  # also deletes them, after a zip export to ~/Downloads
 
 Also available as Settings → About → Uninstall Rallo…. It removes the app, the
 `rallo` command, Rallo's agent hooks and skill, Open at Login, scheduled
-reminders, the ClickUp token, and voice API keys. `--purge` removes nothing if it can't save
+reminders, the ClickUp token, the Google Drive token, and voice API keys. `--purge` removes nothing if it can't save
 that export first. The PATH line Rallo may have added to your login profile is
 left in place (other tools may use `~/.local/bin`).
 
@@ -169,7 +169,7 @@ behaves as for an ad-hoc app.
 
 The Keychain is the exception. Without an Apple Team ID, macOS remembers
 "Always Allow" per build, so after each update it asks once for each item
-Rallo reads: the ClickUp token, and a cloud voice key if you saved one. Click
+Rallo reads: the ClickUp token, the Google Drive token, and a cloud voice key if you saved one. Click
 **Always Allow** and enter your login password; plain "Allow" covers that
 launch only. Rallo reads each item at most once per launch.
 

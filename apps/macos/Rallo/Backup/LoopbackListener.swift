@@ -85,7 +85,7 @@ final class LoopbackListener: @unchecked Sendable {
             }
             let failed = URLComponents(string: "http://127.0.0.1" + target)?.queryItems?.contains { $0.name == "error" } ?? false
             let page = failed ? "Rallo wasn’t connected. You can close this tab and try again."
-                              : "Rallo is connected to Google Drive. You can close this tab."
+                              : "Return to Rallo to finish connecting Google Drive. You can close this tab."
             Self.respond(connection, status: "200 OK", body: page) { self.finish(.success(target)) }
         }
     }

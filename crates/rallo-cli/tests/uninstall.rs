@@ -221,7 +221,7 @@ fn the_apps_cleanup_report_is_passed_through() {
     let fixture = Fixture::new();
     fixture.fake_app_script(
         "[ \"$1\" = --prepare-uninstall ] || exit 9\n\
-         printf '%s' '{\"login_item\":\"failed\",\"notifications_removed\":3,\"clickup_token\":\"removed\"}'",
+         printf '%s' '{\"login_item\":\"failed\",\"notifications_removed\":3,\"clickup_token\":\"removed\",\"google_drive_token\":\"failed\"}'",
     );
     let mut command = fixture.command(&["uninstall", "--yes", "--json"]);
     command.env("RALLO_UNINSTALL_TEST_PREPARE", "1");
@@ -231,6 +231,7 @@ fn the_apps_cleanup_report_is_passed_through() {
     assert_eq!(doc["uninstall"]["prepared"]["login_item"], "failed");
     let warnings = doc["warnings"].as_array().unwrap();
     assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("Login Items")), "{doc}");
+    assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("Rallo: Google Drive")), "{doc}");
     assert!(!fixture.app.exists());
 }
 

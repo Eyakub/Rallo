@@ -49,6 +49,12 @@ enum UninstallPreparation {
         case errSecItemNotFound: token = "none"
         default: token = "failed"
         }
+        let googleToken: String
+        switch KeychainSecret(service: "rallo-google-drive-token", label: "").delete() {
+        case errSecSuccess: googleToken = "removed"
+        case errSecItemNotFound: googleToken = "none"
+        default: googleToken = "failed"
+        }
         // The file-based keychain may remove only one match per delete.
         var voiceKeys = "none"
         for _ in 0..<16 {
@@ -57,7 +63,7 @@ enum UninstallPreparation {
             if status != errSecSuccess { voiceKeys = "failed"; break }
             voiceKeys = "removed"
         }
-        return ["login_item": loginItem, "notifications_removed": pending, "clickup_token": token, "voice_api_keys": voiceKeys]
+        return ["login_item": loginItem, "notifications_removed": pending, "clickup_token": token, "google_drive_token": googleToken, "voice_api_keys": voiceKeys]
     }
 
     private static func emit(_ report: [String: Any]) {
