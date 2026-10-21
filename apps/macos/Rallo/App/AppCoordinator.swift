@@ -54,6 +54,7 @@ final class AppCoordinator {
     private var agentJumpState = AgentJumpState()
     private var livenessTimer: Timer?
     private var sweepTimer: Timer?
+    private let backup: BackupController
     private var demoOpen: String?
     /// Started with a --data-dir other than the default (tests, demos). The
     /// CLI launches the real app with --data-dir set to the default folder,
@@ -79,6 +80,7 @@ final class AppCoordinator {
         let fault = FaultInjection(argument: options.faultInjection, explicitDataDir: options.dataDir, log: log)
         drainer = NotificationDrainer(core: core, adapter: notifications.adapter, log: log, fault: fault)
         transfer = TransferController(core: core, log: log)
+        backup = BackupController(core: core, defaults: PanelDefaults.defaults(forDataDir: dataDir), log: log, isScratch: isScratch)
         terminalSetup = TerminalSetupController(log: log)
         petState = PetStateDriver(core: core, pet: pet, log: log)
         attention = AttentionCoordinator(core: core, pet: pet, quietSignals: quietSignals, log: log)
@@ -243,6 +245,7 @@ final class AppCoordinator {
             storageReady = true
             excludeRuntimeFromBackups()
             startImageSweep()
+            backup.start()
             clickUp.onChange = { [weak self] in Task { await self?.checkForChanges() } }
             clickUp.start()
         } catch {
@@ -298,6 +301,7 @@ final class AppCoordinator {
     /// Unregisters the global shortcuts; called once, at quit.
     func stop() {
         globalShortcuts.unregister()
+        backup.stop()
     }
 
     /// Sleep and clock changes can elapse deadlines or strand attempts.
@@ -591,6 +595,18 @@ final class AppCoordinator {
         settingsModel.checkForUpdates()
     }
 
+    private func chooseBackupFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        panel.message = "Pick the folder Rallo should put its backups in."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        backup.select(.folder, folder: url.path)
+        settingsModel.refresh()
+    }
+
     private func configureSettings() {
         let model = settingsModel
         model.dataPath = dataDir
@@ -608,6 +624,12 @@ final class AppCoordinator {
             model.alertSettings = alertSettings
             model.clickUpConnected = clickUp.isConnected
             model.clickUpStatus = clickUp.status
+            model.backupKind = backup.kind
+            model.backupFolder = backup.folderPath
+            model.backupStatus = backup.statusLine
+            model.backupRunning = backup.isRunning
+            model.backupICloudAvailable = backup.iCloudAvailable
+            model.backupIsScratch = backup.isScratch
             model.updateCheckEnabled = updateChecker.isEnabled
             model.updateCheckAllowed = updateChecker.allowed
             model.voiceTypingEnabled = Self.voiceTypingEnabled
@@ -632,6 +654,24 @@ final class AppCoordinator {
             return try await clickUp.connect(token: token)
         }
         model.disconnectClickUp = { [weak self] in await self?.clickUp.disconnect() }
+        backup.onChange = { [weak model] in model?.refresh() }
+        model.setBackupKind = { [weak self] kind in
+            guard let self else { return }
+            backup.select(kind)
+            // Folder… with nothing chosen yet asks right away.
+            if kind == .folder, backup.folderPath == nil { chooseBackupFolder() }
+            model.refresh()
+        }
+        model.chooseBackupFolder = { [weak self] in self?.chooseBackupFolder() }
+        model.backUpNow = { [weak self] in
+            guard let self else { return }
+            Task { await self.backup.backUpNow() }
+        }
+        model.showBackupFolder = { [weak self] in
+            guard let folder = self?.backup.destinationFolder else { return }
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(folder)
+        }
         model.exportArchive = { [weak self] in self?.transfer.export(.zip) }
         model.exportBackup = { [weak self] in self?.transfer.export(.json) }
         model.exportSpreadsheet = { [weak self] in self?.transfer.export(.csv) }

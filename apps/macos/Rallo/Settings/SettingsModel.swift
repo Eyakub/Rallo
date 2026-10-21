@@ -34,6 +34,13 @@ final class SettingsModel: ObservableObject {
                                                        warnSeconds: 10, allowSkip: true, holdOnCall: true)
     /// Settings › Notifications › Alerts (0021 §7).
     @Published var alertSettings = AlertSettings.initial
+    /// 0024: copied from `BackupController` by the coordinator.
+    @Published var backupKind = BackupController.Kind.off
+    @Published var backupFolder: String?
+    @Published var backupStatus = ""
+    @Published var backupRunning = false
+    @Published var backupICloudAvailable = false
+    @Published var backupIsScratch = false
     var dataPath = ""
 
     enum WhisperModelState: Equatable {
@@ -70,6 +77,10 @@ final class SettingsModel: ObservableObject {
     var toggleNotifyLongWait: () async -> Void = {}
     var connectClickUp: (String) async throws -> String = { _ in "" }
     var disconnectClickUp: () async -> Void = {}
+    var setBackupKind: (BackupController.Kind) -> Void = { _ in }
+    var chooseBackupFolder: () -> Void = {}
+    var backUpNow: () -> Void = {}
+    var showBackupFolder: () -> Void = {}
     var exportArchive: () -> Void = {}
     var exportBackup: () -> Void = {}
     var exportSpreadsheet: () -> Void = {}
@@ -93,6 +104,8 @@ final class SettingsModel: ObservableObject {
     }
 
     var shortVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "" }
+
+    var backupFolderDisplay: String { ((backupFolder ?? "") as NSString).abbreviatingWithTildeInPath }
 
     var dataPathDisplay: String { (dataPath as NSString).abbreviatingWithTildeInPath }
 

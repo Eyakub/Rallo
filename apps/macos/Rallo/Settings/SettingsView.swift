@@ -625,10 +625,43 @@ private struct DataTab: View {
 
     var body: some View {
         Page {
+            backupSection
+            Divider()
             row("Export Archive with Images (ZIP)…", "Everything, images included, in one file Rallo can restore.", model.exportArchive)
             row("Export Backup (JSON)…", "Your notes in one file Rallo can restore; images aren’t included.", model.exportBackup)
             row("Export Spreadsheet (CSV)…", "Your notes as rows for Numbers or Excel.", model.exportSpreadsheet)
             row("Import Notes…", "Bring notes in from an archive, backup or spreadsheet; you review them first.", model.importNotes)
+        }
+    }
+
+    private var backupSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Backup").font(Theme.rounded(13, .semibold))
+            Picker("Back up to", selection: Binding(get: { model.backupKind }, set: { model.setBackupKind($0) })) {
+                Text("Off").tag(BackupController.Kind.off)
+                Text("iCloud Drive").tag(BackupController.Kind.icloud).disabled(!model.backupICloudAvailable)
+                Text("Folder…").tag(BackupController.Kind.folder)
+            }
+            if !model.backupICloudAvailable {
+                caption(model.backupIsScratch ? "iCloud Drive isn’t used in instances started with --data-dir."
+                                              : "iCloud Drive is off on this Mac.")
+            }
+            if model.backupKind == .folder {
+                HStack {
+                    line(model.backupFolder == nil ? "No folder chosen." : model.backupFolderDisplay)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button("Choose…") { model.chooseBackupFolder() }
+                }
+            }
+            if model.backupKind != .off {
+                line(model.backupStatus)
+                HStack {
+                    Button("Back Up Now") { model.backUpNow() }.disabled(model.backupRunning)
+                    Button("Show in Finder") { model.showBackupFolder() }
+                }
+            }
+            caption("Rallo backs up once a day when something changed, keeps the two newest backups from this Mac and deletes older ones it made. To restore, use Import… on any Mac.")
         }
     }
 
