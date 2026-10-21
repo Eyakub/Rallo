@@ -22,6 +22,10 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>RalloGoogleClientID</key>
+	<string>$(RALLO_GOOGLE_CLIENT_ID)</string>
+	<key>RalloGoogleClientSecret</key>
+	<string>$(RALLO_GOOGLE_CLIENT_SECRET)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>

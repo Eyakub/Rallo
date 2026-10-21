@@ -12,8 +12,17 @@ command -v xcodegen >/dev/null || { echo "error: xcodegen not found (brew instal
 # Spotlight skips *.noindex folders, so it never offers this build as "Rallo"
 # in place of the installed copy (a build outside Applications greys out
 # Open at Login and Uninstall).
+# Google Drive backup (0024): the OAuth client from the gitignored private/google-oauth.env,
+# passed as build settings (never echoed). Without the file Drive shows "not set up".
+google=()
+if [ -f "$REPO_ROOT/private/google-oauth.env" ]; then
+  RALLO_GOOGLE_CLIENT_ID="" RALLO_GOOGLE_CLIENT_SECRET=""
+  source "$REPO_ROOT/private/google-oauth.env"
+  google=("RALLO_GOOGLE_CLIENT_ID=$RALLO_GOOGLE_CLIENT_ID" "RALLO_GOOGLE_CLIENT_SECRET=$RALLO_GOOGLE_CLIENT_SECRET")
+fi
+
 xcodebuild -project "$REPO_ROOT/apps/macos/Rallo.xcodeproj" -scheme Rallo -configuration Release \
-  -derivedDataPath "$REPO_ROOT/build/DerivedData.noindex" -quiet build
+  -derivedDataPath "$REPO_ROOT/build/DerivedData.noindex" -quiet build ${google[@]+"${google[@]}"}
 
 app="$REPO_ROOT/build/DerivedData.noindex/Build/Products/Release/Rallo.app"
 
