@@ -182,6 +182,31 @@ Self-Signed" → Export as a password-protected `.p12`, kept somewhere other
 than this Mac. Without it, a new certificate means new pins, and existing
 installs would have to reinstall with the install script once.
 
+## Google Drive OAuth client
+
+Automatic backup to Google Drive (decision 0024) needs an OAuth client from your own Google Cloud
+project. Without one the build works and shows Google Drive as "not set up in this build".
+
+1. In the [Google Cloud console](https://console.cloud.google.com/) create a project and enable the
+   **Google Drive API**.
+2. **OAuth consent screen:** user type **External**; app name **Rallo**; your support email; home
+   page `https://github.com/Eyakub/Rallo`; privacy policy
+   `https://github.com/Eyakub/Rallo/blob/master/docs/privacy.md`; add the scope
+   `https://www.googleapis.com/auth/drive.file`.
+3. **Publish to production.** In testing mode Google expires refresh tokens after 7 days, so every
+   user would have to reconnect weekly. `drive.file` is not a sensitive scope, so no review is needed.
+4. **Credentials → Create credentials → OAuth client ID**, type **Desktop app**.
+5. Put the client ID and secret in the gitignored `private/google-oauth.env`:
+
+   ```sh
+   RALLO_GOOGLE_CLIENT_ID=…apps.googleusercontent.com
+   RALLO_GOOGLE_CLIENT_SECRET=…
+   ```
+
+6. Rebuild (`scripts/build-macos.sh`, which `scripts/release.sh` also runs). The values become build
+   settings read from Info.plist. A desktop client's secret is not confidential, but it stays out of
+   the repo.
+
 ## Making a release (maintainer, on this Mac)
 
 ```sh

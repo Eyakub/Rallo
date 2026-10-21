@@ -41,16 +41,21 @@ Settings → Data → **Back up to** (off by default) copies your notes off the 
 ([decision 0024](decisions/0024-automatic-backup.md)).
 
 - **Destinations:** **iCloud Drive** (`~/Library/Mobile Documents/com~apple~CloudDocs/Rallo Backups/`,
-  offered only when iCloud Drive is on) or **Folder…**, any folder you pick (Dropbox, a NAS, Google
-  Drive for desktop).
+  offered only when iCloud Drive is on), **Google Drive**, or **Folder…**, any folder you pick
+  (Dropbox, a NAS, Google Drive for desktop).
+- **Google Drive:** **Connect Google Drive…** opens your browser to sign in; Rallo gets access only
+  to the files it creates (the `drive.file` scope), uploads to a "Rallo Backups" folder in My Drive
+  and keeps its token in the Keychain. **Disconnect** revokes it; files already in Drive stay. A
+  build without a Google client ID shows it as not set up (see `distribution.md`). Details:
+  [privacy.md](privacy.md).
 - **What:** the zip export with images, named `Rallo Backup <Mac name> <date and time>.zip`, so
   several Macs can share one place.
 - **When:** at most once a day, and only if something changed. Rallo checks a minute after launch,
   then hourly; a failure is retried at the next check. **Back Up Now** ignores both conditions.
 - **Keeps two:** after a backup is written, Rallo deletes this Mac's older backups beyond the newest
-  two. It deletes only files it remembers writing, never another Mac's or yours.
+  two. It deletes only files it remembers writing (names, or Drive file IDs), never another Mac's or yours.
 - **Restore:** **Import…** on any Mac (a new or emptied one; see the export section below).
-- **`--data-dir` instances** keep their own settings and never use iCloud Drive; only Folder… works.
+- **`--data-dir` instances** keep their own settings and never use iCloud Drive or Google Drive; only Folder… works.
 
 ## Restoring from a `rallo backup` (or automatic) snapshot
 
