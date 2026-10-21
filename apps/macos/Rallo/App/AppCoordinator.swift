@@ -80,7 +80,7 @@ final class AppCoordinator {
         let fault = FaultInjection(argument: options.faultInjection, explicitDataDir: options.dataDir, log: log)
         drainer = NotificationDrainer(core: core, adapter: notifications.adapter, log: log, fault: fault)
         transfer = TransferController(core: core, log: log)
-        backup = BackupController(core: core, defaults: PanelDefaults.defaults(forDataDir: dataDir), log: log, isScratch: isScratch)
+        backup = BackupController(core: core, defaults: PanelDefaults.defaults(forDataDir: dataDir), log: log, isScratch: isScratch, tokens: GoogleDriveToken())
         terminalSetup = TerminalSetupController(log: log)
         petState = PetStateDriver(core: core, pet: pet, log: log)
         attention = AttentionCoordinator(core: core, pet: pet, quietSignals: quietSignals, log: log)
@@ -630,6 +630,9 @@ final class AppCoordinator {
             model.backupRunning = backup.isRunning
             model.backupICloudAvailable = backup.iCloudAvailable
             model.backupIsScratch = backup.isScratch
+            model.backupGoogleConfigured = backup.googleConfiguredInBuild
+            model.backupGoogleConnected = backup.googleConnected
+            model.backupGoogleEmail = backup.googleEmail
             model.updateCheckEnabled = updateChecker.isEnabled
             model.updateCheckAllowed = updateChecker.allowed
             model.voiceTypingEnabled = Self.voiceTypingEnabled
@@ -671,10 +674,20 @@ final class AppCoordinator {
             Task { await self.backup.backUpNow() }
         }
         model.showBackupFolder = { [weak self] in
+            if self?.backup.kind == .google {
+                if let url = self?.backup.googleFolderURL { NSWorkspace.shared.open(url) }
+                return
+            }
             guard let folder = self?.backup.destinationFolder else { return }
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             NSWorkspace.shared.open(folder)
         }
+        model.connectGoogleDrive = { [weak self] in
+            guard let self else { return "" }
+            return try await backup.connectGoogleDrive()
+        }
+        model.cancelGoogleConnect = { [weak self] in self?.backup.cancelGoogleConnect() }
+        model.disconnectGoogleDrive = { [weak self] in await self?.backup.disconnectGoogleDrive() }
         model.exportArchive = { [weak self] in self?.transfer.export(.zip) }
         model.exportBackup = { [weak self] in self?.transfer.export(.json) }
         model.exportSpreadsheet = { [weak self] in self?.transfer.export(.csv) }

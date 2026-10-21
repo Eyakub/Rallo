@@ -41,6 +41,9 @@ final class SettingsModel: ObservableObject {
     @Published var backupRunning = false
     @Published var backupICloudAvailable = false
     @Published var backupIsScratch = false
+    @Published var backupGoogleConfigured = false
+    @Published var backupGoogleConnected = false
+    @Published var backupGoogleEmail: String?
     var dataPath = ""
 
     enum WhisperModelState: Equatable {
@@ -56,6 +59,8 @@ final class SettingsModel: ObservableObject {
     @Published var token = ""
     @Published var clickUpBusy = false
     @Published var clickUpMessage: String?
+    @Published var googleBusy = false
+    @Published var googleMessage: String?
     @Published var whisperModel = WhisperModelState.checking
     private var whisperDownload: Task<Void, Never>?
     @Published var agents = AgentsStatus.checking
@@ -81,6 +86,9 @@ final class SettingsModel: ObservableObject {
     var chooseBackupFolder: () -> Void = {}
     var backUpNow: () -> Void = {}
     var showBackupFolder: () -> Void = {}
+    var connectGoogleDrive: () async throws -> String = { "" }
+    var cancelGoogleConnect: () -> Void = {}
+    var disconnectGoogleDrive: () async -> Void = {}
     var exportArchive: () -> Void = {}
     var exportBackup: () -> Void = {}
     var exportSpreadsheet: () -> Void = {}
@@ -213,6 +221,46 @@ final class SettingsModel: ObservableObject {
     func disconnect() {
         clickUpMessage = nil
         perform { [self] in await disconnectClickUp() }
+    }
+
+    // MARK: Google Drive backup (0024 §4)
+
+    func connectGoogle() {
+        googleBusy = true
+        googleMessage = nil
+        Task {
+            do {
+                let email = try await connectGoogleDrive()
+                googleMessage = "Connected as \(email). Backups go to a “Rallo Backups” folder in your Drive."
+            } catch {
+                googleMessage = Self.googleReason(for: error)
+            }
+            googleBusy = false
+            refresh()
+        }
+    }
+
+    func cancelGoogle() { cancelGoogleConnect() }
+
+    func disconnectGoogle() {
+        googleMessage = nil
+        googleBusy = true
+        Task {
+            await disconnectGoogleDrive()
+            googleBusy = false
+            refresh()
+        }
+    }
+
+    private static func googleReason(for error: Error) -> String? {
+        switch error {
+        case GoogleDriveError.cancelled: nil
+        case GoogleDriveError.timedOut: "Google didn’t answer in time. Try again."
+        case GoogleDriveError.disabled: "Google Drive is off in instances started with --data-dir."
+        case GoogleDriveError.notConfigured: "Google Drive isn’t set up in this build."
+        case is GoogleDriveError: "Google didn’t accept the connection. Try again."
+        default: "Rallo couldn’t reach Google. Check your connection and try again."
+        }
     }
 
     private static func reason(for error: Error) -> String {

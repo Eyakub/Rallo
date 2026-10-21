@@ -641,6 +641,11 @@ private struct DataTab: View {
                 Text("Off").tag(BackupController.Kind.off)
                 Text("iCloud Drive").tag(BackupController.Kind.icloud).disabled(!model.backupICloudAvailable)
                 Text("Folder…").tag(BackupController.Kind.folder)
+                Text("Google Drive").tag(BackupController.Kind.google).disabled(!googleUsable)
+            }
+            if !googleUsable {
+                caption(model.backupIsScratch ? "Google Drive isn’t used in instances started with --data-dir."
+                                              : "Google Drive isn’t set up in this build.")
             }
             if !model.backupICloudAvailable {
                 caption(model.backupIsScratch ? "iCloud Drive isn’t used in instances started with --data-dir."
@@ -654,15 +659,38 @@ private struct DataTab: View {
                     Button("Choose…") { model.chooseBackupFolder() }
                 }
             }
-            if model.backupKind != .off {
+            if model.backupKind == .google { googleConnection }
+            if model.backupKind != .off, model.backupKind != .google || model.backupGoogleConnected {
                 line(model.backupStatus)
                 HStack {
                     Button("Back Up Now") { model.backUpNow() }.disabled(model.backupRunning)
-                    Button("Show in Finder") { model.showBackupFolder() }
+                    Button(model.backupKind == .google ? "Show in Google Drive" : "Show in Finder") { model.showBackupFolder() }
                 }
             }
             caption("Rallo backs up once a day when something changed, keeps the two newest backups from this Mac and deletes older ones it made. To restore, use Import… on any Mac.")
         }
+    }
+
+    private var googleUsable: Bool { model.backupGoogleConfigured && !model.backupIsScratch }
+
+    @ViewBuilder private var googleConnection: some View {
+        if model.googleBusy && !model.backupGoogleConnected {
+            HStack {
+                line("Waiting for Google in your browser…")
+                Spacer()
+                Button("Cancel") { model.cancelGoogle() }
+            }
+        } else if model.backupGoogleConnected {
+            HStack {
+                line("Connected as \(model.backupGoogleEmail ?? "your Google account").")
+                Spacer()
+                Button("Disconnect") { model.disconnectGoogle() }.disabled(model.googleBusy)
+            }
+        } else {
+            Button("Connect Google Drive…") { model.connectGoogle() }.disabled(!googleUsable)
+            caption("Opens your browser. Rallo can see and change only the files it creates in your Drive.")
+        }
+        if let message = model.googleMessage { caption(message) }
     }
 
     private func row(_ title: String, _ detail: String, _ action: @escaping () -> Void) -> some View {
