@@ -123,6 +123,23 @@ final class BackupControllerTests: XCTestCase {
         XCTAssertEqual(scratch.kind, .off)
     }
 
+    func testFolderRemoveDeletesOnlyPlainBackupNames() async throws {
+        let dir = folder("rm")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let mine = "Rallo Backup Test Mac 2026-10-21 09.10.00.zip"
+        for name in [mine, "other.zip", "Rallo Backup x.txt"] { try Data("x".utf8).write(to: dir.appendingPathComponent(name)) }
+        let outside = root.appendingPathComponent("Rallo Backup outside.zip")
+        try Data("x".utf8).write(to: outside)
+        let destination = FolderDestination(folder: dir)
+        for handle in ["other.zip", "Rallo Backup x.txt", "..", "../Rallo Backup outside.zip", "Rallo Backup /../x.zip"] {
+            try await destination.remove(handle)
+        }
+        XCTAssertEqual(zips(dir), [mine, "other.zip"].sorted())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.path))
+        try await destination.remove(mine)
+        XCTAssertEqual(zips(dir), ["other.zip"])
+    }
+
     private func tempBackupDirs() -> Set<String> {
         Set(((try? FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path)) ?? [])
             .filter { $0.hasPrefix("rallo-backup-") && !$0.hasPrefix("rallo-backup-test-") })

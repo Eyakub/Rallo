@@ -657,9 +657,12 @@ final class AppCoordinator {
         backup.onChange = { [weak model] in model?.refresh() }
         model.setBackupKind = { [weak self] kind in
             guard let self else { return }
-            backup.select(kind)
-            // Folder… with nothing chosen yet asks right away.
-            if kind == .folder, backup.folderPath == nil { chooseBackupFolder() }
+            // Folder… with nothing chosen yet asks first: cancelling keeps the previous kind.
+            if kind == .folder, backup.folderPath == nil {
+                chooseBackupFolder()
+            } else {
+                backup.select(kind)
+            }
             model.refresh()
         }
         model.chooseBackupFolder = { [weak self] in self?.chooseBackupFolder() }

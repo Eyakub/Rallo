@@ -1,6 +1,6 @@
 import Foundation
 
-/// Where a finished backup zip goes (0024). Part B adds Google Drive behind the same protocol.
+/// Where a finished backup zip goes (0024). Google Drive sits behind the same protocol.
 protocol BackupDestination: Sendable {
     /// Stable identity, e.g. "folder:/abs/path" or (part B) "gdrive:<folder id>". Changing it starts a new handle list.
     var key: String { get }
@@ -50,9 +50,13 @@ struct FolderDestination: BackupDestination {
         return name
     }
 
+    /// Only a plain `Rallo Backup ….zip` file name is ever deleted: never a path (the prefix rules out `..`).
+    static func isBackupName(_ handle: String) -> Bool {
+        handle.hasPrefix("Rallo Backup ") && handle.hasSuffix(".zip") && !handle.contains("/")
+    }
+
     func remove(_ handle: String) async throws {
-        // A handle is a file name this Mac wrote; never let one reach outside the folder.
-        guard !handle.contains("/") else { return }
+        guard Self.isBackupName(handle) else { return }
         let target = folder.appendingPathComponent(handle)
         if FileManager.default.fileExists(atPath: target.path) {
             try FileManager.default.removeItem(at: target)

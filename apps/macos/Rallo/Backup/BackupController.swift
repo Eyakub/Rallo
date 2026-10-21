@@ -1,4 +1,5 @@
 import AppKit
+import SystemConfiguration
 
 /// Automatic backup (0024): settings, the daily check, and one backup run.
 /// Plain class; the coordinator copies its state into `SettingsModel` and
@@ -32,13 +33,18 @@ final class BackupController {
 
     init(core: CoreClient, defaults: UserDefaults, log: DiagnosticsLog, isScratch: Bool,
          home: URL = FileManager.default.homeDirectoryForCurrentUser,
-         macName: String = Host.current().localizedName ?? "Mac") {
+         macName: String = BackupController.computerName()) {
         self.core = core
         self.defaults = defaults
         self.log = log
         self.isScratch = isScratch
         self.home = home
         self.macName = macName
+    }
+
+    /// The Mac's name from System Settings. `Host.current().localizedName` can block on the network.
+    nonisolated static func computerName() -> String {
+        (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"
     }
 
     // MARK: State
