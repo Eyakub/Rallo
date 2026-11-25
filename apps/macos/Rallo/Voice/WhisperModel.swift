@@ -51,11 +51,15 @@ struct WhisperModel {
     /// Right size and SHA-256, hashed once per launch (a changed size or date
     /// hashes again): whisper.cpp parses it in a process with mic access.
     private static func verified(_ url: URL, _ kind: WhisperModelKind) -> Bool {
-        guard fileSize(url) == kind.size else { return false }
+        verified(url, size: kind.size, sha256: kind.sha256)
+    }
+
+    static func verified(_ url: URL, size: Int64, sha256 expected: String) -> Bool {
+        guard fileSize(url) == size else { return false }
         let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         let key = "\(url.path)|\(mtime?.timeIntervalSince1970 ?? 0)"
         if launchVerified.withLock({ $0.contains(key) }) { return true }
-        guard (try? sha256(of: url)) == kind.sha256 else { return false }
+        guard (try? sha256(of: url)) == expected else { return false }
         launchVerified.withLock { _ = $0.insert(key) }
         return true
     }
@@ -96,7 +100,8 @@ struct WhisperModel {
         try? fm.removeItem(at: store.partial)
         let partial = store.partial
         do {
-            try await Downloader(kind: store.kind, destination: partial, progress: progress).run()
+            let size = store.kind.size
+            try await ModelDownloader.fetch(from: store.kind.url, to: partial) { progress(min(1, Double($0) / Double(size))) }
             try Task.checkCancellation()
             let hash = try await Task.detached { try Self.sha256(of: partial) }.value
             guard hash == store.kind.sha256 else { throw WhisperModelError.hashMismatch }
@@ -133,29 +138,32 @@ extension WhisperModelKind {
     }
 }
 
-/// One URLSession download with progress; moves the file into place before
-/// the system deletes its temporary copy.
-private final class Downloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    private let kind: WhisperModelKind
+/// One URLSession download that reports bytes written; moves the file into
+/// place before the system deletes its temporary copy.
+final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let url: URL
     private let destination: URL
-    private let progress: @Sendable (Double) -> Void
+    private let written: @Sendable (Int64) -> Void
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Void, Error>?
     private var failure: Error?
     private var task: URLSessionDownloadTask?
 
-    init(kind: WhisperModelKind, destination: URL, progress: @escaping @Sendable (Double) -> Void) {
-        self.kind = kind
+    init(url: URL, destination: URL, written: @escaping @Sendable (Int64) -> Void) {
+        self.url = url
         self.destination = destination
-        self.progress = progress
+        self.written = written
     }
 
+    static func fetch(from url: URL, to destination: URL, written: @escaping @Sendable (Int64) -> Void) async throws {
+        try await ModelDownloader(url: url, destination: destination, written: written).run()
+    }
     func run() async throws {
         let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                let task = session.downloadTask(with: kind.url)
+                let task = session.downloadTask(with: url)
                 lock.withLock {
                     self.continuation = continuation
                     self.task = task
@@ -168,8 +176,8 @@ private final class Downloader: NSObject, URLSessionDownloadDelegate, @unchecked
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData _: Int64,
-                    totalBytesWritten written: Int64, totalBytesExpectedToWrite _: Int64) {
-        progress(min(1, Double(written) / Double(kind.size)))
+                    totalBytesWritten total: Int64, totalBytesExpectedToWrite _: Int64) {
+        written(total)
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {

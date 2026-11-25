@@ -128,6 +128,9 @@ targets:
       - path: Rallo/Voice/WhisperText.swift
       - path: Rallo/Voice/SpeechSegmenter.swift
       - path: Rallo/Voice/WhisperModelStore.swift
+      - path: Rallo/Voice/WhisperModel.swift
+      - path: Rallo/Voice/ParakeetModelStore.swift
+      - path: Rallo/Voice/ParakeetModel.swift
       - path: Rallo/Voice/CloudVoiceSupport.swift
       - path: Rallo/Backup/BackupPlan.swift
       - path: Rallo/Backup/BackupDestination.swift
