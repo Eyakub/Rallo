@@ -10,6 +10,7 @@ protocol SpeechTranscribing: Sendable {
 }
 
 extension WhisperEngine: SpeechTranscribing {}
+extension ParakeetEngine: SpeechTranscribing {}
 
 /// Audio from the tap thread, handed to the driver task.
 private final class SampleBuffer: @unchecked Sendable {
@@ -69,6 +70,22 @@ final class WhisperVoiceSession: VoiceEngineSession {
                 throw VoiceMessage(text: "Couldn’t load the Whisper model. Delete it and download it again in Settings → Voice")
             }
             return WhisperEngine.shared
+        }
+    }
+
+    /// On-device Parakeet (English only), with live previews.
+    static func parakeet() -> WhisperVoiceSession {
+        WhisperVoiceSession(previews: true, language: "en") { status in
+            status("Loading Parakeet…")
+            guard let directory = await ParakeetModel().locate() else {
+                throw VoiceMessage(text: "Download the Parakeet model in Settings → Voice")
+            }
+            do {
+                try await ParakeetEngine.shared.load(directory: directory)
+            } catch {
+                throw VoiceMessage(text: "Couldn’t load the Parakeet model. Delete it and download it again in Settings → Voice")
+            }
+            return ParakeetEngine.shared
         }
     }
 

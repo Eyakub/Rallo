@@ -180,10 +180,11 @@ final class VoiceTyping {
         stop(reason: .error)
     }
 
-    /// Whisper or cloud on request, and Whisper on macOS 14–25 where Apple's engine isn't there.
+    /// Whisper, Parakeet or cloud on request, and Whisper on macOS 14–25 where Apple's engine isn't there.
     private static func makeSession() -> any VoiceEngineSession {
         let engine = UserDefaults.standard.string(forKey: "voiceEngine")
         if engine == "cloud" { return WhisperVoiceSession.cloud() }
+        if engine == "parakeet" { return WhisperVoiceSession.parakeet() }
         if #available(macOS 26, *), engine != "whisper" { return VoiceSession() }
         return WhisperVoiceSession.local()
     }
@@ -210,7 +211,8 @@ final class VoiceTyping {
         if isListening { heardAt = .now }
         var text = VoiceText.sanitize(raw).trimmingCharacters(in: .whitespaces)
         if UserDefaults.standard.object(forKey: VoiceText.tidyKey) as? Bool ?? true {
-            text = VoiceText.tidy(text, after: isFinal ? lastTyped : nil)
+            let language = VoiceText.tidyLanguage(engine: UserDefaults.standard.string(forKey: "voiceEngine"), saved: UserDefaults.standard.string(forKey: "voiceLanguage"))
+            text = VoiceText.tidy(text, after: isFinal ? lastTyped : nil, dropFillers: VoiceText.fillersApply(language: language))
         }
         guard !text.isEmpty else { return }
         guard isFinal else {

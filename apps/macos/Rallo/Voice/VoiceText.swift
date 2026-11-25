@@ -11,6 +11,9 @@ enum VoiceText {
     static let tidyKey = "voiceTidy"
     private static let fillers: Set<String> = ["um", "umm", "uh", "uhm", "er", "erm", "hmm", "mm", "mhm"]
 
+    /// Parakeet is English only whatever language is saved.
+    static func tidyLanguage(engine: String?, saved: String?) -> String? { engine == "parakeet" ? "en" : saved }
+
     /// Fillers are English; true when the voice language is English, or auto on an English Mac.
     static func fillersApply(language: String? = UserDefaults.standard.string(forKey: "voiceLanguage")) -> Bool {
         switch language {

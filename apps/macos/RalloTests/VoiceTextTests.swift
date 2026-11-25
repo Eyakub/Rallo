@@ -57,4 +57,10 @@ final class VoiceTextTests: XCTestCase {
         XCTAssertTrue(VoiceText.fillersApply(language: "en"))
         XCTAssertFalse(VoiceText.fillersApply(language: "de"))
     }
+
+    func testParakeetTidiesAsEnglish() {
+        XCTAssertEqual(VoiceText.tidyLanguage(engine: "parakeet", saved: "bn"), "en")
+        XCTAssertEqual(VoiceText.tidyLanguage(engine: "whisper", saved: "bn"), "bn")
+        XCTAssertNil(VoiceText.tidyLanguage(engine: "apple", saved: nil))
+    }
 }

@@ -21,12 +21,20 @@ settings:
     SWIFT_INCLUDE_PATHS: $(PROJECT_DIR)/Rallo/Generated
     LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/../../build/rust/lib
     OTHER_LDFLAGS: -lrallo_ffi
+packages:
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio
+    revision: e0c6103bc87a88d25276cad491c86e757f58c865
+    # No NeMo text normalization: it is a Rust staticlib and Rallo links its own Rust (0025 §2).
+    traits: []
 targets:
   Rallo:
     type: application
     platform: macOS
     sources:
       - path: Rallo
+    dependencies:
+      - package: FluidAudio
     settings:
       base:
         # Rust accent for native focus rings and default buttons (Assets.xcassets/AccentColor).
@@ -131,6 +139,7 @@ targets:
       - path: Rallo/Voice/WhisperModel.swift
       - path: Rallo/Voice/ParakeetModelStore.swift
       - path: Rallo/Voice/ParakeetModel.swift
+      - path: Rallo/Voice/ParakeetEngine.swift
       - path: Rallo/Voice/CloudVoiceSupport.swift
       - path: Rallo/Backup/BackupPlan.swift
       - path: Rallo/Backup/BackupDestination.swift
@@ -140,6 +149,8 @@ targets:
       - path: Rallo/Backup/LoopbackListener.swift
       - path: Rallo/Backup/GoogleDriveAPI.swift
       - path: Rallo/Backup/GoogleDriveDestination.swift
+    dependencies:
+      - package: FluidAudio
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.razlio.rallo.tests
