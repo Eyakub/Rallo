@@ -1,6 +1,6 @@
 # 0025 — Parakeet engine for fast English voice typing
 
-- **Status:** proposed (user, 2026-11-25: "current one is okay but i need a faster one too … so
+- **Status:** accepted (user, 2026-11-25: "approved, go ahead with the plan"; "current one is okay but i need a faster one too … so
   that user can use the bigger model like our current or that one"; picked Parakeet TDT v2: "i
   think v2 is good to go"; "Words to recognize" left out of the first version)
 - **Date:** 2026-11-25
