@@ -179,6 +179,56 @@ final class ParakeetModelTests: XCTestCase {
         XCTAssertNil(withExtra)
     }
 
+    func testSymlinkedModelFolderIsNotLocated() async throws {
+        let model = model()
+        try await model.download { _ in }
+        let fm = FileManager.default
+        let folder = store.snapshot.appendingPathComponent("A.mlmodelc")
+        // Same depth as the snapshot, so the entries' relative blob links still resolve.
+        let moved = store.snapshot.deletingLastPathComponent().appendingPathComponent("other/A.mlmodelc")
+        try fm.createDirectory(at: moved.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.moveItem(at: folder, to: moved)
+        try Data("x".utf8).write(to: moved.appendingPathComponent("extra.bin"))
+        try fm.createSymbolicLink(atPath: folder.path, withDestinationPath: moved.path)
+        let located = await model.locate()
+        XCTAssertNil(located)
+    }
+
+    func testSymlinkedSubfolderIsNotLocated() async throws {
+        let model = model()
+        try await model.download { _ in }
+        let fm = FileManager.default
+        let weights = store.snapshot.appendingPathComponent("A.mlmodelc/weights")
+        let elsewhere = store.snapshot.appendingPathComponent("elsewhere/weights")
+        let pinned = files.first { $0.path == "A.mlmodelc/weights/weight.bin" }!
+        try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: elsewhere.appendingPathComponent("weight.bin").path,
+                                  withDestinationPath: store.linkTarget(pinned))
+        try Data("x".utf8).write(to: elsewhere.appendingPathComponent("extra.bin"))
+        try fm.removeItem(at: weights)
+        try fm.createSymbolicLink(atPath: weights.path, withDestinationPath: elsewhere.path)
+        let located = await model.locate()
+        XCTAssertNil(located)
+    }
+
+    func testFinderDSStoreIsIgnored() async throws {
+        let model = model()
+        try await model.download { _ in }
+        let fm = FileManager.default
+        let top = store.snapshot.appendingPathComponent("A.mlmodelc/.DS_Store")
+        let deep = store.snapshot.appendingPathComponent("A.mlmodelc/weights/.DS_Store")
+        try Data("x".utf8).write(to: top)
+        try Data("x".utf8).write(to: deep)
+        let withStores = await model.locate()
+        XCTAssertEqual(withStores, store.snapshot)
+        let target = temp.appendingPathComponent("target.bin")
+        try Data("x".utf8).write(to: target)
+        try fm.removeItem(at: top)
+        try fm.createSymbolicLink(atPath: top.path, withDestinationPath: target.path)
+        let withLink = await model.locate()
+        XCTAssertNil(withLink)
+    }
+
     func testUnrelatedRootItemsDoNotBlockLocate() async throws {
         let model = model()
         try await model.download { _ in }

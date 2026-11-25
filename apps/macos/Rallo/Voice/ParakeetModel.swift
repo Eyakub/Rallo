@@ -34,6 +34,7 @@ struct ParakeetModel {
     /// FluidAudio loads CtcHead.mlmodelc whenever it exists and parses whole
     /// .mlmodelc folders, so neither may hold anything that wasn't hashed.
     /// Other root items (README, other models) are never read and are fine.
+    /// Linked folders are rejected; Finder's .DS_Store (a regular file) is ignored.
     private func hasUnpinnedParts() -> Bool {
         let fm = FileManager.default
         let ctc = store.snapshot.appendingPathComponent("CtcHead.mlmodelc").path
@@ -46,8 +47,16 @@ struct ParakeetModel {
         let models = Set(files.compactMap { $0.path.split(separator: "/").first.map(String.init) }.filter { $0.hasSuffix(".mlmodelc") })
         for folder in models {
             let root = store.snapshot.appendingPathComponent(folder).path
-            guard let subs = try? fm.subpathsOfDirectory(atPath: root) else { return true }
-            for sub in subs where !pinned.contains("\(folder)/\(sub)") && !onTheWay.contains("\(folder)/\(sub)") { return true }
+            // attributesOfItem does not follow links, so a linked folder is not .typeDirectory.
+            guard (try? fm.attributesOfItem(atPath: root))?[.type] as? FileAttributeType == .typeDirectory,
+                  let subs = try? fm.subpathsOfDirectory(atPath: root) else { return true }
+            for sub in subs {
+                let full = "\(folder)/\(sub)"
+                if pinned.contains(full) { continue }
+                let type = (try? fm.attributesOfItem(atPath: "\(root)/\(sub)"))?[.type] as? FileAttributeType
+                if sub.split(separator: "/").last == ".DS_Store" && type == .typeRegular { continue }
+                if !onTheWay.contains(full) || type != .typeDirectory { return true }
+            }
         }
         return false
     }
