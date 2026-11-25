@@ -124,6 +124,25 @@ final class BackupControllerTests: XCTestCase {
         XCTAssertEqual(scratch.kind, .off)
     }
 
+    func testICloudBacksUpIntoRalloBackupsAndKeepsTheTwoNewest() async throws {
+        let home = root.appendingPathComponent("home")
+        let backup = controller(scratch: false)
+        XCTAssertFalse(backup.iCloudAvailable)   // no CloudDocs folder: iCloud Drive is off
+        try FileManager.default.createDirectory(at: FolderDestination.iCloudRoot(home: home), withIntermediateDirectories: true)
+        XCTAssertTrue(backup.iCloudAvailable)
+        backup.select(.icloud)
+        XCTAssertEqual(backup.kind, .icloud)
+        _ = try await core.createNote("note")
+        for _ in 0..<3 {
+            await backup.backUpNow()
+            try await Task.sleep(nanoseconds: 1_100_000_000)   // names have one-second resolution
+        }
+        XCTAssertNil(backup.lastError)
+        let names = zips(FolderDestination.iCloudRoot(home: home).appendingPathComponent("Rallo Backups", isDirectory: true))
+        XCTAssertEqual(names.count, 2)
+        XCTAssertTrue(names.allSatisfy { $0.hasPrefix("Rallo Backup Test Mac ") })
+    }
+
     func testFolderRemoveDeletesOnlyPlainBackupNames() async throws {
         let dir = folder("rm")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
