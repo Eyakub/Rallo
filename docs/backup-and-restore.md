@@ -41,12 +41,13 @@ Settings → Data → **Back up to** (off by default) copies your notes off the 
 ([decision 0024](decisions/0024-automatic-backup.md)).
 
 - **Destinations:** **iCloud Drive** (`~/Library/Mobile Documents/com~apple~CloudDocs/Rallo Backups/`,
-  offered only when iCloud Drive is on), **Google Drive**, or **Folder…**, any folder you pick
-  (Dropbox, a NAS, Google Drive for desktop).
+  offered only when iCloud Drive is on), **Folder…**, any folder you pick
+  (Dropbox, a NAS, Google Drive for desktop), or **Google Drive** in builds with a Google client ID.
 - **Google Drive:** **Connect Google Drive…** opens your browser to sign in; Rallo gets access only
   to the files it creates (the `drive.file` scope), uploads to a "Rallo Backups" folder in My Drive
   and keeps its token in the Keychain. **Disconnect** revokes it; files already in Drive stay. A
-  build without a Google client ID shows it as not set up (see `distribution.md`). Details:
+  build without a Google client ID doesn't offer it (see `distribution.md`); released builds don't
+  have one yet. Details:
   [privacy.md](privacy.md).
 - **What:** the zip export with images, named `Rallo Backup <Mac name> <date and time>.zip`, so
   several Macs can share one place.

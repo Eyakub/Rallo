@@ -641,11 +641,13 @@ private struct DataTab: View {
                 Text("Off").tag(BackupController.Kind.off)
                 Text("iCloud Drive").tag(BackupController.Kind.icloud).disabled(!model.backupICloudAvailable)
                 Text("Folder…").tag(BackupController.Kind.folder)
-                Text("Google Drive").tag(BackupController.Kind.google).disabled(!googleUsable)
+                // A build without a Google client ID doesn't offer Drive (0024 §4); keep the tag if it's still selected.
+                if model.backupGoogleConfigured || model.backupKind == .google {
+                    Text("Google Drive").tag(BackupController.Kind.google).disabled(!googleUsable)
+                }
             }
-            if !googleUsable {
-                caption(model.backupIsScratch ? "Google Drive isn’t used in instances started with --data-dir."
-                                              : "Google Drive isn’t set up in this build.")
+            if model.backupGoogleConfigured, model.backupIsScratch {
+                caption("Google Drive isn’t used in instances started with --data-dir.")
             }
             if !model.backupICloudAvailable {
                 caption(model.backupIsScratch ? "iCloud Drive isn’t used in instances started with --data-dir."

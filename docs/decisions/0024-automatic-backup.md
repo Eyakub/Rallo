@@ -3,6 +3,8 @@
 - **Status:** accepted (user, 2026-10-21: "an option where they want to keep their backup, either
   Google Drive or Apple cloud"; "only two is enough, after backup olds will be removed"; Google
   through its API, since most people don't install Google Drive for desktop)
+- **Amended 2026-11-25 (user):** ship iCloud Drive and Folder… first. A build without a Google
+  client ID hides Google Drive instead of showing it as not set up (§4).
 - **Date:** 2026-10-21
 - **Related:** 0004 (export/import formats), 0012 (self-signed releases, Keychain prompts),
   0010 (ClickUp: Keychain token, `--data-dir` instances), 0018 (images), `docs/backup-and-restore.md`
@@ -62,7 +64,8 @@ restore is meant for a new or emptied Mac.
 - **Client ID:** the OAuth client (type "Desktop app") comes from the project owner's Google Cloud
   project. Its ID and secret are build settings read from the gitignored
   `private/google-oauth.env`; they are not secret in an installed app, but they stay out of the
-  repo. A build without them shows Google Drive as "Not set up in this build".
+  repo. A build without them doesn't offer Google Drive (amended 2026-11-25; it was shown as
+  "Not set up in this build").
 - **Consent screen:** it needs a privacy policy URL, so the policy is `docs/privacy.md`. The
   project is published to production: in testing mode Google expires refresh tokens after 7 days.
 

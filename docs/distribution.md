@@ -185,7 +185,7 @@ installs would have to reinstall with the install script once.
 ## Google Drive OAuth client
 
 Automatic backup to Google Drive (decision 0024) needs an OAuth client from your own Google Cloud
-project. Without one the build works and shows Google Drive as "not set up in this build".
+project. Without one the build works and doesn't offer Google Drive.
 
 1. In the [Google Cloud console](https://console.cloud.google.com/) create a project and enable the
    **Google Drive API**.
