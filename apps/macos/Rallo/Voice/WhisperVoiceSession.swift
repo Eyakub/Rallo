@@ -78,6 +78,7 @@ final class WhisperVoiceSession: VoiceEngineSession {
         WhisperVoiceSession(previews: true, language: "en") { status in
             status("Loading Parakeet…")
             guard let directory = await ParakeetModel().locate() else {
+                await ParakeetEngine.shared.unload()
                 throw VoiceMessage(text: "Download the Parakeet model in Settings → Voice")
             }
             do {

@@ -3,8 +3,9 @@ import Foundation
 
 enum ParakeetEngineError: Error { case notLoaded }
 
-/// The Parakeet TDT model through FluidAudio (0025). An actor so one
-/// transcription runs at a time, like `WhisperEngine`.
+/// The Parakeet TDT model through FluidAudio (0025). The actor serializes state
+/// changes, but calls interleave at their awaits: `unload` doesn't stop a load
+/// or transcription already in flight.
 actor ParakeetEngine {
     static let shared = ParakeetEngine()
 

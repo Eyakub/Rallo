@@ -12,7 +12,7 @@ struct ParakeetModel {
 
     init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
          files: [ParakeetFile] = ParakeetModelStore.files,
-         fetch: @escaping Fetch = ModelDownloader.fetch) {
+         fetch: @escaping Fetch = { try await ModelDownloader.fetch(from: $0, to: $1, written: $2) }) {
         store = ParakeetModelStore(home: home)
         self.files = files
         self.fetch = fetch
@@ -28,7 +28,28 @@ struct ParakeetModel {
     private func locateSync() -> URL? {
         guard files.allSatisfy(isVerified) else { return nil }
         ensureSnapshot()
-        return entriesResolveToBlobs() ? store.snapshot : nil
+        return entriesResolveToBlobs() && !hasUnpinnedParts() ? store.snapshot : nil
+    }
+
+    /// FluidAudio loads CtcHead.mlmodelc whenever it exists and parses whole
+    /// .mlmodelc folders, so neither may hold anything that wasn't hashed.
+    /// Other root items (README, other models) are never read and are fine.
+    private func hasUnpinnedParts() -> Bool {
+        let fm = FileManager.default
+        let ctc = store.snapshot.appendingPathComponent("CtcHead.mlmodelc").path
+        if (try? fm.attributesOfItem(atPath: ctc)) != nil { return true }
+        let pinned = Set(files.map(\.path))
+        let onTheWay = Set(pinned.flatMap { path -> [String] in
+            let parts = path.split(separator: "/").map(String.init)
+            return parts.indices.dropLast().map { parts[...$0].joined(separator: "/") }
+        })
+        let models = Set(files.compactMap { $0.path.split(separator: "/").first.map(String.init) }.filter { $0.hasSuffix(".mlmodelc") })
+        for folder in models {
+            let root = store.snapshot.appendingPathComponent(folder).path
+            guard let subs = try? fm.subpathsOfDirectory(atPath: root) else { return true }
+            for sub in subs where !pinned.contains("\(folder)/\(sub)") && !onTheWay.contains("\(folder)/\(sub)") { return true }
+        }
+        return false
     }
 
     /// The loader parses the snapshot folder, so every entry must lead to the

@@ -57,7 +57,7 @@ struct WhisperModel {
     static func verified(_ url: URL, size: Int64, sha256 expected: String) -> Bool {
         guard fileSize(url) == size else { return false }
         let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        let key = "\(url.path)|\(mtime?.timeIntervalSince1970 ?? 0)"
+        let key = "\(url.path)|\(size)|\(expected)|\(mtime?.timeIntervalSince1970 ?? 0)"
         if launchVerified.withLock({ $0.contains(key) }) { return true }
         guard (try? sha256(of: url)) == expected else { return false }
         launchVerified.withLock { _ = $0.insert(key) }
@@ -169,6 +169,8 @@ final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Se
                     self.task = task
                 }
                 task.resume()
+                // onCancel may have run before `task` existed.
+                if Task.isCancelled { task.cancel() }
             }
         } onCancel: {
             lock.withLock { task }?.cancel()

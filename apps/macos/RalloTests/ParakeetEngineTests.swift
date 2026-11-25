@@ -1,7 +1,7 @@
 import XCTest
 
 final class ParakeetEngineTests: XCTestCase {
-    // Needs the real model; skipped when it isn't installed (read-only use of ~/.cache).
+    // Needs the real model; skipped when it isn't installed (locate() may recreate missing snapshot links and refs/main in the real ~/.cache).
     func testShortClipGivesNoText() async throws {
         guard let directory = await ParakeetModel().locate() else { throw XCTSkip("Parakeet model not installed") }
         try await ParakeetEngine.shared.load(directory: directory)

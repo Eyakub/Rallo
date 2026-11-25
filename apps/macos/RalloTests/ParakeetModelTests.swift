@@ -101,6 +101,8 @@ final class ParakeetModelTests: XCTestCase {
     func testDamagedFileIsNotLocated() async throws {
         let model = model()
         try await model.download { _ in }
+        let before = await model.locate()
+        XCTAssertEqual(before, store.snapshot)
         let victim = files[0]
         let blob = store.blob(victim)
         try Data(repeating: 0x41, count: Int(victim.size)).write(to: blob)
@@ -158,6 +160,31 @@ final class ParakeetModelTests: XCTestCase {
         try FileManager.default.createSymbolicLink(at: folder, withDestinationURL: evil)
         let located = await model.locate()
         XCTAssertNil(located)
+    }
+
+    func testUnpinnedModelPartsAreNotLocated() async throws {
+        let model = model()
+        try await model.download { _ in }
+        let ctc = store.snapshot.appendingPathComponent("CtcHead.mlmodelc/model.mil")
+        try FileManager.default.createDirectory(at: ctc.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: ctc)
+        let withCtc = await model.locate()
+        XCTAssertNil(withCtc)
+        try FileManager.default.removeItem(at: ctc.deletingLastPathComponent())
+        let clean = await model.locate()
+        XCTAssertEqual(clean, store.snapshot)
+        let extra = store.snapshot.appendingPathComponent("A.mlmodelc/extra.bin")
+        try Data("x".utf8).write(to: extra)
+        let withExtra = await model.locate()
+        XCTAssertNil(withExtra)
+    }
+
+    func testUnrelatedRootItemsDoNotBlockLocate() async throws {
+        let model = model()
+        try await model.download { _ in }
+        try Data("hi".utf8).write(to: store.snapshot.appendingPathComponent("README.md"))
+        let located = await model.locate()
+        XCTAssertEqual(located, store.snapshot)
     }
 
     func testDeleteKeepsBlobsSharedWithAnotherRevision() async throws {
