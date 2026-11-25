@@ -144,6 +144,39 @@ final class ParakeetModelTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.refsMain.path))
     }
 
+    func testSymlinkedFolderIsNeverReturnedUnverified() async throws {
+        let model = model()
+        try await model.download { _ in }
+        let folder = store.snapshot.appendingPathComponent("A.mlmodelc")
+        let evil = temp.appendingPathComponent("evil/A.mlmodelc")
+        try FileManager.default.createDirectory(at: evil.appendingPathComponent("weights"), withIntermediateDirectories: true)
+        for path in ["weights/weight.bin", "model.mil"] {
+            let size = Self.contents["A.mlmodelc/\(path)"]!.count
+            try Data(repeating: 0x41, count: size).write(to: evil.appendingPathComponent(path))
+        }
+        try FileManager.default.removeItem(at: folder)
+        try FileManager.default.createSymbolicLink(at: folder, withDestinationURL: evil)
+        let located = await model.locate()
+        XCTAssertNil(located)
+    }
+
+    func testDeleteKeepsBlobsSharedWithAnotherRevision() async throws {
+        let model = model()
+        try await model.download { _ in }
+        let shared = files.first { $0.path == "A.mlmodelc/weights/weight.bin" }!
+        let link = store.snapshotsDirectory.appendingPathComponent("1111111111111111111111111111111111111111/A.mlmodelc/weights/weight.bin")
+        try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "../../../../blobs/\(shared.sha256)")
+        model.delete()
+        XCTAssertEqual(try Data(contentsOf: link), Self.contents[shared.path])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.blob(shared).path))
+        for file in files where file != shared {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: store.blob(file).path))
+        }
+        let located = await model.locate()
+        XCTAssertNil(located)
+    }
+
     func testAlreadyVerifiedFilesAreNotFetchedAgain() async throws {
         let model = model()
         try await model.download { _ in }

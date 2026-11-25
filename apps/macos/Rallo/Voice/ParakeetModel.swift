@@ -28,7 +28,13 @@ struct ParakeetModel {
     private func locateSync() -> URL? {
         guard files.allSatisfy(isVerified) else { return nil }
         ensureSnapshot()
-        return store.snapshot
+        return entriesResolveToBlobs() ? store.snapshot : nil
+    }
+
+    /// The loader parses the snapshot folder, so every entry must lead to the
+    /// blob that was hashed (ensureSnapshot ignores errors; folders may be symlinks).
+    private func entriesResolveToBlobs() -> Bool {
+        files.allSatisfy { store.entry($0).resolvingSymlinksInPath().path == store.blob($0).resolvingSymlinksInPath().path }
     }
 
     private func isVerified(_ file: ParakeetFile) -> Bool {
@@ -83,6 +89,7 @@ struct ParakeetModel {
                 done += file.size
             }
             ensureSnapshot()
+            guard entriesResolveToBlobs() else { throw WhisperModelError.io }
         } catch {
             if let current { try? fm.removeItem(at: current) }
             for blob in created { try? fm.removeItem(at: blob) }
@@ -94,13 +101,22 @@ struct ParakeetModel {
     /// under the snapshot. Other snapshots, other blobs and refs/main stay.
     func delete() {
         let fm = FileManager.default
+        // LFS blobs are named by hash, so another revision may share ours.
+        var shared = Set<String>()
+        let others = (try? fm.contentsOfDirectory(atPath: store.snapshotsDirectory.path)) ?? []
+        for name in others where name != ParakeetModelStore.commit {
+            let folder = store.snapshotsDirectory.appendingPathComponent(name)
+            for sub in (try? fm.subpathsOfDirectory(atPath: folder.path)) ?? [] {
+                shared.insert(folder.appendingPathComponent(sub).resolvingSymlinksInPath().path)
+            }
+        }
         for file in files {
             let entry = store.entry(file)
             let blob = store.blob(file)
             let points = (try? fm.destinationOfSymbolicLink(atPath: entry.path)) == store.linkTarget(file)
                 || entry.resolvingSymlinksInPath().path == blob.resolvingSymlinksInPath().path
             if points { try? fm.removeItem(at: entry) }
-            try? fm.removeItem(at: blob)
+            if !shared.contains(blob.resolvingSymlinksInPath().path) { try? fm.removeItem(at: blob) }
             try? fm.removeItem(at: store.partial(file))
         }
         let subpaths = (try? fm.subpathsOfDirectory(atPath: store.snapshot.path)) ?? []
