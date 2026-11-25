@@ -339,7 +339,7 @@ private struct VoiceTab: View {
     /// Whisper's large models and the cloud engine take a language; Apple's
     /// follows the Mac's, and Small is English only.
     private var showsLanguage: Bool {
-        engine != "apple" && !(engine == "whisper" && selectedKind.languages != nil)
+        engine != "apple" && engine != "parakeet" && !(engine == "whisper" && selectedKind.languages != nil)
     }
 
     private var appleAvailable: Bool {
@@ -381,6 +381,7 @@ private struct VoiceTab: View {
                 Picker("Engine", selection: Binding(get: { engine }, set: { storedEngine = $0 })) {
                     if appleAvailable { Text("Apple, on this Mac").tag("apple") }
                     Text("Whisper, on this Mac").tag("whisper")
+                    Text("Parakeet, on this Mac").tag("parakeet")
                     Text("Cloud, with your API key").tag("cloud")
                 }
                 if engine == "whisper" {
@@ -391,7 +392,14 @@ private struct VoiceTab: View {
                         ForEach(WhisperModelKind.allCases, id: \.rawValue) { Text($0.displayName).tag($0.rawValue) }
                     }
                     .disabled(isDownloading)
-                    modelRow
+                    modelRow(model.whisperModel, name: "Whisper", sizeLabel: selectedKind.sizeLabel,
+                             download: model.downloadWhisperModel, cancel: model.cancelWhisperDownload,
+                             show: model.showWhisperModel, delete: model.deleteWhisperModel)
+                }
+                if engine == "parakeet" {
+                    modelRow(model.parakeetModel, name: "Parakeet", sizeLabel: ParakeetModelStore.sizeLabel,
+                             download: model.downloadParakeetModel, cancel: model.cancelParakeetDownload,
+                             show: model.showParakeetModel, delete: model.deleteParakeetModel)
                 }
                 if engine == "cloud" { CloudVoiceRows() }
                 if showsLanguage {
@@ -432,6 +440,7 @@ private struct VoiceTab: View {
             } else {
                 footnote("Large-v3 turbo (16-bit or 8-bit), kept in the shared Hugging Face cache so other Whisper tools can use it.")
             }
+        case "parakeet": footnote("English only. Words to recognize aren't used yet.")
         case "cloud": CloudVoiceFooter()
         default: footnote("Built into macOS. Nothing to download.")
         }
@@ -449,33 +458,37 @@ private struct VoiceTab: View {
     }
 
     @ViewBuilder
-    private var modelRow: some View {
-        switch model.whisperModel {
+    private func modelRow(
+        _ state: SettingsModel.WhisperModelState, name: String, sizeLabel: String,
+        download: @escaping () -> Void, cancel: @escaping () -> Void,
+        show: @escaping () -> Void, delete: @escaping () -> Void
+    ) -> some View {
+        switch state {
         case .checking:
             LabeledContent("Status") { ProgressView().controlSize(.small) }
         case .missing:
             LabeledContent("Status") {
-                Button("Download (\(selectedKind.sizeLabel))") { model.downloadWhisperModel() }
+                Button("Download (\(sizeLabel))") { download() }
             }
         case let .failed(message):
             LabeledContent("Status") {
                 Text(message).foregroundStyle(Theme.error).lineLimit(2)
-                Button("Try Again") { model.downloadWhisperModel() }
+                Button("Try Again") { download() }
             }
         case let .downloading(fraction):
             LabeledContent("Status") {
                 ProgressView(value: fraction).frame(width: 120)
                 Text("\(Int(fraction * 100))%").monospacedDigit().foregroundStyle(Theme.bark)
-                Button("Cancel") { model.cancelWhisperDownload() }
+                Button("Cancel") { cancel() }
             }
         case let .ready(path):
             LabeledContent("Status") {
                 Text("Downloaded").foregroundStyle(Theme.bark)
                     .help((path as NSString).abbreviatingWithTildeInPath)
-                Button("Show in Finder") { model.showWhisperModel() }
+                Button("Show in Finder") { show() }
                 Button("Delete…") { confirmDelete = true }
-                    .confirmationDialog("Delete the Whisper model?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                        Button("Delete Model", role: .destructive) { model.deleteWhisperModel() }
+                    .confirmationDialog("Delete the \(name) model?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                        Button("Delete Model", role: .destructive) { delete() }
                         Button("Cancel", role: .cancel) {}
                     } message: {
                         Text("Other apps that use this file will need to download it again.")

@@ -63,6 +63,8 @@ final class SettingsModel: ObservableObject {
     @Published var googleMessage: String?
     @Published var whisperModel = WhisperModelState.checking
     private var whisperDownload: Task<Void, Never>?
+    @Published var parakeetModel = WhisperModelState.checking
+    private var parakeetDownload: Task<Void, Never>?
     @Published var agents = AgentsStatus.checking
     @Published var agentsBusy = false
     @Published var agentsMessage: String?
@@ -122,6 +124,7 @@ final class SettingsModel: ObservableObject {
         refresh()
         clickUpMessage = nil
         checkWhisperModel()
+        checkParakeetModel()
         Task { await loadAgents() }
     }
 
@@ -193,6 +196,55 @@ final class SettingsModel: ObservableObject {
 
     func showWhisperModel() {
         if case let .ready(path) = whisperModel { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+    }
+
+    // MARK: Parakeet model
+
+    func checkParakeetModel() {
+        if case .downloading = parakeetModel { return }
+        Task {
+            guard let folder = await ParakeetModel().locate() else {
+                if case .downloading = parakeetModel { return }
+                parakeetModel = .missing
+                return
+            }
+            if case .downloading = parakeetModel { return }
+            parakeetModel = .ready(folder.path)
+        }
+    }
+
+    func downloadParakeetModel() {
+        guard parakeetDownload == nil else { return }
+        parakeetModel = .downloading(0)
+        parakeetDownload = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await ParakeetModel().download { [weak self] fraction in
+                    Task { @MainActor in
+                        if case .downloading = self?.parakeetModel { self?.parakeetModel = .downloading(fraction) }
+                    }
+                }
+                parakeetDownload = nil
+                parakeetModel = .checking
+                checkParakeetModel()
+            } catch {
+                parakeetDownload = nil
+                let cancelled = error is CancellationError || (error as? URLError)?.code == .cancelled
+                parakeetModel = cancelled ? .missing : .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func cancelParakeetDownload() { parakeetDownload?.cancel() }
+
+    func deleteParakeetModel() {
+        ParakeetModel().delete()
+        Task { await ParakeetEngine.shared.unload() }
+        parakeetModel = .missing
+    }
+
+    func showParakeetModel() {
+        if case let .ready(path) = parakeetModel { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
     }
 
     // MARK: ClickUp (0010)
