@@ -88,7 +88,13 @@ engine doesn't change.
 Parakeet plugs into `WhisperVoiceSession` as another `SpeechTranscribing`: a
 `ParakeetEngine` actor (load, transcribe, unload after 10 idle minutes, like `WhisperEngine`) and
 a `WhisperVoiceSession.parakeet()` factory with previews on and language `"en"`. Mic capture,
-`SpeechSegmenter`, previews every 1.2 s, the phantom-text guard and tidying stay as they are.
+`SpeechSegmenter`, previews every 1.2 s, the noise check and tidying stay as they are.
+
+- **The phantom-text guard is off for Parakeet** (user, 2026-11-26: "yes, turn off the filter for
+  Parakeet"). It drops Whisper's stock phrases ("Thank you.", "Bye.") from segments under 2 s,
+  so a real short "Thank you" was dropped too. Fed room, fan and loud noise, Parakeet returned
+  nothing (one 1 s burst gave "Uh", which tidying drops), so it doesn't invent those phrases.
+  Whisper and Cloud keep the guard.
 
 - FluidAudio refuses clips under 0.3 s (`invalidAudioData`). `ParakeetEngine` returns no text for
   them instead of failing, so a short last segment never ends the session with an error.

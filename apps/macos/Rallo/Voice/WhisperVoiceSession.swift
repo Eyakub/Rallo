@@ -46,10 +46,13 @@ final class WhisperVoiceSession: VoiceEngineSession {
     private var stopRequested = false
     private let language: String
     private let prompt: String
+    /// Whisper's stock phrases from noise ("Thank you."); Parakeet doesn't invent them (0025).
+    private let dropsPhantoms: Bool
 
     /// `language` overrides the Settings choice (an English-only model).
-    init(previews: Bool, language: String? = nil, prepare: @escaping Prepare) {
+    init(previews: Bool, language: String? = nil, dropsPhantoms: Bool = true, prepare: @escaping Prepare) {
         self.previews = previews
+        self.dropsPhantoms = dropsPhantoms
         self.language = language ?? UserDefaults.standard.string(forKey: "voiceLanguage") ?? "auto"
         prompt = VoiceText.prompt(language: self.language, userList: UserDefaults.standard.string(forKey: VoiceText.wordsKey) ?? "")
         self.prepare = prepare
@@ -75,7 +78,7 @@ final class WhisperVoiceSession: VoiceEngineSession {
 
     /// On-device Parakeet (English only), with live previews.
     static func parakeet() -> WhisperVoiceSession {
-        WhisperVoiceSession(previews: true, language: "en") { status in
+        WhisperVoiceSession(previews: true, language: "en", dropsPhantoms: false) { status in
             status("Loading Parakeet…")
             guard let directory = await ParakeetModel().locate() else {
                 await ParakeetEngine.shared.unload()
@@ -179,7 +182,7 @@ final class WhisperVoiceSession: VoiceEngineSession {
         guard WhisperText.worthTranscribing(segment) else { return }
         let raw = try await transcriber.transcribe(samples: segment, language: language, prompt: prompt)
         let text = WhisperText.clean(raw)
-        if !text.isEmpty, !WhisperText.isPhantom(text, seconds: Double(segment.count) / 16000) { onResult(text, isFinal) }
+        if !text.isEmpty, !(dropsPhantoms && WhisperText.isPhantom(text, seconds: Double(segment.count) / 16000)) { onResult(text, isFinal) }
     }
 
     // Nonisolated so the audio-thread closure captures no main-actor state.
